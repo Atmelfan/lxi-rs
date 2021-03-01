@@ -1,0 +1,8 @@
+[workspace]
+
+members = [
+    "instrument-device",
+    "hislip",
+    "vxi-11",
+    "socket"
+]
