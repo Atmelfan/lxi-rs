@@ -1,18 +1,31 @@
-use async_std::io;
-use async_std::net::{TcpListener, TcpStream};
-use async_std::prelude::*;
-use async_std::task;
-use rustls::internal::pemfile::{certs, rsa_private_keys};
-use rustls::{Certificate, NoClientAuth, PrivateKey, ServerConfig};
-
+use std::any::Any;
+use std::cmp::min;
+use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::BufReader;
-use std::net::ToSocketAddrs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+use async_std::io;
+use async_std::prelude::*;
+use async_std::sync::Mutex;
+use async_std::{
+    net::{TcpListener, TcpStream, ToSocketAddrs}, // 3
+    prelude::*,                                   // 1
+    task,                                         // 2
+};
+use rustls::internal::pemfile::{certs, rsa_private_keys};
+use rustls::{Certificate, NoClientAuth, PrivateKey, ServerConfig};
 use structopt::StructOpt;
 
-use lxi_server::hislip::
+use hislip::errors::{Error, FatalErrorCode, NonFatalErrorCode};
+pub use hislip::messages::Protocol;
+use hislip::messages::{Header, MessageType};
+use hislip::server::Server;
+pub use hislip::PROTOCOL_2_0;
+
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 #[derive(StructOpt)]
 struct Options {
@@ -65,58 +78,12 @@ enum SecureConnection {
     Supported,
     #[cfg(feature = "secure-connection")]
     /// Secure connection is supported and mandatory
-    Mandatory
+    Mandatory,
 }
 
-/// The connection handling function.
-async fn handle_connection(tcp_stream: &mut TcpStream) -> io::Result<()> {
-    let peer_addr = tcp_stream.peer_addr()?;
-    println!("Connection from: {}", peer_addr);
+fn main() -> Result<()> {
+    env_logger::init();
 
-    // -> Initialize, create session
-    let msg = Message::
-
-    Ok(())
-}
-
-fn main() -> io::Result<()> {
-    let options = Options::from_args();
-
-    let addr = options
-        .addr
-        .to_socket_addrs()?
-        .next()
-        .ok_or_else(|| io::Error::from(io::ErrorKind::AddrNotAvailable))?;
-
-    let config = load_config(&options)?;
-
-    // We create one TLSAcceptor around a shared configuration.
-    // Cloning the acceptor will not clone the configuration.
-    //let acceptor = TlsAcceptor::from(Arc::new(config));
-
-    // We start a classic TCP server, passing all connections to the
-    // handle_connection async function
-    task::block_on(async {
-        let listener = TcpListener::bind(&addr).await?;
-        let mut incoming = listener.incoming();
-
-        while let Some(stream) = incoming.next().await {
-            // We use one acceptor per connection, so
-            // we need to clone the current one.
-            let mut stream = stream?;
-
-            // TODO: scoped tasks?
-            task::spawn(async move {
-                let res = handle_connection(&mut stream).await;
-                match res {
-                    Ok(_) => {}
-                    Err(err) => {
-                        eprintln!("{:?}", err);
-                    }
-                };
-            });
-        }
-
-        Ok(())
-    })
+    let server = Server::new(0x1234);
+    task::block_on(server.accept("127.0.0.1:4880"))
 }

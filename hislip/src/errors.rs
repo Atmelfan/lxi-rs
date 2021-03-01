@@ -1,23 +1,19 @@
-use crate::hislip::{Message, MessageType};
-use crate::hislip::messages::{Message, MessageType};
+use crate::messages::{Header, MessageType};
+use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Copy, Clone)]
 pub enum Error {
-    None,
     Fatal(FatalErrorCode, &'static [u8]),
     NonFatal(NonFatalErrorCode, &'static [u8]),
 }
 
-impl Error {
-    pub fn message(&self) -> Option<Message> {
+impl std::error::Error for Error {}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::None => None,
-            Error::Fatal(code, msg) => {
-                Some(MessageType::FatalError.message_params(msg, code.error_code(), 0))
-            }
-            Error::NonFatal(code, msg) => {
-                Some(MessageType::FatalError.message_params(msg, code.error_code(), 0))
-            }
+            Error::Fatal(err, msg) => write!(f, "Fatal {}", err.error_code()),
+            Error::NonFatal(err, msg) => write!(f, "NonFatal {}", err.error_code()),
         }
     }
 }
@@ -47,6 +43,19 @@ impl FatalErrorCode {
             FatalErrorCode::DeviceDefined(x) => *x,
         }
     }
+
+    pub fn from_error_code(code: u8) -> Self {
+        match code {
+            0 => FatalErrorCode::UnidentifiedError,
+            1 => FatalErrorCode::PoorlyFormattedMessageHeader,
+            2 => FatalErrorCode::AttemptUseWithoutBothChannels,
+            3 => FatalErrorCode::InvalidInitialization,
+            4 => FatalErrorCode::MaximumClientsExceeded,
+            5 => FatalErrorCode::SecureConnectionFailed,
+            6..=127 => FatalErrorCode::Extension(code),
+            _ => FatalErrorCode::DeviceDefined(code),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -72,6 +81,19 @@ impl NonFatalErrorCode {
             NonFatalErrorCode::AuthenticationFailed => 5,
             NonFatalErrorCode::Extension(x) => *x,
             NonFatalErrorCode::DeviceDefined(x) => *x,
+        }
+    }
+
+    pub fn from_error_code(code: u8) -> Self {
+        match code {
+            0 => NonFatalErrorCode::UnidentifiedError,
+            1 => NonFatalErrorCode::UnrecognizedMessageType,
+            2 => NonFatalErrorCode::UnrecognizedControlCode,
+            3 => NonFatalErrorCode::UnrecognizedVendorDefinedMessage,
+            4 => NonFatalErrorCode::MessageTooLarge,
+            5 => NonFatalErrorCode::AuthenticationFailed,
+            6..=127 => NonFatalErrorCode::Extension(code),
+            _ => NonFatalErrorCode::DeviceDefined(code),
         }
     }
 }
