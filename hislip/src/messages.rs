@@ -7,6 +7,7 @@ use bitfield::bitfield;
 use byteorder::{BigEndian, ByteOrder, NetworkEndian};
 
 use crate::errors::{Error, FatalErrorCode, NonFatalErrorCode};
+use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 #[derive(Debug, Copy, Clone)]
 pub struct Header {
@@ -56,6 +57,60 @@ impl Header {
         x[3] = self.control_code;
         NetworkEndian::write_u32(&mut x[4..8], self.message_parameter);
         NetworkEndian::write_u64(&mut x[8..16], self.len as u64);
+    }
+}
+
+pub(crate) struct Message {
+    pub(crate) header: Header,
+    pub(crate) payload: Vec<u8>
+}
+
+impl Message {
+    pub fn new(message_type: MessageType, control_code: u8, message_parameter: u32, payload: Vec<u8>) -> Self {
+        Message { header: Header {
+            message_type,
+            control_code,
+            message_parameter,
+            len: payload.len()
+        }, payload }
+    }
+
+    pub(crate) fn message_parameter(&self) -> u32 {
+        self.header.message_parameter
+    }
+
+    pub(crate) fn control_code(&self) -> u32 {
+        self.header.message_parameter
+    }
+
+    pub fn payload(&self) -> &Vec<u8> {
+        &self.payload
+    }
+
+}
+
+impl Message {
+    pub(crate) async fn read_from(reader: &mut dyn AsyncRead, maxlen: usize) -> Result<Message, Error> {
+        let mut buf = [0u8; Header::MESSAGE_HEADER_SIZE];
+        reader.read_exact(&mut buf).await?;
+
+        let header = Header::from_buffer(&buf)?;
+        let mut payload = Vec::with_capacity(header.len);
+        if header.len > 0{
+            reader.read_exact(payload.as_mut_slice())
+        }
+        Ok(Message {
+            header,
+            payload
+        })
+    }
+
+    pub(crate) async fn write_to(&self, writer: &mut dyn AsyncWrite) -> Result<(), Error> {
+        let mut buf = [0u8; Header::MESSAGE_HEADER_SIZE];
+        self.header.pack_buffer(&mut buf);
+        writer.write_all(&buf).await?;
+        writer.write_all(self.payload.as_slice()).await?;
+        Ok(())
     }
 }
 
@@ -307,6 +362,16 @@ bitfield! {
     pub overlapped, set_overlapped : 0;
     pub encryption, set_encryption : 1;
     pub initial_encryption, set_initial_encryption : 2;
+}
+
+impl FeatureBitmap  {
+    pub fn new(overlapped: bool, encryption: bool, initial_encryption: bool) -> Self {
+        let mut s = FeatureBitmap(0);
+        s.set_overlapped(overlapped);
+        s.set_encryption(encryption);
+        s.set_initial_encryption(initial_encryption);
+        s
+    }
 }
 
 bitfield! {

@@ -9,15 +9,41 @@ use async_std::{
 };
 
 use crate::errors::{Error, FatalErrorCode, NonFatalErrorCode};
-use crate::messages::{Header, InitializeParameter, MessageType, Protocol};
+use crate::messages::{Header, InitializeParameter, MessageType, Protocol, Message};
 use crate::session::{Session, SessionMode};
 use crate::{Result, PROTOCOL_2_0};
+use futures::{AsyncReadExt, AsyncWriteExt, StreamExt};
 
-pub(crate) async fn read_header_from_stream(stream: Arc<TcpStream>) -> Result<Header> {
+pub(crate) async fn read_message_from_stream(stream: Arc<TcpStream>, maxlen: usize) -> Result<Message> {
     let mut stream = &*stream;
     let mut buf = [0u8; Header::MESSAGE_HEADER_SIZE];
     stream.read_exact(&mut buf).await?;
-    Ok(Header::from_buffer(&buf)?)
+    let header = Header::from_buffer(&buf)?;
+    if header.len > maxlen {
+        Err(Error::NonFatal(NonFatalErrorCode::MessageTooLarge, b"Message payload too large").into())
+    }else{
+        let mut payload = Vec::with_capacity(header.len);
+        if header.len > 0{
+            stream.read_exact(payload.as_mut_slice())
+        }
+
+        Ok(Message{
+            header,
+            payload
+        })
+    }
+}
+
+pub(crate) async fn write_message_to_stream(
+    stream: Arc<TcpStream>,
+    msg: &Message,
+) -> Result<()> {
+    let mut stream = &*stream;
+    let mut buf = [0u8; Header::MESSAGE_HEADER_SIZE];
+    msg.header.pack_buffer(&mut buf);
+    stream.write_all(&buf).await?;
+    stream.write_all(msg.payload.as_slice()).await?;
+    Ok(())
 }
 
 pub(crate) async fn write_header_to_stream(
@@ -49,7 +75,8 @@ pub(crate) async fn write_error_to_stream(stream: Arc<TcpStream>, error: Error) 
 #[derive(Debug, Copy, Clone)]
 pub struct ServerConfig {
     pub vendor_id: u16,
-    pub max_message_size: u16,
+    /// Maximum server message size
+    pub max_message_size: usize,
     pub preferred_mode: SessionMode,
     pub encryption_mandatory: bool,
     pub secure_connection: bool,
@@ -160,31 +187,21 @@ impl InnerServer {
 
         // Start reading packets from stream
         let stream = Arc::new(tcp_stream);
-        while let Ok(header) = read_header_from_stream(stream.clone()).await {
+        while let Ok(msg) = read_message_from_stream(stream.clone(), config.max_message_size).await {
             log::trace!(
-                "Received {:?},ctrl={},par={},len={}",
-                header.message_type,
-                header.control_code,
-                header.message_parameter,
-                header.len
+                "Received {:?}",
+                msg.header
             );
 
-            // Read a payload if any
-            let mut payload = vec![0u8; header.len];
-            if header.len > 0 {
-                let mut stream = &*stream;
-                stream.read_exact(&mut payload[..]).await?;
-            }
-
             // Handle messages
-            match header.message_type {
+            match msg.header.message_type {
                 MessageType::Initialize => {
                     // Create new session
-                    let client_parameters = InitializeParameter(header.message_parameter);
+                    let client_parameters = InitializeParameter(msg.message_parameter());
 
                     // Check that
-                    if payload.is_ascii() {
-                        let sub_adress = String::from_utf8(payload).unwrap();
+                    if msg.payload.is_ascii() {
+                        let sub_adress = String::from_utf8(msg.payload).unwrap();
                         log::debug!(
                             "Initialize {:?},protocol={},vendor={}",
                             sub_adress,
@@ -222,7 +239,7 @@ impl InnerServer {
                 }
                 MessageType::AsyncInitialize => {
                     // Connect to existing session
-                    let session_id = header.message_parameter;
+                    let session_id = msg.message_parameter();
                     let mut guard = server.lock().await;
                     let session = guard.sessions.get(&(session_id as u16)).cloned();
                     drop(guard);
