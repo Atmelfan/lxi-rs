@@ -1,18 +1,19 @@
 use std::cmp::min;
 use std::collections::HashMap;
 
-use async_std::sync::{Arc, Mutex};
 use async_std::{
     net::{TcpListener, TcpStream, ToSocketAddrs}, // 3
     prelude::*,
     task,
 };
-
-use crate::errors::{Error, FatalErrorCode, NonFatalErrorCode};
-use crate::messages::{Header, InitializeParameter, MessageType, Protocol, Message};
-use crate::session::{Session, SessionMode};
-use crate::{Result, PROTOCOL_2_0};
+use async_std::sync::{Arc, Mutex};
 use futures::{AsyncReadExt, AsyncWriteExt, StreamExt};
+
+use crate::{PROTOCOL_2_0, Result};
+use crate::protocol::errors::{Error, FatalErrorCode, NonFatalErrorCode};
+use crate::protocol::messages::{Header, InitializeParameter, Message, MessageType, Protocol};
+
+pub mod session;
 
 pub(crate) async fn read_message_from_stream(stream: Arc<TcpStream>, maxlen: usize) -> Result<Message> {
     let mut stream = &*stream;

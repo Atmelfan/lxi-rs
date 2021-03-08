@@ -6,7 +6,7 @@ use bitfield::bitfield;
 
 use byteorder::{BigEndian, ByteOrder, NetworkEndian};
 
-use crate::errors::{Error, FatalErrorCode, NonFatalErrorCode};
+use crate::protocol::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 #[derive(Debug, Copy, Clone)]

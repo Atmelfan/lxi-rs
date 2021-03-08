@@ -1,5 +1,5 @@
 [package]
-name = "vxi-11"
+name = "instrument-vxi11"
 version = "0.1.0"
 authors = ["gustavp"]
 edition = "2018"

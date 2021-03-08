@@ -1,4 +1,4 @@
-use crate::messages::{Header, MessageType};
+use crate::protocol::messages::{Header, MessageType};
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Copy, Clone)]

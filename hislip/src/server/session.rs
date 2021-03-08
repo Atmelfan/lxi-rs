@@ -1,20 +1,20 @@
 use core::mem::drop;
 
-use async_std::sync::{Arc, Mutex};
 use async_std::{
     net::{TcpListener, TcpStream, ToSocketAddrs}, // 3
     prelude::*,
     task,
 };
+use async_std::sync::{Arc, Mutex};
+use byteorder::{ByteOrder, NetworkEndian};
 use futures::channel::mpsc;
+use futures::StreamExt;
 
-use crate::errors::{Error, FatalErrorCode, NonFatalErrorCode};
-use crate::messages::{AsyncInitializeResponseControl, AsyncInitializeResponseParameter, InitializeParameter, InitializeResponseControl, InitializeResponseParameter, Protocol, FeatureBitmap, Message};
+use crate::protocol::errors::{Error, FatalErrorCode, NonFatalErrorCode};
+use crate::protocol::messages::{AsyncInitializeResponseControl, AsyncInitializeResponseParameter, FeatureBitmap, InitializeParameter, InitializeResponseControl, InitializeResponseParameter, Message, MessageType, Protocol};
+use crate::Result;
 use crate::server;
 use crate::server::{ServerConfig, write_message_to_stream};
-use crate::{messages::MessageType, Result};
-use byteorder::{NetworkEndian, ByteOrder};
-use futures::StreamExt;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SessionMode {

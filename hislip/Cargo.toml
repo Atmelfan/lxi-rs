@@ -1,5 +1,5 @@
 [package]
-name = "hislip"
+name = "instrument-hislip"
 version = "0.1.0"
 authors = ["Atmelfan <gustavp@gpa-robotics.com>"]
 edition = "2018"

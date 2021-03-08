@@ -19,9 +19,9 @@ use rustls::internal::pemfile::{certs, rsa_private_keys};
 use rustls::{Certificate, NoClientAuth, PrivateKey, ServerConfig};
 use structopt::StructOpt;
 
-use hislip::errors::{Error, FatalErrorCode, NonFatalErrorCode};
-pub use hislip::messages::Protocol;
-use hislip::messages::{Header, MessageType};
+use hislip::protocol::errors::{Error, FatalErrorCode, NonFatalErrorCode};
+pub use hislip::protocol::messages::Protocol;
+use hislip::protocol::messages::{Header, MessageType};
 use hislip::server::Server;
 pub use hislip::PROTOCOL_2_0;
 
