@@ -7,11 +7,12 @@ use async_std::{
     task,
 };
 use async_std::sync::{Arc, Mutex};
-use futures::{AsyncReadExt, AsyncWriteExt, StreamExt};
+use futures::{StreamExt};
 
 use crate::{PROTOCOL_2_0, Result};
 use crate::protocol::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::protocol::messages::{Header, InitializeParameter, Message, MessageType, Protocol};
+use crate::server::session::{SessionMode, Session};
 
 pub mod session;
 
@@ -25,7 +26,7 @@ pub(crate) async fn read_message_from_stream(stream: Arc<TcpStream>, maxlen: usi
     }else{
         let mut payload = Vec::with_capacity(header.len);
         if header.len > 0{
-            stream.read_exact(payload.as_mut_slice())
+            stream.read_exact(payload.as_mut_slice());
         }
 
         Ok(Message{
@@ -204,7 +205,7 @@ impl InnerServer {
                     if msg.payload.is_ascii() {
                         let sub_adress = String::from_utf8(msg.payload).unwrap();
                         log::debug!(
-                            "Initialize {:?},protocol={},vendor={}",
+                            "Initialize {:?},rpc={},vendor={}",
                             sub_adress,
                             client_parameters.client_protocol(),
                             client_parameters.client_vendorid()

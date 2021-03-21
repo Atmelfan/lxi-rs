@@ -90,7 +90,7 @@ impl Message {
 }
 
 impl Message {
-    pub(crate) async fn read_from(reader: &mut dyn AsyncRead, maxlen: usize) -> Result<Message, Error> {
+    pub(crate) async fn read_from(reader: &mut (dyn AsyncRead + Unpin), maxlen: usize) -> Result<Message, Error> {
         let mut buf = [0u8; Header::MESSAGE_HEADER_SIZE];
         reader.read_exact(&mut buf).await?;
 

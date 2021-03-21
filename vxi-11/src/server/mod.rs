@@ -1,5 +1,3 @@
-mod rpc_service;
-
 use async_std::sync::{Arc, Mutex};
 use async_std::{
     net::{TcpListener, TcpStream, ToSocketAddrs}, // 3
@@ -77,8 +75,6 @@ impl InnerServer {
         let peer_addr = tcp_stream.peer_addr()?;
         log::info!("{} connected", peer_addr);
 
-        // Close connection
-        drop(stream);
         log::info!("{} disconnected", peer_addr);
         Ok(())
     }

@@ -100,3 +100,7 @@ struct Device_DocmdResp {
    Device_ErrorCode error; /* returned status */
    opaque data_out<>; /* returned data parameter */
 };
+
+struct Device_SrqParms {
+    opaque handle<>;
+};

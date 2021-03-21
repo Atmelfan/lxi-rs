@@ -7,6 +7,12 @@ pub enum Error {
     NonFatal(NonFatalErrorCode, &'static [u8]),
 }
 
+impl From<std::io::Error> for Error {
+    fn from(err: Error) -> Self {
+        Error::Fatal(NonFatalErrorCode::)
+    }
+}
+
 impl std::error::Error for Error {}
 
 impl Display for Error {

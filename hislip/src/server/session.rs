@@ -24,7 +24,7 @@ pub enum SessionMode {
 
 pub(crate) struct Session {
     sub_adress: String,
-    /// Negotiated protocol
+    /// Negotiated rpc
     protocol: Protocol,
     /// Negotiated session mode
     mode: SessionMode,
@@ -83,10 +83,10 @@ impl Session {
     async fn session_async_reader_loop(stream: Arc<TcpStream>) -> Result<()> {
         let mut input_buffer: Vec<u8> = Vec::new();
         let mut output_buffer: Vec<u8> = Vec::new();
-        while let Ok(msg) = server::read_message_from_stream(stream.clone(), config.max_message_size).await { // 4
+        //while let Ok(msg) = server::read_message_from_stream(stream.clone(), config.max_message_size).await { // 4
 
 
-        }
+        //}
         Ok(())
     }
 
@@ -115,7 +115,7 @@ impl Session {
         //
         if config.secure_connection {
             let header = server::read_message_from_stream(stream.clone(), 0).await?;
-            if header.message_type == MessageType::AsyncStartTLS {
+            if header.header.message_type == MessageType::AsyncStartTLS {
                 let mut session_guard = session.lock().await;
                 if !session_guard.async_connected {
                     server::write_error_to_stream(
@@ -147,7 +147,7 @@ impl Session {
                 "Async {:?}", msg.header
             );
 
-            match msg.message_type {
+            match msg.header.message_type {
                 MessageType::Initialize => {}
                 MessageType::FatalError => {}
                 MessageType::Error => {}
@@ -225,7 +225,7 @@ impl Session {
                 "Async {:?}", msg.header
             );
 
-            match msg.message_type {
+            match msg.header.message_type {
                 MessageType::FatalError => {}
                 MessageType::Error => {}
                 MessageType::AsyncLock => {}
@@ -233,13 +233,13 @@ impl Session {
                 MessageType::AsyncInterrupted => {}
                 MessageType::AsyncMaximumMessageSize => {
                     let mut session_guard = session.lock().await;
-                    let size = NetworkEndian::read_u64(payload.as_slice());
+                    let size = NetworkEndian::read_u64(msg.payload.as_slice());
                     session_guard.max_message_size = size;
                     log::debug!("Session {}, Max client message size = {}", session_id, size);
 
                     let mut buf = [0u8; 8];
                     let response = MessageType::AsyncMaximumMessageSizeResponse.message_params(8, 0, 0);
-                    NetworkEndian::write_u64(&mut buf, config.max_message_size);
+                    NetworkEndian::write_u64(&mut buf, config.max_message_size as u64);
                     server::write_header_to_stream(stream.clone(), response, &buf).await?;
                 }
                 MessageType::AsyncInitialize => {}
