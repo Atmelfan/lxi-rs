@@ -96,8 +96,8 @@ impl Message {
 
         let header = Header::from_buffer(&buf)?;
         let mut payload = Vec::with_capacity(header.len);
-        if header.len > 0{
-            reader.read_exact(payload.as_mut_slice())
+        if header.len > 0 {
+            reader.read_exact(payload.as_mut_slice()).await;
         }
         Ok(Message {
             header,
@@ -105,7 +105,7 @@ impl Message {
         })
     }
 
-    pub(crate) async fn write_to(&self, writer: &mut dyn AsyncWrite) -> Result<(), Error> {
+    pub(crate) async fn write_to(&self, writer: &mut (dyn AsyncWrite + Unpin)) -> Result<(), Error> {
         let mut buf = [0u8; Header::MESSAGE_HEADER_SIZE];
         self.header.pack_buffer(&mut buf);
         writer.write_all(&buf).await?;

@@ -41,7 +41,7 @@ pub(crate) struct Session {
 type Sender<T> = mpsc::UnboundedSender<T>;
 type Receiver<T> = mpsc::UnboundedReceiver<T>;
 
-enum Event {
+pub enum Event {
     Shutdown,
     ///
     ClearDevice,

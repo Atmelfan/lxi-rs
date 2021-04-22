@@ -8,8 +8,8 @@ pub enum Error {
 }
 
 impl From<std::io::Error> for Error {
-    fn from(err: Error) -> Self {
-        Error::Fatal(NonFatalErrorCode::)
+    fn from(_: std::io::Error) -> Self {
+        Error::Fatal(FatalErrorCode::UnidentifiedError, b"IO Error")
     }
 }
 

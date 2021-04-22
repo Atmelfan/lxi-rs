@@ -6,7 +6,7 @@ use rustls::ServerSession;
 use protocol::messages::Protocol;
 
 pub mod server;
-mod protocol;
+pub mod protocol;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 

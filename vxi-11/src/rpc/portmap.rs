@@ -1,5 +1,5 @@
 use async_std::net::ToSocketAddrs;
-use crate::rpc::RpcProto;
+use crate::rpc::{RpcProto, RpcService, RpcClient, RpcTcpClient};
 
 #[allow(non_camel_case_types)]
 #[allow(non_snake_case)]
@@ -21,13 +21,34 @@ pub(crate) mod xdr {
             }
         }
     }
+
+    pub(crate) const PMAP_PROGRAM_ID: u32 = 1000000;
+
+    /// Null procedure
+    pub(crate) const PMAPPROC_NULL: u32 = 0;
+    /// Set procedure
+    pub(crate) const PMAPPROC_SET: u32 = 1;
+    /// Unset procedure
+    pub(crate) const PMAPPROC_UNSET: u32 = 2;
+    /// Getport procedure
+    pub(crate) const PMAPPROC_GETPORT: u32 = 3;
+    /// Dump procedure
+    pub(crate) const PMAPPROC_DUMP: u32 = 4;
+    /// Callit procedure
+    pub(crate) const PMAPPROC_CALLIT: u32 = 5;
 }
 
-struct PortmapClient {
-
+pub(crate) struct PortmapClient {
+    client: RpcTcpClient
 }
 
 impl PortmapClient {
+    fn new() -> Self {
+        PortmapClient {
+            client: RpcTcpClient::new(xdr::PMAP_PROGRAM_ID, 2)
+        }
+    }
+    
     async fn set(&self, prog: u32, vers: u32, proto: RpcProto, port: u16) {
 
     }

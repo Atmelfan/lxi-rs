@@ -1,5 +1,5 @@
 [package]
-name = "instrument-socket"
+name = "rawsocket"
 version = "0.1.0"
 authors = ["gustavp"]
 edition = "2018"

@@ -7,6 +7,11 @@ use async_std::task::Poll;
 use futures::channel::mpsc;
 use std::io::{Read, Write};
 use xdr_codec::{Pack, Unpack};
+use std::sync::Arc;
+use futures::io::{ReadHalf, WriteHalf};
+use std::borrow::BorrowMut;
+use async_std::sync::Mutex;
+use futures::AsyncReadExt;
 
 mod onc_rpc;
 mod portmap;
@@ -105,14 +110,22 @@ where
 struct RpcTcpClient {
     program: u32,
     vers: u32,
-    addr: SocketAddr,
+    inner: Arc<Mutex<InnerTcpClient>>
 }
 
 struct InnerTcpClient {
-
+    stream: Option<(ReadHalf<TcpStream>, WriteHalf<TcpStream>)>
 }
 
+
 impl RpcTcpClient {
+    fn new(program: u32, vers: u32) -> Self {
+        RpcTcpClient {
+            program,
+            vers,
+            inner: Arc::new(Mutex::new(InnerTcpClient { stream: None }))
+        }
+    }
 
 }
 
@@ -179,12 +192,12 @@ mod tests {
         println!("<- {}", msg);
         let mut buf: Vec<u8> = vec![];
         let mut cur = Cursor::new(buf);
-        cur.write_u32::<NetworkEndian>(0);
+        cur.write_u32::<NetworkEndian>(0).unwrap();
         call_msg.pack(&mut cur).unwrap();
         mapping.pack(&mut cur).unwrap();
         let len = cur.position();
         cur.set_position(0);
-        cur.write_u32::<NetworkEndian>((len - 4) as u32 | 0x8000_0000);
+        cur.write_u32::<NetworkEndian>((len - 4) as u32 | 0x8000_0000).unwrap();
         //let mut header = [0u8; 4];
         //NetworkEndian::write_u32(&mut header, cur.position() as u32 | 0x8000_0000);
         //writer.write_all(&header).await?;
