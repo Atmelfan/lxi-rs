@@ -1,7 +1,6 @@
 use async_std::sync::{Arc, Mutex};
 use async_std::{
-    net::{TcpListener, TcpStream, ToSocketAddrs}, // 3
-    prelude::*,
+    net::{TcpListener, TcpStream, ToSocketAddrs},
     task,
 };
 
@@ -9,13 +8,11 @@ use crate::Result;
 use futures::StreamExt;
 
 #[derive(Debug, Copy, Clone)]
-pub struct ServerConfig {
-
-}
+pub struct ServerConfig {}
 
 impl Default for ServerConfig {
     fn default() -> Self {
-        Self { }
+        Self {}
     }
 }
 
@@ -25,7 +22,7 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(vendor_id: u16) -> Self {
+    pub fn new(_vendor_id: u16) -> Self {
         Server {
             inner: InnerServer::new(),
             config: ServerConfig::default(),
@@ -39,15 +36,11 @@ impl Server {
     }
 }
 
-struct InnerServer {
-
-}
+struct InnerServer {}
 
 impl InnerServer {
     fn new() -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(InnerServer {
-
-        }))
+        Arc::new(Mutex::new(InnerServer {}))
     }
 
     /// Start accepting connections from addr
@@ -68,9 +61,9 @@ impl InnerServer {
 
     /// The connection handling function.
     async fn handle_connection(
-        server: Arc<Mutex<InnerServer>>,
+        _server: Arc<Mutex<InnerServer>>,
         tcp_stream: TcpStream,
-        config: ServerConfig,
+        _config: ServerConfig,
     ) -> Result<()> {
         let peer_addr = tcp_stream.peer_addr()?;
         log::info!("{} connected", peer_addr);

@@ -1,14 +1,15 @@
 use std::mem;
 use std::pin::Pin;
 
-use async_std::io::{self, Read};
 use async_std::io::prelude::*;
-use async_std::net::{ToSocketAddrs, UdpSocket};
+use async_std::io::{self};
+
 use async_std::prelude::*;
 use async_std::task::{Context, Poll};
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
-use futures::{AsyncBufRead, AsyncReadExt, AsyncWriteExt, Stream};
+use futures::{AsyncBufRead, Stream};
 use pin_project::pin_project;
+use std::io::Cursor;
 
 #[allow(non_camel_case_types)]
 #[allow(non_snake_case)]
@@ -19,13 +20,29 @@ pub(in crate::rpc) mod xdr {
     #[allow(dead_code)]
     include!(concat!(env!("OUT_DIR"), "/onc_rpc_xdr.rs"));
 
+    impl rpc_msg {
+        pub(crate) fn reply_msg_denied(xid: u32, rj: rejected_reply) -> Self {
+            rpc_msg {
+                xid,
+                body: _body::REPLY(reply_body::MSG_DENIED(rj)),
+            }
+        }
+
+        pub(crate) fn reply_msg_accepted(xid: u32, ar: accepted_reply) -> Self {
+            rpc_msg {
+                xid,
+                body: _body::REPLY(reply_body::MSG_ACCEPTED(ar)),
+            }
+        }
+    }
+
     impl Default for rpc_msg {
         fn default() -> Self {
             rpc_msg {
                 xid: 0,
-                body: _body::REPLY(reply_body::MSG_DENIED(
-                    rejected_reply::RPC_MISMATCH(_missmatch_info { high: 0, low: 0 }),
-                )),
+                body: _body::REPLY(reply_body::MSG_DENIED(rejected_reply::RPC_MISMATCH(
+                    _missmatch_info { high: 0, low: 0 },
+                ))),
             }
         }
     }
@@ -34,31 +51,35 @@ pub(in crate::rpc) mod xdr {
         fn default() -> Self {
             opaque_auth {
                 flavor: auth_flavor::AUTH_NONE,
-                body: vec![]
+                body: vec![],
             }
         }
     }
 }
 
-async fn write_message<W: WriteExt + Unpin, P: xdr_codec::Pack<Vec<u8>>>(
+pub(crate) async fn write_tcp_message<W: WriteExt + Unpin, P: xdr_codec::Pack<Cursor<Vec<u8>>>>(
     writer: &mut W,
     msg: &xdr::rpc_msg,
     payload: P,
 ) -> io::Result<()> {
-    let mut buf = Vec::new();
+    use xdr_codec::Pack;
 
-    xdr_codec::pack(msg, &mut buf)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Failed to pack message"))?;
-    xdr_codec::pack(&payload, &mut buf)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Failed to pack payload"))?;
-    let mut header = [0u8; 4];
-    NetworkEndian::write_u32(&mut header, buf.len() as u32 & 0x8000_0000);
-    writer.write_all(&header).await?;
-    writer.write_all(buf.as_slice()).await
+    let buf: Vec<u8> = vec![];
+    let mut cur = Cursor::new(buf);
+    cur.write_u32::<NetworkEndian>(0)?;
+    msg.pack(&mut cur).unwrap();
+    payload.pack(&mut cur).unwrap();
+    let len = cur.position();
+    cur.set_position(0);
+    cur.write_u32::<NetworkEndian>((len - 4) as u32 | 0x8000_0000)?;
+    //let mut header = [0u8; 4];
+    //NetworkEndian::write_u32(&mut header, cur.position() as u32 | 0x8000_0000);
+    //writer.write_all(&header).await?;
+    writer.write_all(cur.get_ref().as_slice()).await
 }
 
 #[pin_project]
-pub(crate) struct RpcDecoder<R> {
+pub(crate) struct RpcTcpDeframer<R> {
     #[pin]
     pub(crate) reader: R,
     pub(crate) buf: Vec<u8>,
@@ -66,27 +87,18 @@ pub(crate) struct RpcDecoder<R> {
     pub(crate) read: usize,
 }
 
-impl<R> RpcDecoder<R> {
+impl<R> RpcTcpDeframer<R> {
     pub(crate) fn new(reader: R) -> Self {
         Self {
             reader,
             buf: vec![],
             bytes: vec![],
-            read: 0
+            read: 0,
         }
     }
 }
 
-#[pin_project]
-pub(crate) struct RpcEncoder<W> {
-    #[pin]
-    pub(crate) writer: W,
-    pub(crate) buf: Vec<u8>,
-    pub(crate) bytes: Vec<u8>,
-    pub(crate) read: usize,
-}
-
-impl<R: BufReadExt> Stream for RpcDecoder<R> {
+impl<R: BufReadExt> Stream for RpcTcpDeframer<R> {
     type Item = io::Result<Vec<u8>>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -102,10 +114,7 @@ impl<R: BufReadExt> Stream for RpcDecoder<R> {
             return Poll::Ready(None);
         }
 
-        Poll::Ready(Some(Ok(mem::replace(
-            this.buf,
-            vec![]
-        ))))
+        Poll::Ready(Some(Ok(mem::replace(this.buf, vec![]))))
     }
 }
 
@@ -116,9 +125,6 @@ pub fn read_frame_internal<R: AsyncBufRead + ?Sized>(
     bytes: &mut Vec<u8>,
     read: &mut usize,
 ) -> Poll<io::Result<usize>> {
-    use std::io::Cursor;
-    use xdr_codec::Unpack;
-
     let ret = futures::ready!(read_until_finished(reader, cx, bytes, read));
     mem::swap(buf, bytes);
     Poll::Ready(ret)
@@ -160,9 +166,6 @@ pub fn read_until_finished<R: BufReadExt + ?Sized>(
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-
-    use async_std::io::BufReader;
 
     fn test_reader() {}
 }

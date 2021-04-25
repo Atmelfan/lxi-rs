@@ -189,8 +189,8 @@ mod tests {
     fn no_lock() {
         let instrument_lock = InstrumentLock::new(MyInstrument);
 
-        let mut handle_1 = instrument_lock.get_handle();
-        let mut handle_2 = instrument_lock.get_handle();
+        let handle_1 = instrument_lock.get_handle();
+        let handle_2 = instrument_lock.get_handle();
 
         // Can lock
         {

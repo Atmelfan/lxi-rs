@@ -1,4 +1,3 @@
-use crate::protocol::messages::{Header, MessageType};
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Copy, Clone)]
@@ -18,8 +17,8 @@ impl std::error::Error for Error {}
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::Fatal(err, msg) => write!(f, "Fatal {}", err.error_code()),
-            Error::NonFatal(err, msg) => write!(f, "NonFatal {}", err.error_code()),
+            Error::Fatal(err, _msg) => write!(f, "Fatal {}", err.error_code()),
+            Error::NonFatal(err, _msg) => write!(f, "NonFatal {}", err.error_code()),
         }
     }
 }

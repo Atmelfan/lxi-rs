@@ -1,12 +1,7 @@
-use std::fmt::{Display, Formatter};
-
-use async_std::net::TcpStream;
-use rustls::ServerSession;
-
 use protocol::messages::Protocol;
 
-pub mod server;
 pub mod protocol;
+pub mod server;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 

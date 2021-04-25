@@ -62,17 +62,25 @@ impl Header {
 
 pub(crate) struct Message {
     pub(crate) header: Header,
-    pub(crate) payload: Vec<u8>
+    pub(crate) payload: Vec<u8>,
 }
 
 impl Message {
-    pub fn new(message_type: MessageType, control_code: u8, message_parameter: u32, payload: Vec<u8>) -> Self {
-        Message { header: Header {
-            message_type,
-            control_code,
-            message_parameter,
-            len: payload.len()
-        }, payload }
+    pub fn new(
+        message_type: MessageType,
+        control_code: u8,
+        message_parameter: u32,
+        payload: Vec<u8>,
+    ) -> Self {
+        Message {
+            header: Header {
+                message_type,
+                control_code,
+                message_parameter,
+                len: payload.len(),
+            },
+            payload,
+        }
     }
 
     pub(crate) fn message_parameter(&self) -> u32 {
@@ -86,11 +94,13 @@ impl Message {
     pub fn payload(&self) -> &Vec<u8> {
         &self.payload
     }
-
 }
 
 impl Message {
-    pub(crate) async fn read_from(reader: &mut (dyn AsyncRead + Unpin), maxlen: usize) -> Result<Message, Error> {
+    pub(crate) async fn read_from(
+        reader: &mut (dyn AsyncRead + Unpin),
+        _maxlen: usize,
+    ) -> Result<Message, Error> {
         let mut buf = [0u8; Header::MESSAGE_HEADER_SIZE];
         reader.read_exact(&mut buf).await?;
 
@@ -99,13 +109,13 @@ impl Message {
         if header.len > 0 {
             reader.read_exact(payload.as_mut_slice()).await;
         }
-        Ok(Message {
-            header,
-            payload
-        })
+        Ok(Message { header, payload })
     }
 
-    pub(crate) async fn write_to(&self, writer: &mut (dyn AsyncWrite + Unpin)) -> Result<(), Error> {
+    pub(crate) async fn write_to(
+        &self,
+        writer: &mut (dyn AsyncWrite + Unpin),
+    ) -> Result<(), Error> {
         let mut buf = [0u8; Header::MESSAGE_HEADER_SIZE];
         self.header.pack_buffer(&mut buf);
         writer.write_all(&buf).await?;
@@ -364,7 +374,7 @@ bitfield! {
     pub initial_encryption, set_initial_encryption : 2;
 }
 
-impl FeatureBitmap  {
+impl FeatureBitmap {
     pub fn new(overlapped: bool, encryption: bool, initial_encryption: bool) -> Self {
         let mut s = FeatureBitmap(0);
         s.set_overlapped(overlapped);

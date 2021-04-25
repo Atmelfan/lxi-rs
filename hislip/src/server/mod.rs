@@ -1,45 +1,46 @@
 use std::cmp::min;
 use std::collections::HashMap;
 
+use async_std::sync::{Arc, Mutex};
 use async_std::{
     net::{TcpListener, TcpStream, ToSocketAddrs}, // 3
     prelude::*,
     task,
 };
-use async_std::sync::{Arc, Mutex};
-use futures::{StreamExt};
+use futures::StreamExt;
 
-use crate::{PROTOCOL_2_0, Result};
 use crate::protocol::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::protocol::messages::{Header, InitializeParameter, Message, MessageType, Protocol};
-use crate::server::session::{SessionMode, Session};
+use crate::server::session::{Session, SessionMode};
+use crate::{Result, PROTOCOL_2_0};
 
 pub mod session;
 
-pub(crate) async fn read_message_from_stream(stream: Arc<TcpStream>, maxlen: usize) -> Result<Message> {
+pub(crate) async fn read_message_from_stream(
+    stream: Arc<TcpStream>,
+    maxlen: usize,
+) -> Result<Message> {
     let mut stream = &*stream;
     let mut buf = [0u8; Header::MESSAGE_HEADER_SIZE];
     stream.read_exact(&mut buf).await?;
     let header = Header::from_buffer(&buf)?;
     if header.len > maxlen {
-        Err(Error::NonFatal(NonFatalErrorCode::MessageTooLarge, b"Message payload too large").into())
-    }else{
+        Err(Error::NonFatal(
+            NonFatalErrorCode::MessageTooLarge,
+            b"Message payload too large",
+        )
+        .into())
+    } else {
         let mut payload = Vec::with_capacity(header.len);
-        if header.len > 0{
+        if header.len > 0 {
             stream.read_exact(payload.as_mut_slice());
         }
 
-        Ok(Message{
-            header,
-            payload
-        })
+        Ok(Message { header, payload })
     }
 }
 
-pub(crate) async fn write_message_to_stream(
-    stream: Arc<TcpStream>,
-    msg: &Message,
-) -> Result<()> {
+pub(crate) async fn write_message_to_stream(stream: Arc<TcpStream>, msg: &Message) -> Result<()> {
     let mut stream = &*stream;
     let mut buf = [0u8; Header::MESSAGE_HEADER_SIZE];
     msg.header.pack_buffer(&mut buf);
@@ -102,7 +103,7 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(vendor_id: u16) -> Self {
+    pub fn new(_vendor_id: u16) -> Self {
         Server {
             inner: InnerServer::new(),
             config: ServerConfig::default(),
@@ -189,11 +190,9 @@ impl InnerServer {
 
         // Start reading packets from stream
         let stream = Arc::new(tcp_stream);
-        while let Ok(msg) = read_message_from_stream(stream.clone(), config.max_message_size).await {
-            log::trace!(
-                "Received {:?}",
-                msg.header
-            );
+        while let Ok(msg) = read_message_from_stream(stream.clone(), config.max_message_size).await
+        {
+            log::trace!("Received {:?}", msg.header);
 
             // Handle messages
             match msg.header.message_type {
@@ -242,7 +241,7 @@ impl InnerServer {
                 MessageType::AsyncInitialize => {
                     // Connect to existing session
                     let session_id = msg.message_parameter();
-                    let mut guard = server.lock().await;
+                    let guard = server.lock().await;
                     let session = guard.sessions.get(&(session_id as u16)).cloned();
                     drop(guard);
 

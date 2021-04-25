@@ -1,13 +1,9 @@
 pub struct ServerConfig {
-    port: u16
+    port: u16,
 }
 
 /// Socket server
-pub struct Server {
-
-}
+pub struct Server {}
 
 /// Encrypted socket server
-pub struct TlsServer {
-
-}
+pub struct TlsServer {}
