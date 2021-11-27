@@ -1,8 +1,9 @@
 [workspace]
 
 members = [
-    "device",
-    "hislip",
-    "vxi-11",
-    "socket"
+    "lxi-client",
+    "lxi-device",
+#    "hislip",
+#    "vxi-11",
+    "lxi-socket"
 ]

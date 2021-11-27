@@ -1,16 +1,21 @@
-//! VXI11
-//!
-//!
+use tower::Service;
 
-pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+struct Rpc {
 
-mod rpc;
-mod server;
+}
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
+struct RpcRequest {
+    program: usize,
+    proc: usize,
+    vers: usize,
+    port: usize,
+    data: Vec<u8>
+}
+
+struct RpcResponse {
+    program: usize,
+    proc: usize,
+    vers: usize,
+    port: usize,
+    data: Vec<u8>
 }

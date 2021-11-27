@@ -18,6 +18,12 @@ pub(crate) trait RpcClient {
         ARGS: Pack<Cursor<Vec<u8>>> + Send,
         RET: Unpack<Cursor<Vec<u8>>>;
 
+    /// Call procedure
+    async fn call_void<ARGS, RET>(&mut self, proc: u32, args: ARGS) -> rpc::Result<()>
+        where
+            ARGS: Pack<Cursor<Vec<u8>>> + Send,
+            RET: Unpack<Cursor<Vec<u8>>>;
+
     /// Call the null procedure
     async fn call_null(&mut self) -> rpc::Result<()> {
         self.call(Self::PROC_NULL, ()).await
@@ -46,6 +52,39 @@ impl RpcTcpClient {
         let x = self.stream.replace(stream);
         drop(x); // Close connection by dropping it. Just making it obvious.
         Ok(())
+    }
+
+    pub(crate) async fn call_tcp_void<ARGS>(&mut self, proc: u32, args: ARGS) -> rpc::Result<()>
+        where
+            ARGS: xdr_codec::Pack<Cursor<Vec<u8>>>
+    {
+        use crate::rpc::onc_rpc::xdr::{_reply_data, accepted_reply, rejected_reply};
+        use crate::rpc::onc_rpc::RpcTcpDeframer;
+        use async_std::io::BufReader;
+        use byteorder::{NetworkEndian, WriteBytesExt};
+
+        self.xid += 1;
+
+        if let Some(stream) = self.stream.as_mut() {
+            let call_msg = onc_rpc::xdr::rpc_msg {
+                xid: self.xid,
+                body: onc_rpc::xdr::_body::CALL(onc_rpc::xdr::call_body {
+                    rpcvers: 2,
+                    prog: self.program,
+                    vers: self.vers,
+                    proc_: proc,
+                    cred: onc_rpc::xdr::opaque_auth::default(),
+                    verf: onc_rpc::xdr::opaque_auth::default(),
+                }),
+            };
+            write_tcp_message(stream, &call_msg, args).await?;
+            Ok(())
+        } else {
+            Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                "Not connected"
+            )))
+        }
     }
 
     pub(crate) async fn call_tcp<ARGS, RES>(&mut self, proc: u32, args: ARGS) -> rpc::Result<RES>
@@ -126,7 +165,10 @@ impl RpcTcpClient {
                 Err(Error::GarbageArgs)
             }
         } else {
-            panic!()
+            Err(Error::Io(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                "Not connected"
+            )))
         }
     }
 }
@@ -139,6 +181,12 @@ impl RpcClient for RpcTcpClient {
         RET: Unpack<Cursor<Vec<u8>>>,
     {
         self.call_tcp(proc, args).await
+    }
+
+    async fn call_void<ARGS, RET>(&mut self, proc: u32, args: ARGS) -> rpc::Result<()> where
+        ARGS: Pack<Cursor<Vec<u8>>> + Send,
+        RET: Unpack<Cursor<Vec<u8>>> {
+        self.call_tcp_void(proc, args).await
     }
 }
 

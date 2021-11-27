@@ -4,6 +4,7 @@ use async_std::io::BufReader;
 use async_std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use async_std::task::spawn;
 use futures::{
+    future,
     io::{ReadHalf, WriteHalf},
     AsyncReadExt, StreamExt,
 };
@@ -33,16 +34,22 @@ struct RpcTcpService<HANDLER> {
     handler: HANDLER,
 }
 
-impl<HANDLER: 'static + RpcServiceHandler + Sync> RpcTcpService<HANDLER> {
-    async fn accept(&self, addr: impl ToSocketAddrs) -> rpc::Result<()> {
+impl<HANDLER> RpcTcpService<HANDLER>
+    where
+HANDLER: Send + Sync {
+    async fn accept(self: Arc<Self>, addr: impl ToSocketAddrs) -> rpc::Result<()> {
         let listener = TcpListener::bind(addr).await?;
-        let mut incoming = listener.incoming();
-        while let Some(stream) = incoming.next().await {
-            let stream = stream?;
-            println!("Accepting from: {}", stream.peer_addr()?);
+        while let Some(stream) = listener
+            .incoming()
+            .filter_map(|r| future::ready(r.ok())).next().await {
+            println!("Accepting from: {}", stream.peer_addr().unwrap());
+            let service = self.service.clone();
             let _handle =
-                async_std::task::spawn(Self::connection_loop(self.service.clone(), stream));
+                async_std::task::spawn(async move {
+                    Self::connection_loop(service, stream)
+                });
         }
+
         Ok(())
     }
 
@@ -138,10 +145,22 @@ impl<HANDLER: 'static + RpcServiceHandler + Sync> RpcTcpService<HANDLER> {
                         continue;
                     }
 
+
+
                     unimplemented!()
                 }
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_service() {
+
     }
 }
