@@ -16,6 +16,11 @@ use crate::{Result, PROTOCOL_2_0};
 
 pub mod session;
 
+pub enum Connection<IO> {
+    Open(IO)
+    Encrypted(TlsStream<IO>)
+}
+
 pub(crate) async fn read_message_from_stream(
     stream: Arc<TcpStream>,
     maxlen: usize,

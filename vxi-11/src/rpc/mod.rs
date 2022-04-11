@@ -57,19 +57,5 @@ impl From<std::io::Error> for Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
-pub(crate) enum RpcProto {
-    Tcp,
-    Udp,
-}
-
-impl RpcProto {
-    pub(crate) fn prot(&self) -> u32 {
-        match self {
-            RpcProto::Tcp => portmap::xdr::IPPROTO_TCP as u32,
-            RpcProto::Udp => portmap::xdr::IPPROTO_UDP as u32,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {}
