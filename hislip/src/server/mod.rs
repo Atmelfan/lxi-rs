@@ -24,21 +24,20 @@ pub enum Connection<IO> {
 pub(crate) async fn read_message_from_stream(
     stream: Arc<TcpStream>,
     maxlen: usize,
-) -> Result<Message> {
+) -> Result<Message, Error> {
     let mut stream = &*stream;
     let mut buf = [0u8; Header::MESSAGE_HEADER_SIZE];
-    stream.read_exact(&mut buf).await?;
+    stream.read_exact(&mut buf).await.ok_or_else(|| Error::Fatal(FatalErrorCode::IoError, "Internal IO error"))?;
     let header = Header::from_buffer(&buf)?;
     if header.len > maxlen {
-        Err(Error::NonFatal(
+        Err(Error::Fatal(
             NonFatalErrorCode::MessageTooLarge,
             b"Message payload too large",
-        )
-        .into())
+        ))
     } else {
         let mut payload = Vec::with_capacity(header.len);
         if header.len > 0 {
-            stream.read_exact(payload.as_mut_slice());
+            stream.read_exact(payload.as_mut_slice()).ok_or_else(|| Error::Fatal(FatalErrorCode::IoError, "Internal IO error"))?;
         }
 
         Ok(Message { header, payload })
@@ -160,12 +159,10 @@ impl InnerServer {
         sub_adress: String,
         protocol: Protocol,
     ) -> Result<(u16, Arc<Mutex<Session>>)> {
-        self.new_session_id().map(|session_id| {
-            (
-                session_id,
-                Arc::new(Mutex::new(Session::new(sub_adress, session_id, protocol))),
-            )
-        })
+        let session_id = self.new_session_id()?;
+        let session = Arc::new(Mutex::new(Session::new(sub_adress, session_id, protocol)));
+        self.sessions.insert(session_id, session.clone());
+        session
     }
 
     /// Start accepting connections from addr
@@ -184,6 +181,12 @@ impl InnerServer {
         Ok(())
     }
 
+    enum ConnectionState {
+        Handshake,
+        Synchronous(Session),
+        Asynchronous(Session)
+    }
+
     /// The connection handling function.
     async fn handle_connection(
         server: Arc<Mutex<InnerServer>>,
@@ -193,112 +196,169 @@ impl InnerServer {
         let peer_addr = tcp_stream.peer_addr()?;
         log::info!("{} connected", peer_addr);
 
+        let mut connection_state = ConnectionState::Handshake;
+
         // Start reading packets from stream
         let stream = Arc::new(tcp_stream);
-        while let Ok(msg) = read_message_from_stream(stream.clone(), config.max_message_size).await
-        {
-            log::trace!("Received {:?}", msg.header);
+        loop {
 
-            // Handle messages
-            match msg.header.message_type {
-                MessageType::Initialize => {
-                    // Create new session
-                    let client_parameters = InitializeParameter(msg.message_parameter());
+            match read_message_from_stream(stream.clone(), config.max_message_size).await {
+                Ok(msg) => {
+                    log::trace!("Received {:?}", msg.header);
 
-                    // Check that
-                    if msg.payload.is_ascii() {
-                        let sub_adress = String::from_utf8(msg.payload).unwrap();
-                        log::debug!(
-                            "Initialize {:?},rpc={},vendor={}",
-                            sub_adress,
-                            client_parameters.client_protocol(),
-                            client_parameters.client_vendorid()
-                        );
+                    // Handle messages
+                    match msg.header.message_type {
+                        MessageType::Initialize => {
+                            if !matches!(connection_state, ConnectionState::Handshake) {
+                                write_error_to_stream(
+                                    stream.clone(),
+                                    Error::Fatal(
+                                        FatalErrorCode::InvalidInitialization,
+                                        b"Already initialized",
+                                    ),
+                                )
+                                .await?;
+                                break;
+                            }
 
-                        let lowest_protocol =
-                            min(PROTOCOL_2_0, client_parameters.client_protocol());
+                            if !msg.payload.is_ascii() {
+                                write_error_to_stream(
+                                    stream.clone(),
+                                    Error::Fatal(
+                                        FatalErrorCode::InvalidInitialization,
+                                        b"Invalid sub-adress",
+                                    ),
+                                )
+                                .await?;
+                                break;
+                            }
 
-                        // Create new session
-                        let mut guard = server.lock().await;
-                        let (session_id, session) =
-                            guard.new_session(sub_adress.clone(), lowest_protocol)?;
-                        guard.sessions.insert(session_id, session.clone());
-                        log::debug!("New session 0x{:04x}", session_id);
+                            // Create new session
+                            let client_parameters = InitializeParameter(msg.message_parameter());
 
-                        // Importante! Drop guard to avoid locking server until session is closed.
-                        drop(guard);
+                            // Check that
+                            let sub_adress = String::from_utf8(msg.payload).unwrap();
+                            log::debug!(
+                                "Sync initialize {:?},rpc={},vendor={}",
+                                sub_adress,
+                                client_parameters.client_protocol(),
+                                client_parameters.client_vendorid()
+                            );
 
-                        // Continue handling connection inside session
-                        Session::handle_sync_connection(session, stream.clone(), config).await;
-                        break;
-                    } else {
-                        write_error_to_stream(
-                            stream.clone(),
-                            Error::Fatal(
-                                FatalErrorCode::InvalidInitialization,
-                                b"Invalid sub-adress",
-                            ),
-                        )
-                        .await?;
+                            let lowest_protocol =
+                                min(PROTOCOL_2_0, client_parameters.client_protocol());
+
+                            // Create new session
+                            let (session_id, session) = {
+                                let guard = server.lock().await?;
+                                guard.new_session(sub_adress.clone(), lowest_protocol)?
+                            };
+                            log::debug!("New session 0x{:04x}", session_id);
+
+                            // Send response
+                            let response_param = InitializeResponseParameter::new(lowest_protocol, session_id);
+                            let control = InitializeResponseControl::new(
+                                config.preferred_mode == SessionMode::Overlapped,
+                                config.encryption_mandatory,
+                                config.secure_connection,
+                            );
+                            let response = MessageType::InitializeResponse.message_params(0, control.0, parameter.0);
+                            write_header_to_stream(stream.clone(), response, &[]).await?;
+
+                            // Connection is a synchronous channel
+                            connection_state = ConnectionState::Synchronous(session);
+                        }
+                        MessageType::AsyncInitialize => {
+                            
+
+                            if !matches!(connection_state, ConnectionState::Handshake) {
+                                write_error_to_stream(
+                                    stream.clone(),
+                                    Error::Fatal(
+                                        FatalErrorCode::InvalidInitialization,
+                                        b"Already initialized",
+                                    ),
+                                )
+                                .await?;
+                                break;
+                            }
+
+                            // Connect to existing session
+                            let session_id = (msg.message_parameter() & 0x0000FFFF) as u16;
+                            let session = {
+                                let guard = server.lock().await;
+                                if let Some(s) = guard.sessions.get(session_id).cloned() {
+                                    s
+                                } else {
+                                    write_error_to_stream(
+                                        stream.clone(),
+                                        Error::Fatal(
+                                            FatalErrorCode::InvalidInitialization,
+                                            b"Invalid session id",
+                                        ),
+                                    )
+                                    .await?;
+                                    break;
+                                }
+                            };
+
+                            log::debug!("AsyncInitialize session=0x{:04x}", session_id);
+
+                            session_guard.async_connected = true;
+                            let parameter = AsyncInitializeResponseParameter::new(config.vendor_id);
+                            let control = AsyncInitializeResponseControl::new(config.secure_connection);
+            
+                            let response = MessageType::AsyncInitializeResponse.message_params(0, control.0, parameter.0);
+                            server::write_header_to_stream(stream.clone(), response, &[]).await?;
+                                
+                            connection_state = ConnectionState::Asynchronous(session);
+                        },
+                        MessageType::VendorSpecific(code) => {
+                            log::error!("Unrecognized Vendor Defined Message ({}) during init", code);
+                            server::write_error_to_stream(
+                                stream.clone(),
+                                Error::NonFatal(
+                                    NonFatalErrorCode::UnrecognizedVendorDefinedMessage,
+                                    b"Unrecognized Vendor Defined Message",
+                                ),
+                            )
+                            .await?;
+                        },
+                        MessageType::FatalError => {
+                            log::error!("Client fatal error: {}", str::from_utf8(msg.payload).unwrap_or("<invalid utf8>"));
+                            //break; // Let client close connection
+                        },
+                        MessageType::Error => {
+                            log::warning!("Client error: {}", str::from_utf8(msg.payload).unwrap_or("<invalid utf8>"));
+                        },
+                        // Synchronous messages
+                        _ if matches!(connection_state, ConnectionState::Synchronous(...)) => {
+
+                        },
+                        // Asynchronous messages
+                        _ if matches!(connection_state, ConnectionState::Asynchronous(...)) => {
+
+                        },
+                        // Other messages shouldn't occur unless initialized
+                        _ => {
+                            log::error!("Unexpected message type");
+                            write_error_to_stream(
+                                stream.clone(),
+                                Error::Fatal(
+                                    FatalErrorCode::InvalidInitialization,
+                                    b"Unexpected message",
+                                ),
+                            )
+                            .await?;
+                            break;
+                        }
+                    }
+                },
+                Err(err) => {
+                    write_error_to_stream(stream.clone(), err).await?;
+                    if err.is_fatal() {
                         break;
                     }
-                }
-                MessageType::AsyncInitialize => {
-                    // Connect to existing session
-                    let session_id = msg.message_parameter();
-                    let guard = server.lock().await;
-                    let session = guard.sessions.get(&(session_id as u16)).cloned();
-                    drop(guard);
-
-                    if let Some(session) = session {
-                        log::debug!("AsyncInitialize session=0x{:04x}", session_id);
-                        Session::handle_async_connection(session.clone(), stream.clone(), config)
-                            .await;
-                        break;
-                    } else {
-                        write_error_to_stream(
-                            stream.clone(),
-                            Error::Fatal(
-                                FatalErrorCode::InvalidInitialization,
-                                b"Invalid session id",
-                            ),
-                        )
-                        .await?;
-                        break;
-                    }
-                }
-                MessageType::Error => {
-                    // Received an error from client
-                    log::warn!("Client error during handshake");
-                }
-                MessageType::FatalError => {
-                    // Received a fatal error from client
-                    // Disconnect
-                    log::error!("Client fatal error during handshake");
-                    break;
-                }
-                MessageType::VendorSpecific(_) => {
-                    log::warn!("Unrecognised vendor defined message during init");
-                    write_error_to_stream(
-                        stream.clone(),
-                        Error::NonFatal(
-                            NonFatalErrorCode::UnrecognizedVendorDefinedMessage,
-                            b"Unrecognised vendor defined message",
-                        ),
-                    )
-                    .await?;
-                }
-                _ => {
-                    log::error!("Unexpected message type during init");
-                    write_error_to_stream(
-                        stream.clone(),
-                        Error::Fatal(
-                            FatalErrorCode::InvalidInitialization,
-                            b"Unexpected message type",
-                        ),
-                    )
-                    .await?;
-                    break;
                 }
             }
         }
@@ -309,3 +369,7 @@ impl InnerServer {
         Ok(())
     }
 }
+
+
+
+

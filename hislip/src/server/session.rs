@@ -90,11 +90,11 @@ impl Session {
         Ok(())
     }
 
-    pub(crate) async fn handle_sync_connection(
+    pub(crate) async fn handle_sync_message(
         session: Arc<Mutex<Session>>,
         stream: Arc<TcpStream>,
         config: ServerConfig,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         let _session_id = {
             let session_guard = session.lock().await;
             let parameter =
@@ -111,72 +111,86 @@ impl Session {
             session_guard.session_id
         };
 
-        //
-        if config.secure_connection {
-            let header = server::read_message_from_stream(stream.clone(), 0).await?;
-            if header.header.message_type == MessageType::AsyncStartTLS {
-                let session_guard = session.lock().await;
-                if !session_guard.async_connected {
-                    server::write_error_to_stream(
-                        stream.clone(),
-                        Error::Fatal(
-                            FatalErrorCode::AttemptUseWithoutBothChannels,
-                            b"Async channel not established",
-                        ),
-                    )
-                    .await?;
-                    return Ok(());
-                }
-                if !session_guard.async_encrypted {
-                    server::write_error_to_stream(
-                        stream.clone(),
-                        Error::Fatal(
-                            FatalErrorCode::InvalidInitialization,
-                            b"Async channel not encrypted",
-                        ),
-                    )
-                    .await?;
-                    return Ok(());
-                }
-            }
-        }
+        let mut command_buffer: Vec<u8> = Vec::new();
+        let mut device_clear_in_progress = false;
+        loop {
+            match server::read_message_from_stream(stream.clone(), config.max_message_size).await {
+                Ok(msg) => {
+                    log::trace!("Async {:?}", msg.header);
 
-        while let Ok(msg) =
-            server::read_message_from_stream(stream.clone(), config.max_message_size).await
-        {
-            log::trace!("Async {:?}", msg.header);
-
-            match msg.header.message_type {
-                MessageType::Initialize => {}
-                MessageType::FatalError => {}
-                MessageType::Error => {}
-                MessageType::Data => {}
-                MessageType::DataEnd => {}
-                MessageType::DeviceClearComplete => {}
-                MessageType::Trigger => {}
-                MessageType::Interrupted => {}
-                MessageType::GetDescriptors => {}
-                MessageType::StartTLS => {}
-                MessageType::EndTLS => {}
-                MessageType::GetSaslMechanismList => {}
-                MessageType::GetSaslMechanismListResponse => {}
-                MessageType::AuthenticationStart => {}
-                MessageType::AuthenticationExchange => {}
-                MessageType::AuthenticationResult => {}
-                MessageType::VendorSpecific(_) => {}
-                _ => {
-                    log::error!("Unexpected message on sync channel");
-                    // Session already have an async connection!
-                    server::write_error_to_stream(
-                        stream.clone(),
-                        Error::Fatal(
-                            FatalErrorCode::InvalidInitialization,
-                            b"Unexpected message on sync channel",
-                        ),
-                    )
-                    .await?;
-                    // Disconnect
-                    break;
+                    match msg.header.message_type {
+                        //MessageType::Initialize => {} // Already initialized
+                        MessageType::FatalError => {
+                            log::error!("Client fatal error: {}", str::from_utf8(msg.payload).unwrap_or("<invalid utf8>"));
+                            //break; // Let client close connection
+                        }
+                        MessageType::Error => {
+                            log::warning!("Client error: {}", str::from_utf8(msg.payload).unwrap_or("<invalid utf8>"));
+                        }
+                        MessageType::Data | MessageType::DataEnd => {
+                            if device_clear_in_progress {
+                                // Ignore any data when a device clear is in progress
+                                continue;
+                            } else {
+                                if Ok(()) = command_buffer.try_reserve(msg.len) {
+                                    command_buffer.append(msg.payload);
+                                    if msg.header.message_type == MessageType::DataEnd {
+                                        // Data implies END, send to application layer
+                                    }
+                                } else {
+        
+                                }
+                                
+                            }
+                        }
+                        MessageType::DeviceClearComplete => {
+                            device_clear_in_progress = false;
+                        }
+                        MessageType::Trigger => {
+                            if device_clear_in_progress {
+                                // Ignore any data when a device clear is in progress
+                                continue;
+                            } else {
+        
+                            }
+                        }
+                        //MessageType::Interrupted => {}
+                        MessageType::GetDescriptors => {}
+                        MessageType::StartTLS => {}
+                        MessageType::EndTLS => {}
+                        MessageType::GetSaslMechanismList => {}
+                        MessageType::GetSaslMechanismListResponse => {}
+                        MessageType::AuthenticationStart => {}
+                        MessageType::AuthenticationExchange => {}
+                        MessageType::AuthenticationResult => {}
+                        MessageType::VendorSpecific(code) => {
+                            log::error!("Unrecognized Vendor Defined Message ({}) on sync channel", code);
+                            server::write_error_to_stream(
+                                stream.clone(),
+                                Error::NonFatal(
+                                    NonFatalErrorCode::UnrecognizedVendorDefinedMessage,
+                                    b"Unrecognized Vendor Defined Message",
+                                ),
+                            )
+                            .await?;
+        
+                            continue;
+                        }
+                        _ => {
+                            log::error!("Unrecognized Message Type ({:?}) on sync channel", msg.header.message_type);
+                            return Error::Fatal(
+                                FatalErrorCode::InvalidInitialization,
+                                b"Unrecognized Message Type",
+                            );
+                        }
+                    }
+                },
+                Err(err) => {
+                    if err.is_fatal() {
+                        return Err(err);
+                    } else {
+                        write_error_to_stream(stream.clone(), err).await?;
+                    }
                 }
             }
         }
