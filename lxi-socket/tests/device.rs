@@ -1,28 +1,34 @@
 use std::sync::Arc;
 
 use async_std::{io::BufReader, os::unix::net::UnixStream};
-use futures::{AsyncReadExt, AsyncWriteExt, AsyncBufReadExt, join, lock::Mutex};
-use lxi_device::{util::EchoDevice, lock::SharedLock, Device};
-use lxi_socket::{server::ServerConfig};
+use futures::{join, lock::Mutex, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+use lxi_device::{lock::SharedLock, util::EchoDevice};
+use lxi_socket::server::ServerConfig;
 
-async fn run_echo_server(stream: UnixStream, shared_lock: Arc<Mutex<SharedLock>>, device: Arc<Mutex<EchoDevice>>){
+async fn run_echo_server(
+    stream: UnixStream,
+    shared_lock: Arc<Mutex<SharedLock>>,
+    device: Arc<Mutex<EchoDevice>>,
+) {
     let peer = stream.peer_addr().unwrap();
     let (reader, writer) = stream.split();
-    let server = ServerConfig::new()
-        .read_buffer(16 * 1024)
-        .write_buffer(16 * 1024)
-        .build();
+    let server = ServerConfig::default().read_buffer(16 * 1024).build();
     println!("Running server...");
-    let ret = server.process_client(reader, writer, shared_lock, device, peer).await;
+    let ret = server
+        .process_client(reader, writer, shared_lock, device, peer)
+        .await;
     println!("Server exit {:?}", ret);
     assert!(ret.is_ok());
 }
 
 #[async_std::test]
 async fn echo() {
+    env_logger::init();
+
     let device = EchoDevice::new_arc();
     let shared_lock = SharedLock::new();
 
+    // Create
     let (client_stream, server_stream) = async_std::os::unix::net::UnixStream::pair().unwrap();
 
     let client_fut = async move {
@@ -33,11 +39,13 @@ async fn echo() {
         println!("Running client...");
 
         client_write.write_all(b"test\n").await.unwrap();
-    
-    
+
         client_read.read_until(b'\n', &mut buf).await.unwrap();
         assert_eq!(buf.as_slice(), b"test\n");
     };
 
-    join!(run_echo_server(server_stream, shared_lock, device), client_fut);
+    join!(
+        run_echo_server(server_stream, shared_lock, device),
+        client_fut
+    );
 }
