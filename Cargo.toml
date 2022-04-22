@@ -4,6 +4,6 @@ members = [
     "lxi-client",
     "lxi-device",
 #    "hislip",
-#    "vxi-11",
+    "vxi-11",
     "lxi-socket"
 ]

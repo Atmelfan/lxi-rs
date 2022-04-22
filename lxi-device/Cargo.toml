@@ -1,12 +1,18 @@
 [package]
 name = "lxi-device"
 version = "0.1.0"
-authors = ["gustavp"]
-edition = "2018"
+authors = ["Gustav Palmqvist <gustavp@gpa-robotics.com>"]
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 # lock_api = "0.4" # TODO: No-std support
-async-std = "1.10.0"
-futures = "0.3.13"
+futures = {version = "0.3", features = ["alloc"]}
+
+[dev-dependencies]
+async-std = {version = "1.10", features = ["attributes"]}
+
+[features]
+default = ["std"]
+std = []

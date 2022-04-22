@@ -1,5 +1,5 @@
 enum LxiError {
-    /// Opertion not suppoerted by backend or protocol
+    /// Opertion not supported by backend or protocol
     OperationNotSupported,
 }
 

@@ -6,6 +6,12 @@ pub enum Error {
     NonFatal(NonFatalErrorCode, &'static [u8]),
 }
 
+impl Error {
+    fn is_fatal(&self) {
+        matches!(self, Self::Fatal(...))
+    }
+}
+
 impl From<std::io::Error> for Error {
     fn from(_: std::io::Error) -> Self {
         Error::Fatal(FatalErrorCode::UnidentifiedError, b"IO Error")
@@ -33,6 +39,10 @@ pub enum FatalErrorCode {
     SecureConnectionFailed,
     Extension(u8),
     DeviceDefined(u8),
+    // Library specific Device defined errors
+    // These error codes shall only be sent by the server
+    IoError,
+    LockError
 }
 
 impl FatalErrorCode {
@@ -46,6 +56,9 @@ impl FatalErrorCode {
             FatalErrorCode::SecureConnectionFailed => 5,
             FatalErrorCode::Extension(x) => *x,
             FatalErrorCode::DeviceDefined(x) => *x,
+
+            FatalErrorCode::IoError => 128,
+            FatalErrorCode::LockError => 129,
         }
     }
 

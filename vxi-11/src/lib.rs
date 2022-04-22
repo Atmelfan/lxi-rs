@@ -1,21 +1,9 @@
-use tower::Service;
+use async_std::stream::Stream;
+
+mod xdr;
 
 struct Rpc {
 
 }
 
-struct RpcRequest {
-    program: usize,
-    proc: usize,
-    vers: usize,
-    port: usize,
-    data: Vec<u8>
-}
 
-struct RpcResponse {
-    program: usize,
-    proc: usize,
-    vers: usize,
-    port: usize,
-    data: Vec<u8>
-}

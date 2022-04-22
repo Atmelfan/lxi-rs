@@ -1,0 +1,8 @@
+
+
+
+
+const PORTMAPPER_PORT: u16 = 111;
+
+const PORTMAPPER_PROG: u32 = 100000;
+const PORTMAPPER_VERS: u32 = 2;
