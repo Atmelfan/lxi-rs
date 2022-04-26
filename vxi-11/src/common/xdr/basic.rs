@@ -4,6 +4,7 @@
 //! 
 //! | XDR Type         | Rust type |
 //! |------------------|-----------|
+//! | void/null        | ()        |
 //! | integer          | i32       |
 //! | unsigned integer | u32       |
 //! | Boolean          | bool      |
@@ -594,6 +595,7 @@ impl<T: XdrEncode, const N: usize> XdrEncode for [T; N] {
 impl<T: XdrDecode + Default> XdrDecode for Vec<T> {
     fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()> where RD: Read {
         let len = reader.read_u32::<NetworkEndian>()? as usize;
+        self.clear();
         for _ in 0..len {
             let mut x: T = Default::default();
             x.read_xdr(reader)?;
