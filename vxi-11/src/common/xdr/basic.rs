@@ -81,6 +81,32 @@ impl XdrEncode for i32 {
     }
 }
 
+impl XdrDecode for i16 {
+    fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()> where RD: Read {
+        *self = reader.read_i32::<NetworkEndian>()? as Self;
+        Ok(())
+    }
+}
+
+impl XdrEncode for i16 {
+    fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()> where WR: Write {
+        writer.write_i32::<NetworkEndian>(*self as i32)
+    }
+}
+
+impl XdrDecode for i8 {
+    fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()> where RD: Read {
+        *self = reader.read_i32::<NetworkEndian>()? as Self;
+        Ok(())
+    }
+}
+
+impl XdrEncode for i8 {
+    fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()> where WR: Write {
+        writer.write_i32::<NetworkEndian>(*self as i32)
+    }
+}
+
 #[cfg(test)]
 mod test_xdr_integer {
     use std::io::Cursor;
@@ -119,6 +145,32 @@ impl XdrDecode for u32 {
 impl XdrEncode for u32 {
     fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()> where WR: Write {
         writer.write_u32::<NetworkEndian>(*self)
+    }
+}
+
+impl XdrDecode for u16 {
+    fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()> where RD: Read {
+        *self = reader.read_u32::<NetworkEndian>()? as Self;
+        Ok(())
+    }
+}
+
+impl XdrEncode for u16 {
+    fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()> where WR: Write {
+        writer.write_u32::<NetworkEndian>(*self as u32)
+    }
+}
+
+impl XdrDecode for u8 {
+    fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()> where RD: Read {
+        *self = reader.read_u32::<NetworkEndian>()? as Self;
+        Ok(())
+    }
+}
+
+impl XdrEncode for u8 {
+    fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()> where WR: Write {
+        writer.write_u32::<NetworkEndian>(*self as u32)
     }
 }
 
@@ -343,21 +395,21 @@ mod test_xdr_double {
 // Nobody uses this
 
 // 4.9 Fixed-Length Opaque Data
-impl<const N: usize> XdrDecode for [u8; N] {
-    fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()> where RD: Read {
-        reader.read_exact(self)?;
-        read_padding!(reader, N);
-        Ok(())
-    }
-}
+// impl<const N: usize> XdrDecode for [u8; N] {
+//     fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()> where RD: Read {
+//         reader.read_exact(self)?;
+//         read_padding!(reader, N);
+//         Ok(())
+//     }
+// }
 
-impl<const N: usize> XdrEncode for [u8; N] {
-    fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()> where WR: Write {
-        writer.write_all(self)?;
-        write_padding!(writer, N);
-        Ok(())
-    }
-}
+// impl<const N: usize> XdrEncode for [u8; N] {
+//     fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()> where WR: Write {
+//         writer.write_all(self)?;
+//         write_padding!(writer, N);
+//         Ok(())
+//     }
+// }
 
 #[cfg(test)]
 mod test_xdr_opaque {
@@ -401,24 +453,24 @@ mod test_xdr_opaque {
 
 
 // 4.10 Variable-Length Opaque Data
-impl XdrDecode for Vec<u8> {
-    fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()> where RD: Read {
-        let len = reader.read_u32::<NetworkEndian>()? as usize;
-        *self = vec![0; len];
-        reader.read_exact(self)?;
-        read_padding!(reader, len);
-        Ok(())
-    }
-}
+// impl XdrDecode for Vec<u8> {
+//     fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()> where RD: Read {
+//         let len = reader.read_u32::<NetworkEndian>()? as usize;
+//         *self = vec![0; len];
+//         reader.read_exact(self)?;
+//         read_padding!(reader, len);
+//         Ok(())
+//     }
+// }
 
-impl XdrEncode for Vec<u8> {
-    fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()> where WR: Write {
-        writer.write_u32::<NetworkEndian>(self.len() as u32)?;
-        writer.write_all(self)?;
-        write_padding!(writer, self.len());
-        Ok(())
-    }
-}
+// impl XdrEncode for Vec<u8> {
+//     fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()> where WR: Write {
+//         writer.write_u32::<NetworkEndian>(self.len() as u32)?;
+//         writer.write_all(self)?;
+//         write_padding!(writer, self.len());
+//         Ok(())
+//     }
+// }
 
 #[cfg(test)]
 mod test_xdr_variable_opaque {

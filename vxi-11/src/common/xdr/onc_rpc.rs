@@ -404,8 +404,8 @@ pub(crate) mod xdr {
         }
     }
 
-    #[derive(Debug, Default)]
-    pub(crate) struct MissmatchInfo {
+    #[derive(Debug, Default, PartialEq, PartialOrd)]
+    pub struct MissmatchInfo {
         pub low: u32,
         pub high: u32,
     }
@@ -526,6 +526,17 @@ pub(crate) mod xdr {
         {
             self.xid.read_xdr(reader)?;
             self.mtype.read_xdr(reader)
+        }
+    }
+
+    impl RpcMessage {
+
+
+        pub(crate) fn call(xid: u32, prog: u32, vers: u32, proc: u32) -> Self  {
+            Self {
+                xid,
+                mtype: MsgType::Call(Callbody { rpc_vers: 2, prog, vers, proc, cred: Default::default(), verf: Default::default() })
+            }
         }
     }
 }

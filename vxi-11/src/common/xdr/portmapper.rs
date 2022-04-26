@@ -10,6 +10,10 @@ pub(crate) const PORTMAPPER_PROG: u32 = 100000;
 // Portmapper program version
 pub(crate) const PORTMAPPER_VERS: u32 = 2;
 
+pub(crate) const PORTMAPPER_PROT_TCP: u32 = 6;
+pub(crate) const PORTMAPPER_PROT_UDP: u32 = 17;
+
+
 // Procedures
 /// Null procedure
 pub(crate) const PMAPPROC_NULL: u32 = 0;
@@ -32,12 +36,16 @@ pub(crate) mod xdr {
     use crate::common::xdr::prelude::*;
 
 
-    #[derive(Debug, Default, Clone, Copy)]
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
     pub(crate) struct Mapping {
-        prog: u32,
-        vers: u32,
-        prot: u32,
-        port: u32,
+        pub(crate) prog: u32,
+        pub(crate) vers: u32,
+        pub(crate) prot: u32,
+        pub(crate) port: u32,
+    }
+
+    impl Mapping {
+        pub(crate) fn new(prog: u32, vers: u32, prot: u32, port: u32) -> Self { Self { prog, vers, prot, port } }
     }
 
     impl XdrEncode for Mapping {
@@ -61,42 +69,6 @@ pub(crate) mod xdr {
             self.vers.read_xdr(reader)?;
             self.prot.read_xdr(reader)?;
             self.port.read_xdr(reader)
-        }
-    }
-
-    /// The original struct is an option in its self and self-referencing. Wtf?
-    #[derive(Debug, Default, Clone)]
-    pub(crate) struct PmapList {
-        list: Vec<Mapping>,
-    }
-
-    impl XdrEncode for PmapList {
-        fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()>
-        where
-            WR: Write,
-        {
-            for x in &self.list {
-                true.write_xdr(writer)?;
-                x.write_xdr(writer)?;
-            }
-            false.write_xdr(writer)
-        }
-    }
-
-    impl XdrDecode for PmapList {
-        fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()>
-        where
-            RD: Read,
-        {
-            loop {
-                let mut next: Option<Mapping> = None;
-                next.read_xdr(reader)?;
-                if let Some(mapping) = next {
-                    self.list.push(mapping);
-                } else {
-                    break Ok(());
-                }
-            }
         }
     }
 

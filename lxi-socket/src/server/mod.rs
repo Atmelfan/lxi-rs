@@ -21,8 +21,6 @@ use lxi_device::{
     Device,
 };
 
-mod util;
-
 pub struct Server(ServerConfig);
 
 impl Server {
