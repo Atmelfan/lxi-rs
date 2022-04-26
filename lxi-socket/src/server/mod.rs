@@ -45,7 +45,7 @@ impl Server {
         while let Some((token, stream)) = incoming.next().await {
             let s = self.clone();
             let peer = stream.peer_addr()?;
-            log::info!("Accepted from: {}", peer);
+            log::error!("Accepted from: {}", peer);
 
             let shared_lock = shared_lock.clone();
             let device = device.clone();

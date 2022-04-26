@@ -29,10 +29,11 @@ pub(crate) const PMAPPROC_CALLIT: u32 = 5;
 pub(crate) mod xdr {
     use std::io::{Read, Result, Write};
 
-    use super::{XdrDecode, XdrEncode};
+    use crate::common::xdr::prelude::*;
+
 
     #[derive(Debug, Default, Clone, Copy)]
-    struct Mapping {
+    pub(crate) struct Mapping {
         prog: u32,
         vers: u32,
         prot: u32,
@@ -63,10 +64,9 @@ pub(crate) mod xdr {
         }
     }
 
-    /// The original struct is an option in its self and is self-referencing, 
-    /// what the fuck did whomever made that drink!?
+    /// The original struct is an option in its self and self-referencing. Wtf?
     #[derive(Debug, Default, Clone)]
-    struct PmapList {
+    pub(crate) struct PmapList {
         list: Vec<Mapping>,
     }
 
@@ -101,7 +101,7 @@ pub(crate) mod xdr {
     }
 
     #[derive(Debug, Default, Clone)]
-    struct Callit {
+    pub(crate) struct Callit {
         prog: u32,
         vers: u32,
         proc: u32,
@@ -133,7 +133,7 @@ pub(crate) mod xdr {
     }
 
     #[derive(Debug, Default, Clone)]
-    struct CallResult {
+    pub(crate) struct CallResult {
         port: u32,
         res: Vec<u8>,
     }

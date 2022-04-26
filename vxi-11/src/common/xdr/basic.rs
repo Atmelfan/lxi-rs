@@ -27,16 +27,18 @@ use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 
 
 macro_rules! read_padding {
-    ($reader:expr, $padding:expr) => {
-        for _ in 0..$padding {
+    ($reader:expr, $len:expr) => {
+        let pad = (4 - ($len & 3)) & 3;
+        for _ in 0..pad {
             let _ = $reader.read_u8()?;
         }
     };
 }
 
 macro_rules! write_padding {
-    ($writer:expr, $padding:expr) => {
-        for _ in 0..$padding {
+    ($writer:expr, $len:expr) => {
+        let pad = (4 - ($len & 3)) & 3;
+        for _ in 0..pad {
             $writer.write_u8(0)?;
         }
     };
@@ -53,6 +55,17 @@ pub trait XdrEncode {
 
 }
 
+impl XdrDecode for () {
+    fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()> where RD: Read {
+        Ok(())
+    }
+}
+
+impl XdrEncode for () {
+    fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()> where WR: Write {
+        Ok(())
+    }
+}
 
 // 4.1.  Integer
 impl XdrDecode for i32 {
@@ -65,6 +78,33 @@ impl XdrDecode for i32 {
 impl XdrEncode for i32 {
     fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()> where WR: Write {
         writer.write_i32::<NetworkEndian>(*self)
+    }
+}
+
+#[cfg(test)]
+mod test_xdr_integer {
+    use std::io::Cursor;
+
+    use super::{XdrDecode, XdrEncode};
+
+
+    #[test]
+    fn decode() {
+        let mut cursor = Cursor::new(b"\xff\xff\xff\xfe");
+        let mut i: i32 = 0;
+        i.read_xdr(&mut cursor).unwrap();
+
+        assert_eq!(i, -2)
+    }
+
+    #[test]
+    fn encode() {
+        let mut cursor = Cursor::new(Vec::new());
+        let i: i32 = -2;
+        i.write_xdr(&mut cursor).unwrap();
+        
+        assert_eq!(cursor.get_ref()[..], b"\xff\xff\xff\xfe"[..])
+
     }
 }
 
@@ -82,7 +122,35 @@ impl XdrEncode for u32 {
     }
 }
 
+#[cfg(test)]
+mod test_xdr_unsigned {
+    use std::io::Cursor;
+
+    use super::{XdrDecode, XdrEncode};
+
+
+    #[test]
+    fn decode() {
+        let mut cursor = Cursor::new(b"\x00\x00\x00\x01");
+        let mut i: u32 = 0;
+        i.read_xdr(&mut cursor).unwrap();
+
+        assert_eq!(i, 1)
+    }
+
+    #[test]
+    fn encode() {
+        let mut cursor = Cursor::new(Vec::new());
+        let i: u32 = 1;
+        i.write_xdr(&mut cursor).unwrap();
+        
+        assert_eq!(cursor.get_ref()[..], b"\x00\x00\x00\x01"[..])
+
+    }
+}
+
 // 4.3 Enumerations
+// Manually implemented where needed
 
 // 4.4 Booleans
 impl XdrDecode for bool {
@@ -104,6 +172,33 @@ impl XdrEncode for bool {
         } else {
             writer.write_i32::<NetworkEndian>(0)
         }
+    }
+}
+
+#[cfg(test)]
+mod test_xdr_boolean {
+    use std::io::Cursor;
+
+    use super::{XdrDecode, XdrEncode};
+
+
+    #[test]
+    fn decode() {
+        let mut cursor = Cursor::new(b"\x00\x00\x00\x01");
+        let mut i: bool = false;
+        i.read_xdr(&mut cursor).unwrap();
+
+        assert_eq!(i, true)
+    }
+
+    #[test]
+    fn encode() {
+        let mut cursor = Cursor::new(Vec::new());
+        let i: bool = true;
+        i.write_xdr(&mut cursor).unwrap();
+        
+        assert_eq!(cursor.get_ref()[..], b"\x00\x00\x00\x01"[..])
+
     }
 }
 
@@ -134,6 +229,33 @@ impl XdrEncode for i64 {
     }
 }
 
+#[cfg(test)]
+mod test_xdr_hyper {
+    use std::io::Cursor;
+
+    use super::{XdrDecode, XdrEncode};
+
+
+    #[test]
+    fn decode() {
+        let mut cursor = Cursor::new(b"\x00\x00\x00\x00\x00\x00\x00\x01");
+        let mut i: u64 = 0;
+        i.read_xdr(&mut cursor).unwrap();
+
+        assert_eq!(i, 1)
+    }
+
+    #[test]
+    fn encode() {
+        let mut cursor = Cursor::new(Vec::new());
+        let i: u64 = 1;
+        i.write_xdr(&mut cursor).unwrap();
+        
+        assert_eq!(cursor.get_ref()[..], b"\x00\x00\x00\x00\x00\x00\x00\x01"[..])
+
+    }
+}
+
 // 4.6 Floating-Point
 impl XdrDecode for f32 {
     fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()> where RD: Read {
@@ -147,6 +269,34 @@ impl XdrEncode for f32 {
         writer.write_f32::<NetworkEndian>(*self)
     }
 }
+
+#[cfg(test)]
+mod test_xdr_float {
+    use std::io::Cursor;
+
+    use super::{XdrDecode, XdrEncode};
+
+
+    #[test]
+    fn decode() {
+        let mut cursor = Cursor::new(b"\x40\x49\x0e\x56");
+        let mut i: f32 = 0.0;
+        i.read_xdr(&mut cursor).unwrap();
+
+        assert_eq!(i, 3.1415)
+    }
+
+    #[test]
+    fn encode() {
+        let mut cursor = Cursor::new(Vec::new());
+        let i: f32 = 3.1415;
+        i.write_xdr(&mut cursor).unwrap();
+        
+        assert_eq!(cursor.get_ref()[..], b"\x40\x49\x0e\x56"[..])
+
+    }
+}
+
 
 // 4.7 Double-Precision Floating-Point
 impl XdrDecode for f64 {
@@ -162,46 +312,150 @@ impl XdrEncode for f64 {
     }
 }
 
+#[cfg(test)]
+mod test_xdr_double {
+    use std::io::Cursor;
+
+    use super::{XdrDecode, XdrEncode};
+
+
+    #[test]
+    fn decode() {
+        let mut cursor = Cursor::new(b"\x40\x09\x21\xca\xc0\x83\x12\x6f");
+        let mut i: f64 = 0.0;
+        i.read_xdr(&mut cursor).unwrap();
+
+        assert_eq!(i, 3.1415)
+    }
+
+    #[test]
+    fn encode() {
+        let mut cursor = Cursor::new(Vec::new());
+        let i: f64 = 3.1415;
+        i.write_xdr(&mut cursor).unwrap();
+        
+        assert_eq!(cursor.get_ref()[..], b"\x40\x09\x21\xca\xc0\x83\x12\x6f"[..])
+
+    }
+}
+
 // 4.8 Quadruple-Precision Floating-Point
 // Nobody uses this
 
 // 4.9 Fixed-Length Opaque Data
 impl<const N: usize> XdrDecode for [u8; N] {
     fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()> where RD: Read {
-        let pad = (4 - (N & 3)) & 3;
         reader.read_exact(self)?;
-        read_padding!(reader, pad);
+        read_padding!(reader, N);
         Ok(())
     }
 }
 
 impl<const N: usize> XdrEncode for [u8; N] {
     fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()> where WR: Write {
-        let pad = (4 - (N & 3)) & 3;
         writer.write_all(self)?;
-        write_padding!(writer, pad);
+        write_padding!(writer, N);
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod test_xdr_opaque {
+    use std::io::Cursor;
+
+    use super::{XdrDecode, XdrEncode};
+
+
+    #[test]
+    fn decode() {
+        let mut cursor = Cursor::new(b"\x01\x02\x00\x00");
+        let mut i = [0u8; 2];
+        i.read_xdr(&mut cursor).unwrap();
+
+        assert_eq!(i, [1u8, 2u8]);
+
+        let mut cursor = Cursor::new(b"\x01\x02\x03\x04");
+        let mut i = [0u8; 4];
+        i.read_xdr(&mut cursor).unwrap();
+
+        assert_eq!(i, [1u8, 2u8, 3u8, 4u8])
+    }
+
+    #[test]
+    fn encode() {
+        let mut cursor = Cursor::new(Vec::new());
+        let i = [1u8, 2u8];
+        i.write_xdr(&mut cursor).unwrap();
+        
+        assert_eq!(cursor.get_ref()[..], b"\x01\x02\x00\x00"[..]);
+
+        let mut cursor = Cursor::new(Vec::new());
+        let i = [1u8, 2u8, 3u8, 4u8];
+        i.write_xdr(&mut cursor).unwrap();
+        
+        assert_eq!(cursor.get_ref()[..], b"\x01\x02\x03\x04"[..])
+
+    }
+}
+
+
 
 // 4.10 Variable-Length Opaque Data
 impl XdrDecode for Vec<u8> {
     fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()> where RD: Read {
         let len = reader.read_u32::<NetworkEndian>()? as usize;
-        let pad = (4 - (len & 3)) & 3;
         *self = vec![0; len];
         reader.read_exact(self)?;
-        read_padding!(reader, pad);
+        read_padding!(reader, len);
         Ok(())
     }
 }
 
 impl XdrEncode for Vec<u8> {
     fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()> where WR: Write {
-        let pad = (4 - (self.len() & 3)) & 3;
+        writer.write_u32::<NetworkEndian>(self.len() as u32)?;
         writer.write_all(self)?;
-        write_padding!(writer, pad);
+        write_padding!(writer, self.len());
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test_xdr_variable_opaque {
+    use std::io::Cursor;
+
+    use super::{XdrDecode, XdrEncode};
+
+
+    #[test]
+    fn decode() {
+        let mut cursor = Cursor::new(b"\x00\x00\x00\x02\x01\x02\x00\x00");
+        let mut i: Vec<u8> = Vec::new();
+        i.read_xdr(&mut cursor).unwrap();
+
+        assert_eq!(i, vec![1u8, 2u8]);
+
+        let mut cursor = Cursor::new(b"\x00\x00\x00\x04\x01\x02\x03\x04");
+        let mut i: Vec<u8> = Vec::new();
+        i.read_xdr(&mut cursor).unwrap();
+
+        assert_eq!(i, [1u8, 2u8, 3u8, 4u8])
+    }
+
+    #[test]
+    fn encode() {
+        let mut cursor = Cursor::new(Vec::new());
+        let i = vec![1u8, 2u8];
+        i.write_xdr(&mut cursor).unwrap();
+        
+        assert_eq!(cursor.get_ref()[..], b"\x00\x00\x00\x02\x01\x02\x00\x00"[..]);
+
+        let mut cursor = Cursor::new(Vec::new());
+        let i = vec![1u8, 2u8, 3u8, 4u8];
+        i.write_xdr(&mut cursor).unwrap();
+        
+        assert_eq!(cursor.get_ref()[..], b"\x00\x00\x00\x04\x01\x02\x03\x04"[..])
+
     }
 }
 
@@ -209,21 +463,59 @@ impl XdrEncode for Vec<u8> {
 impl XdrDecode for String {
     fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()> where RD: Read {
         let len = reader.read_u32::<NetworkEndian>()? as u64;
-        let pad = (4 - (len & 3)) & 3;
         let mut s = reader.take(len);
         s.read_to_string(self)?;
-        read_padding!(reader, pad);
+        read_padding!(reader, len);
         Ok(())
     }
 }
 
 impl XdrEncode for String {
     fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()> where WR: Write {
-        let len = self.len();
-        let pad = (4 - (len & 3)) & 3;
-        writer.write_all(self.as_bytes())?;
-        write_padding!(writer, pad);
+        let bytes = self.as_bytes();
+        writer.write_u32::<NetworkEndian>(bytes.len() as u32)?;
+        writer.write_all(bytes)?;
+        write_padding!(writer, self.len());
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test_xdr_string {
+    use std::io::Cursor;
+
+    use super::{XdrDecode, XdrEncode};
+
+
+    #[test]
+    fn decode() {
+        let mut cursor = Cursor::new(b"\x00\x00\x00\x02ab\x00\x00");
+        let mut i = String::new();
+        i.read_xdr(&mut cursor).unwrap();
+
+        assert_eq!(i, "ab");
+
+        let mut cursor = Cursor::new(b"\x00\x00\x00\x04abcd");
+        let mut i = String::new();
+        i.read_xdr(&mut cursor).unwrap();
+
+        assert_eq!(i, "abcd");
+    }
+
+    #[test]
+    fn encode() {
+        let mut cursor = Cursor::new(Vec::new());
+        let i = "ab".to_string();
+        i.write_xdr(&mut cursor).unwrap();
+        
+        assert_eq!(cursor.get_ref()[..], b"\x00\x00\x00\x02ab\x00\x00"[..]);
+
+        let mut cursor = Cursor::new(Vec::new());
+        let i = "abcd".to_string();
+        i.write_xdr(&mut cursor).unwrap();
+        
+        assert_eq!(cursor.get_ref()[..], b"\x00\x00\x00\x04abcd"[..])
+
     }
 }
 
@@ -261,6 +553,7 @@ impl<T: XdrDecode + Default> XdrDecode for Vec<T> {
 
 impl<T: XdrEncode> XdrEncode for Vec<T> {
     fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()> where WR: Write {
+        writer.write_u32::<NetworkEndian>(self.len() as u32)?;
         for x in self {
             x.write_xdr(writer)?;
         }

@@ -1,9 +1,6 @@
-use async_std::stream::Stream;
+pub(crate) mod common;
 
-mod xdr;
-
-struct Rpc {
-
-}
+pub mod server;
+pub mod client;
 
 

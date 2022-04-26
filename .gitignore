@@ -1,2 +1,7 @@
 /target
 Cargo.lock
+
+
+# Python and pytest
+__pycache__/
+.pytest_cache/

@@ -1,26 +1,27 @@
 
 /// VXI-11 async channel program number
-const DEVICE_ASYNC: u32 = 0x0607B0;
+pub(crate) const DEVICE_ASYNC: u32 = 0x0607B0;
 
 /// VXI-11 async channel program version
-const DEVICE_ASYNC_VERSION: u32 = 1;
+pub(crate) const DEVICE_ASYNC_VERSION: u32 = 1;
 
 /// VXI-11 core channel program number
-const DEVICE_CORE: u32 = 0x0607AF;
+pub(crate) const DEVICE_CORE: u32 = 0x0607AF;
 
 /// VXI-11 core channel program version
-const DEVICE_CORE_VERSION: u32 = 1;
+pub(crate) const DEVICE_CORE_VERSION: u32 = 1;
 
 /// VXI-11 interrupt channel program number
-const DEVICE_INTR: u32 = 0x0607B1;
+pub(crate) const DEVICE_INTR: u32 = 0x0607B1;
 
 /// VXI-11 interrupt channel program version
-const DEVICE_INTR_VERSION: u32 = 1;
+pub(crate) const DEVICE_INTR_VERSION: u32 = 1;
 
 pub(crate) mod xdr {
     use std::io::{Read, Result, Write};
 
-    use super::{XdrDecode, XdrEncode};
+    use crate::common::xdr::prelude::*;
+
     #[derive(Debug, Default, Clone, Copy)]
     pub(crate) struct DeviceLink(pub u32);
 
@@ -78,6 +79,7 @@ pub(crate) mod xdr {
     }
 
     #[derive(Debug, Clone, Copy)]
+    #[non_exhaustive]
     pub(crate) enum DeviceErrorCode {
         NoError,
         SyntaxError,
@@ -94,10 +96,12 @@ pub(crate) mod xdr {
         InvalidAddress,
         Abort,
         ChannelAlreadyEstablished,
+
+        /// Used for reserved/unknown error codes
         _Reserved(u32)
     }
 
-    impl XdrEncode for ReplyStat {
+    impl XdrEncode for DeviceErrorCode {
         fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()> where WR: Write {
             writer.write_u32::<NetworkEndian>(match self {
                 DeviceErrorCode::NoError => 0,
@@ -115,31 +119,31 @@ pub(crate) mod xdr {
                 DeviceErrorCode::InvalidAddress => 21,
                 DeviceErrorCode::Abort => 23,
                 DeviceErrorCode::ChannelAlreadyEstablished => 29,
-                DeviceErrorCode::_Reserved(x) => *x,
+                DeviceErrorCode::_Reserved(x) => *x
             })
         }
     }
 
-    impl XdrDecode for ReplyStat {
+    impl XdrDecode for DeviceErrorCode {
         fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()> where RD: Read {
             let discriminant = reader.read_u32::<NetworkEndian>()?;
             *self = match discriminant {
-                0 => NoError,
-                1 => SyntaxError,
-                3 => DeviceNotAccessible,
-                4 => InvalidLinkIdentifier,
-                5 => ParameterError,
-                6 => ChannelNotEstablished,
-                8 => OperationNotSupported,
-                9 => OutOfResources,
-                11 => DeviceLockedByAnotherLink,
-                12 => NoLockHeldByThisLink,
-                15 => IoTimeout,
-                17 => IoError,
-                21 => InvalidAddress,
-                23 => Abort,
-                29 => ChannelAlreadyEstablished,
-                x => _Reserved(*x)
+                0 => DeviceErrorCode::NoError,
+                1 => DeviceErrorCode::SyntaxError,
+                3 => DeviceErrorCode::DeviceNotAccessible,
+                4 => DeviceErrorCode::InvalidLinkIdentifier,
+                5 => DeviceErrorCode::ParameterError,
+                6 => DeviceErrorCode::ChannelNotEstablished,
+                8 => DeviceErrorCode::OperationNotSupported,
+                9 => DeviceErrorCode::OutOfResources,
+                11 => DeviceErrorCode::DeviceLockedByAnotherLink,
+                12 => DeviceErrorCode::NoLockHeldByThisLink,
+                15 => DeviceErrorCode::IoTimeout,
+                17 => DeviceErrorCode::IoError,
+                21 => DeviceErrorCode::InvalidAddress,
+                23 => DeviceErrorCode::Abort,
+                29 => DeviceErrorCode::ChannelAlreadyEstablished,
+                x => DeviceErrorCode::_Reserved(x)
             };
             Ok(())
         }
