@@ -138,6 +138,24 @@ where
     }
 }
 
+pub(crate) async fn serve_rpc_noreply<RD, WR, SERVICE>(
+    mut reader: RD,
+    mut _writer: WR,
+    service: SERVICE,
+) -> io::Result<()>
+where
+    RD: AsyncRead + Unpin,
+    WR: AsyncWrite + Unpin,
+    SERVICE: RpcService + Sync,
+{
+    loop {
+        // Read message
+        let fragment = read_record(&mut reader, 1024 * 1024).await?;
+
+        let _reply = service.handle_message(fragment).await?;
+    }
+}
+
 #[async_std::test]
 async fn test_serve_rpc() {
     struct T;

@@ -3,26 +3,39 @@
 pub(crate) const DEVICE_ASYNC: u32 = 0x0607B0;
 /// VXI-11 async channel program version
 pub(crate) const DEVICE_ASYNC_VERSION: u32 = 1;
-
+// Async channel procedures
 pub(crate) const device_abort: u32 = 1;
-
 
 /// VXI-11 core channel program number
 pub(crate) const DEVICE_CORE: u32 = 0x0607AF;
-
 /// VXI-11 core channel program version
 pub(crate) const DEVICE_CORE_VERSION: u32 = 1;
+// Core channel procedures
+pub(crate) const create_link: u32 = 10;
+pub(crate) const device_write: u32 = 11;
+pub(crate) const device_read: u32 = 12;
+pub(crate) const device_readstb: u32 = 13;
+pub(crate) const device_trigger: u32 = 14;
+pub(crate) const device_clear: u32 = 15;
+pub(crate) const device_remote: u32 = 16;
+pub(crate) const device_local: u32 = 17;
+pub(crate) const device_lock: u32 = 18;
+pub(crate) const device_unlock: u32 = 19;
+pub(crate) const device_enable_srq: u32 = 20;
+pub(crate) const device_docmd: u32 = 22;
+pub(crate) const destroy_link: u32 = 23;
+pub(crate) const create_intr_chan: u32 = 25;
+pub(crate) const destroy_intr_chan: u32 = 26;
 
 /// VXI-11 interrupt channel program number
 pub(crate) const DEVICE_INTR: u32 = 0x0607B1;
-
 /// VXI-11 interrupt channel program version
 pub(crate) const DEVICE_INTR_VERSION: u32 = 1;
-
+// Interrupt channel procedures
 pub(crate) const device_intr_srq: u32 = 30;
 
 pub(crate) mod xdr {
-    use std::io::{Read, Result, Write};
+    use std::io::{Read, Result, Write, ErrorKind};
 
     use crate::common::xdr::prelude::*;
 
@@ -52,7 +65,8 @@ pub(crate) mod xdr {
             let discriminant = reader.read_u32::<NetworkEndian>()?;
             *self = match discriminant {
                 1 => DeviceAddrFamily::Tcp,
-                2 => DeviceAddrFamily::Udp
+                2 => DeviceAddrFamily::Udp,
+                _ => return Err(ErrorKind::InvalidData.into())
             };
             Ok(())
         }
@@ -114,7 +128,7 @@ pub(crate) mod xdr {
         }
     }
 
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Copy, PartialEq)]
     #[non_exhaustive]
     pub(crate) enum DeviceErrorCode {
         NoError,
@@ -192,7 +206,7 @@ pub(crate) mod xdr {
     }
 
     #[derive(Debug, Default, Clone, Copy)]
-    struct DeviceError {
+    pub(crate) struct DeviceError {
         error: DeviceErrorCode
     }
 
@@ -214,12 +228,12 @@ pub(crate) mod xdr {
         }
     }
 
-    #[derive(Debug, Default, Clone, Copy)]
-    struct CreateLinkParms {
-        client_id: i32,
-        lock_device: bool,
-        lock_timeout: u32,
-        device: String
+    #[derive(Debug, Default, Clone)]
+    pub(crate) struct CreateLinkParms {
+        pub(crate) client_id: i32,
+        pub(crate) lock_device: bool,
+        pub(crate) lock_timeout: u32,
+        pub(crate) device: String
     }
 
     impl XdrEncode for CreateLinkParms {
@@ -247,11 +261,11 @@ pub(crate) mod xdr {
     }
 
     #[derive(Debug, Default, Clone, Copy)]
-    struct CreateLinkResp {
-        error: DeviceErrorCode,
-        lid: DeviceLink,
-        abort_port: u32,//u16,
-        max_recv_size: u32
+    pub(crate) struct CreateLinkResp {
+        pub(crate) error: DeviceErrorCode,
+        pub(crate) lid: DeviceLink,
+        pub(crate) abort_port: u16,
+        pub(crate) max_recv_size: u32
     }
 
     impl XdrEncode for CreateLinkResp {
@@ -278,8 +292,8 @@ pub(crate) mod xdr {
         }
     }
 
-    #[derive(Debug, Default, Clone, Copy)]
-    struct DeviceWriteParms {
+    #[derive(Debug, Default, Clone)]
+    pub(crate) struct DeviceWriteParms {
         lid: DeviceLink,
         io_timeout: u32,
         lock_timeout: u32,
@@ -314,7 +328,7 @@ pub(crate) mod xdr {
     }
 
     #[derive(Debug, Default, Clone, Copy)]
-    struct DeviceWriteResp {
+    pub(crate) struct DeviceWriteResp {
         error: DeviceErrorCode,
         size: u32
     }
@@ -340,7 +354,7 @@ pub(crate) mod xdr {
     }
 
     #[derive(Debug, Default, Clone, Copy)]
-    struct DeviceReadParms {
+    pub(crate) struct DeviceReadParms {
         lid: DeviceLink,
         request_size: u32,
         io_timeout: u32,
@@ -378,8 +392,8 @@ pub(crate) mod xdr {
     }
 
     
-    #[derive(Debug, Default, Clone, Copy)]
-    struct DeviceReadResp {
+    #[derive(Debug, Default, Clone)]
+    pub(crate) struct DeviceReadResp {
         error: DeviceErrorCode,
         reason: u32,
         data: Vec<u8>
@@ -408,7 +422,7 @@ pub(crate) mod xdr {
     }
 
     #[derive(Debug, Default, Clone, Copy)]
-    struct DeviceReadStbResp {
+    pub(crate) struct DeviceReadStbResp {
         error: DeviceErrorCode,
         stb: u32
     }
@@ -434,7 +448,7 @@ pub(crate) mod xdr {
     }
 
     #[derive(Debug, Default, Clone, Copy)]
-    struct DeviceGenericParms {
+    pub(crate) struct DeviceGenericParms {
         lid: DeviceLink,
         flags: DeviceFlags,
         lock_timeout: u32,
@@ -466,7 +480,7 @@ pub(crate) mod xdr {
     }
 
     #[derive(Debug, Default, Clone, Copy)]
-    struct DeviceRemoteFunc {
+    pub(crate) struct DeviceRemoteFunc {
         host_addr: u32,
         host_port: u16,
         prog_num: u32,
@@ -500,14 +514,14 @@ pub(crate) mod xdr {
         }
     }
 
-    #[derive(Debug, Default, Clone, Copy)]
-    struct DeviceEnableSrqParms {
+    #[derive(Debug, Default, Clone)]
+    pub(crate) struct DeviceEnableSrqParms {
         lid: DeviceLink,
         enable: bool,
         handle: Vec<u8>
     }
 
-    impl XdrEncode for DeviceRemoteFunc {
+    impl XdrEncode for DeviceEnableSrqParms {
         fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()>
         where
             WR: Write,
@@ -518,7 +532,7 @@ pub(crate) mod xdr {
         }
     }
 
-    impl XdrDecode for DeviceRemoteFunc {
+    impl XdrDecode for DeviceEnableSrqParms {
         fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()>
         where
             RD: Read,
@@ -530,7 +544,7 @@ pub(crate) mod xdr {
     }
 
     #[derive(Debug, Default, Clone, Copy)]
-    struct DeviceLockParms {
+    pub(crate) struct DeviceLockParms {
         lid: DeviceLink,
         flags: DeviceFlags,
         lock_timeout: u32
@@ -558,8 +572,8 @@ pub(crate) mod xdr {
         }
     }
 
-    #[derive(Debug, Default, Clone, Copy)]
-    struct DeviceDocmdParms {
+    #[derive(Debug, Default, Clone)]
+    pub(crate) struct DeviceDocmdParms {
         lid: DeviceLink,
         flags: DeviceFlags,
         io_timeout: u32,
@@ -602,8 +616,8 @@ pub(crate) mod xdr {
         }
     }
 
-    #[derive(Debug, Default, Clone, Copy)]
-    struct DeviceDocmdResp {
+    #[derive(Debug, Default, Clone)]
+    pub(crate) struct DeviceDocmdResp {
         error: DeviceErrorCode,
         data_out: Vec<u8>
     }
@@ -628,9 +642,9 @@ pub(crate) mod xdr {
         }
     }
 
-    #[derive(Debug, Default, Clone, Copy)]
-    struct DeviceSrqParms {
-        handle: Vec<u8>,
+    #[derive(Debug, Default, Clone)]
+    pub(crate) struct DeviceSrqParms {
+        pub(crate) handle: Vec<u8>,
     }
 
     impl XdrEncode for DeviceSrqParms {

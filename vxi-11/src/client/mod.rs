@@ -1,58 +1,120 @@
-use crate::common::xdr::vxi11::*;
+use std::{
+    io::{self, Cursor},
+    net::IpAddr,
+};
+
+use async_std::net::TcpStream;
+
+use crate::{
+    common::{
+        onc_rpc::{RpcClient, RpcError, RpcService},
+        xdr::{
+            onc_rpc::xdr::MissmatchInfo,
+            portmapper::PORTMAPPER_PORT,
+            vxi11::{
+                xdr::{
+                    CreateLinkParms, CreateLinkResp, DeviceErrorCode, DeviceLink, DeviceSrqParms,
+                },
+                *,
+            }, basic::{XdrDecode, XdrEncode},
+        },
+    },
+    server::portmapper::{Mapping, PortMapperClient, PORTMAPPER_PROT_TCP},
+};
 
 enum VxiClientError {
     Rpc(RpcError),
-    Device(DeviceErrorCode)
+    Device(DeviceErrorCode),
 }
 
-struct Vxi11Client<'call> {
+impl From<RpcError> for VxiClientError {
+    fn from(rpc: RpcError) -> Self {
+        Self::Rpc(rpc)
+    }
+}
+
+impl From<DeviceErrorCode> for VxiClientError {
+    fn from(dev: DeviceErrorCode) -> Self {
+        Self::Device(dev)
+    }
+}
+
+impl From<io::Error> for VxiClientError {
+    fn from(io: io::Error) -> Self {
+        Self::Rpc(RpcError::from(io))
+    }
+}
+
+struct Vxi11CoreClient<IO> {
     lid: DeviceLink,
-    core_client: RpcClient,
-    async_client: RpcClient,
+    rpc_client: RpcClient<IO>,
     max_recv_size: u32,
-    srq_callback: Option<Box<Fn(Vec<u8>) -> Vec<u8> + 'call>>,
+    async_port: u16,
 }
 
-impl<'call> Vxi11Client<'call> {
-    pub async fn bind(addr: IpAddr, client_id: i32, lock_device: bool, lock_timeout: u32, device: String) -> Result<Self, VxiError> {
-        // Setup core RPC client
-        log::info!("Connecting to VXI11 @ {:?}", addr);
-        let core_port = portmapper::getport(addr, DEVICE_CORE, DEVICE_CORE_VERSION, IPPROTO_TCP)?;
+impl Vxi11CoreClient<TcpStream> {
+    pub async fn bind(
+        addr: IpAddr,
+        client_id: i32,
+        lock_device: bool,
+        lock_timeout: u32,
+        device: String,
+    ) -> Result<Self, VxiClientError> {
+        // Get port of core channel
+        let stream = TcpStream::connect((addr, PORTMAPPER_PORT)).await?;
+        let mut portmap = PortMapperClient::new(stream);
+        let core_port = portmap
+            .getport(Mapping::new(
+                DEVICE_CORE,
+                DEVICE_CORE_VERSION,
+                PORTMAPPER_PROT_TCP,
+                0,
+            ))
+            .await?;
         log::debug!("Core channel @ port {}", core_port);
-        let core_client = RpcClient::new((addr, core_port))?;
-        
+
+        let stream = TcpStream::connect((addr, core_port)).await?;
+        let mut core_client = RpcClient::new(stream);
+
         // Setup link
-        let link_parms = CreateLinkParms::new(client_id, lock_device, lock_timeout, device);
-        let link_resp: CreateLinkResp = core_client.call(CREATE_LINK, link_parms)?;
-        if link_resp.error != DeviceErrorCode::NoError {
+        let link_parms = CreateLinkParms {
+            client_id,
+            lock_device,
+            lock_timeout,
+            device,
+        };
+        let link_resp: CreateLinkResp = core_client
+            .call(DEVICE_CORE, DEVICE_CORE_VERSION, create_link, link_parms)
+            .await?;
+        if link_resp.error == DeviceErrorCode::NoError {
+            Ok(Self {
+                lid: link_resp.lid,
+                rpc_client: core_client,
+                max_recv_size: link_resp.max_recv_size,
+                async_port: link_resp.abort_port,
+            })
+        } else {
             log::error!("Create link returned error: {:?}", link_resp.error);
-            return Err(link_resp.error.into());
-        }
-
-        // Setup async RPC client
-        let async_port = link_resp.abort_port;
-        log::debug!("Async channel @ port {}", async_port);
-        let async_client = RpcClient::new((addr, async_port))?;
-
-        Self {
-            lid: link_resp.lid,
-            core_client,
-            async_client,
-            max_recv_size: link_resp.max_recv_size,
-            srq_callback: None
+            Err(link_resp.error.into())
         }
     }
-
-
 }
 
-#[async_trait]
-impl<'call> RpcClient for Vxi11Client<'call> { }
 
-#[async_trait]
-impl<'call> RpcService for Vxi11Client<'call> {
+struct Vxi11AsyncClient<IO> {
+    lid: DeviceLink,
+    rpc_client: RpcClient<IO>,
+}
+
+
+struct Vxi11IntrServer {
+    lid: DeviceLink,
+}
+
+#[async_trait::async_trait]
+impl RpcService for Vxi11IntrServer {
     async fn call(
-        &mut self,
+        &self,
         prog: u32,
         vers: u32,
         proc: u32,
@@ -71,11 +133,9 @@ impl<'call> RpcService for Vxi11Client<'call> {
         if proc == device_intr_srq {
             let mut parms = DeviceSrqParms::default();
             parms.read_xdr(args)?;
-            if let Some(srq_fn) = self.srq_fn {
-                srq_fn(parms.handle);
-            }
-            // The device_intr_srq call is one-way, do not send a reply. 
-            Err(RpcError::DoNotReply)
+            // TODO
+            ().write_xdr(ret)?;
+            Ok(())
         } else {
             Err(RpcError::ProcUnavail)
         }
