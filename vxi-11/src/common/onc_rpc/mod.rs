@@ -118,9 +118,8 @@ pub(crate) trait RpcService {
     }
 }
 
-pub(crate) async fn serve_rpc<RD, WR, SERVICE>(
-    mut reader: RD,
-    mut writer: WR,
+pub(crate) async fn handle_stream<IO, SERVICE>(
+    mut stream: IO,
     service: SERVICE,
 ) -> io::Result<()>
 where
@@ -130,31 +129,49 @@ where
 {
     loop {
         // Read message
-        let fragment = read_record(&mut reader, 1024 * 1024).await?;
+        let fragment = read_record(&mut stream, 1024 * 1024).await?;
 
         let reply = service.handle_message(fragment).await?;
 
-        write_record(&mut writer, reply).await?;
+        write_record(&mut stream, reply).await?;
     }
 }
 
-pub(crate) async fn serve_rpc_noreply<RD, WR, SERVICE>(
-    mut reader: RD,
-    mut _writer: WR,
+pub(crate) async fn handle_stream_noreply<IO, SERVICE>(
+    mut stream: IO,
     service: SERVICE,
 ) -> io::Result<()>
 where
-    RD: AsyncRead + Unpin,
-    WR: AsyncWrite + Unpin,
+    IO: AsyncRead + Unpin,
     SERVICE: RpcService + Sync,
 {
     loop {
         // Read message
-        let fragment = read_record(&mut reader, 1024 * 1024).await?;
+        let fragment = read_record(&mut stream, 1024 * 1024).await?;
 
         let _reply = service.handle_message(fragment).await?;
     }
 }
+
+pub(crate) async fn handle_udp<SERVICE>(
+    socket: UdpSocket,
+    service: SERVICE,
+) -> io::Result<()>
+where
+    SERVICE: RpcService + Sync,
+{
+    loop {
+        // Read message
+        let mut buf = vec![0; 1500];
+        let (n, peer) = socket.recv_from(&mut buf).await?;
+
+        let reply = service.handle_message(fragment[..n]).await?;
+
+        socket.sendto(reply, peer).await?;
+    }
+}
+
+
 
 #[async_std::test]
 async fn test_serve_rpc() {
@@ -173,8 +190,7 @@ async fn test_serve_rpc() {
         println!("Accepted from: {}", peer);
 
         task::spawn(async move {
-            let (reader, writer) = stream.split();
-            if let Err(err) = serve_rpc(reader, writer, T).await {
+            if let Err(err) = serve_rpc(stream, T).await {
                 log::warn!("Error processing client: {}", err)
             }
             drop(token);

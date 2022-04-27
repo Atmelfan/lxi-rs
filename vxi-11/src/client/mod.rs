@@ -53,7 +53,8 @@ struct Vxi11CoreClient<IO> {
 }
 
 impl Vxi11CoreClient<TcpStream> {
-    pub async fn bind(
+    /// Create a new client and connect to the core channel
+    pub async fn connect(
         addr: IpAddr,
         client_id: i32,
         lock_device: bool,
@@ -97,6 +98,20 @@ impl Vxi11CoreClient<TcpStream> {
             log::error!("Create link returned error: {:?}", link_resp.error);
             Err(link_resp.error.into())
         }
+    }
+
+    /// Create a new client and connect to the async/abort channel.
+    /// Can only be done after the core channel has been initialized
+    pub async fn connect_async(
+        &self
+        addr: IpAddr
+    ) -> Result<Vxi11AsyncClient, VxiClientError> {
+        let stream = TcpStream::connect((addr, self.async_port)).await?;
+        let mut async_client = RpcClient::new(stream);
+        Ok(Vxi11AsyncClient {
+            lid: self.lid,
+            rpc_client: async_client
+        })
     }
 }
 
