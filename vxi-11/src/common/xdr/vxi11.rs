@@ -1,3 +1,4 @@
+#![allow(non_upper_case_globals)]
 
 /// VXI-11 async channel program number
 pub(crate) const DEVICE_ASYNC: u32 = 0x0607B0;

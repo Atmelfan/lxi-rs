@@ -36,7 +36,7 @@ where
 
     pub(crate) async fn null(&mut self, mapping: Mapping) -> Result<bool, RpcError> {
         self.0
-            .call(PORTMAPPER_PROG, PORTMAPPER_VERS, PMAPPROC_SET, mapping)
+            .call(PORTMAPPER_PROG, PORTMAPPER_VERS, PMAPPROC_NULL, mapping)
             .await
     }
 
@@ -65,7 +65,7 @@ mod test_portmap_client {
 
     #[async_std::test]
     async fn test_call_rpc() {
-        let mut stream = async_std::net::TcpStream::connect("127.0.0.1:111")
+        let stream = async_std::net::TcpStream::connect("127.0.0.1:111")
             .await
             .unwrap();
         println!("Connected to {}", &stream.peer_addr().unwrap());
