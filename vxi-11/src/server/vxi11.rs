@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     io::{self, Cursor, Error, Read, Write},
     sync::{atomic::AtomicU32, Arc},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use async_listen::ListenExt;
@@ -23,7 +23,10 @@ use crate::common::{
         basic::{XdrDecode, XdrEncode},
         onc_rpc::xdr::MissmatchInfo,
         portmapper::xdr::Mapping,
-        vxi11::{xdr::DeviceLink, *},
+        vxi11::{
+            xdr::{CreateLinkParms, CreateLinkResp, DeviceErrorCode, DeviceLink},
+            *,
+        },
     },
 };
 
@@ -71,11 +74,16 @@ impl<DEV> VxiInner<DEV> {
         let link = Link::new(id, handle);
         (id, link)
     }
+
+    fn add_link(&mut self, lid: u32, link: Arc<Mutex<Link<DEV>>>) {
+        self.links.insert(lid, link);
+    }
 }
 
 /// Core RPC service
 pub struct VxiCoreServer<DEV> {
     inner: Arc<Mutex<VxiInner<DEV>>>,
+    max_recv_size: u32,
     async_port: u16,
 }
 
@@ -133,10 +141,42 @@ where
         }
 
         match proc {
-            10 => {
+            create_link => {
                 let mut inner = self.inner.lock().await;
-                let (lid, link) = inner.new_link();
+                let (lid, link_arc) = inner.new_link();
+                let mut link = link_arc.lock().await;
 
+                let mut parms = CreateLinkParms::default();
+                parms.read_xdr(args)?;
+
+                let mut resp = CreateLinkResp {
+                    error: DeviceErrorCode::NoError,
+                    lid: lid.into(),
+                    abort_port: self.async_port,
+                    max_recv_size: self.max_recv_size,
+                };
+
+                if parms.device.eq_ignore_ascii_case("instr0") {
+                    // Add link
+                    inner.add_link(lid, link_arc.clone());
+
+                    // Try to lock
+                    let t1 = Instant::now();
+                    while parms.lock_device
+                        && Instant::now() - t1 < Duration::from_millis(parms.lock_timeout.into())
+                    {
+                        if link.handle.try_acquire_exclusive().await.is_ok() {
+                            resp.error = DeviceErrorCode::NoError;
+                            break;
+                        } else {
+                            resp.error = DeviceErrorCode::DeviceLockedByAnotherLink;
+                        }
+                    }
+                } else {
+                    resp.error = DeviceErrorCode::InvalidAddress;
+                }
+
+                resp.write_xdr(ret)?;
                 Ok(())
             }
             _ => Err(RpcError::ProcUnavail),
@@ -268,6 +308,7 @@ impl VxiServerBuilder {
             VxiCoreServer {
                 inner: inner.clone(),
                 async_port: self.async_port,
+                max_recv_size: 128*1024,
             },
             VxiAsyncServer {
                 inner: inner.clone(),
