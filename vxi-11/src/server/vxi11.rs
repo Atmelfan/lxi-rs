@@ -78,6 +78,14 @@ impl<DEV> VxiInner<DEV> {
     fn add_link(&mut self, lid: u32, link: Arc<Mutex<Link<DEV>>>) {
         self.links.insert(lid, link);
     }
+
+    fn get_link(&mut self, lid: u32) -> Option<Arc<Mutex<Link<DEV>>>> {
+        self.links.get(lid)
+    }
+
+    fn remove_link(&mut self, lid: u32) -> Option<Arc<Mutex<Link<DEV>>>> {
+        self.links.remove(lid)
+    }
 }
 
 /// Core RPC service
@@ -102,14 +110,31 @@ impl<DEV> VxiCoreServer<DEV> {
         while let Some((token, stream)) = incoming.next().await {
             let s = self.clone();
             let peer = stream.peer_addr()?;
-            log::error!("Accepted from: {}", peer);
+            log::info!("Accepted connection from {}", peer);
 
             let inner = self.inner.clone();
 
             task::spawn(async move {
-                let (reader, writer) = stream.split();
-                //TODO
+                loop {
+                    // Read message
+                    let record = match read_record(&mut stream, 1024 * 1024).await {
+                        Ok(r) => r,
+                        Err(err) => break err,
+                    }
+            
+                    let reply = match service.handle_message(fragment).await {
+                        Ok(r) => r,
+                        Err(err) => break err,
+                    }
+            
+                    match write_record(&mut stream, reply).await {
+                        Ok(()) => {},
+                        Err(err) => break err,
+                    }
+                }
+
                 drop(token);
+                log::info!("Closed connection to {}", peer);
             });
         }
         Ok(())
@@ -143,11 +168,14 @@ where
         match proc {
             create_link => {
                 let mut inner = self.inner.lock().await;
-                let (lid, link_arc) = inner.new_link();
-                let mut link = link_arc.lock().await;
+
+
 
                 let mut parms = CreateLinkParms::default();
                 parms.read_xdr(args)?;
+
+                let (lid, link_arc) = inner.new_link();
+                let mut link = link_arc.lock().await;
 
                 let mut resp = CreateLinkResp {
                     error: DeviceErrorCode::NoError,
@@ -178,6 +206,25 @@ where
 
                 resp.write_xdr(ret)?;
                 Ok(())
+            }
+            destroy_link => {
+                let mut inner = self.inner.lock().await;
+
+                // Read parameters
+                let mut parms = DeviceLink::default();
+                parms.read_xdr(args)?;
+
+                let mut resp = DeviceError::default();
+
+                if let Ok(link) = inner.get_link(parms.0) {
+                    link.handle.force_release().await;
+                    link.remove_link(parms.0);
+                } else {
+                    resp.0 = DeviceErrorCode::InvalidLinkIdentifier;
+                }
+
+
+
             }
             _ => Err(RpcError::ProcUnavail),
         }
@@ -254,10 +301,10 @@ pub struct VxiServerBuilder {
 }
 
 impl VxiServerBuilder {
-    pub fn new(core_port: u16, async_port: u16) -> Self {
+    pub fn new() -> Self {
         Self {
-            core_port,
-            async_port,
+            core_port: 0,
+            async_port: 0,
         }
     }
 

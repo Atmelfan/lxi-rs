@@ -81,48 +81,37 @@ mod test_portmap_client {
     }
 }
 
-struct PortMapper {
-    mappings: Arc<RwLock<Vec<Mapping>>>,
+/// Create a simple static (does not allow set/unset) portmapper
+///
+struct StaticPortMapper {
+    mappings: Vec<Mapping>,
 }
 
-impl PortMapper {
-    pub fn new(mappings: Vec<Mapping>) -> Self {
+impl StaticPortMapper {
+    /// Initialize new static portmapper with no active mappings
+    pub fn new() -> Self {
         Self {
-            mappings: Arc::new(RwLock::new(mappings)),
+            mappings: Vec::new(),
         }
     }
 
-    async fn set(&self, mapping: Mapping) -> bool {
-        let mut x = self.mappings.write().await;
-        if let Some(_m) = &x
-            .iter()
-            .find(|m| m.prog == mapping.prog && m.vers == mapping.vers && m.prot == mapping.prot)
-        {
-            false
-        } else {
-            x.push(mapping);
-            true
-        }
+    /// Add a mapping
+    pub fn add(&mut self, prog: u32, vers: u32, prot: u32, port: u16) -> Self {
+        self.mappings.push(Mapping::new(prog, vers, prot, port as u32));
     }
 
-    async fn unset(&self, mapping: Mapping) -> bool {
-        let mut x = self.mappings.write().await;
-        x.retain(|m| m.prog != mapping.prog || m.vers != mapping.vers);
-        true
+    async fn serve_tcp(&self, addrs: impl ToSocketAddrs) -> Result<(), RpcError> {
+
     }
 
-    async fn getport(&self, mapping: Mapping) -> u16 {
-        self.mappings
-            .read()
-            .await
-            .iter()
-            .find(|m| m.prog == mapping.prog && m.vers == mapping.vers && m.prot == mapping.prot)
-            .map_or(0, |m| m.port as u16)
+    async fn serve_udp(&self, addrs: impl ToSocketAddrs) -> Result<(), RpcError> {
+
     }
+
 }
 
 #[async_trait]
-impl RpcService for PortMapper {
+impl RpcService for StaticPortMapper {
     async fn call(
         &self,
         prog: u32,
@@ -143,24 +132,23 @@ impl RpcService for PortMapper {
         match proc {
             PMAPPROC_NULL => Ok(()),
             PMAPPROC_SET => {
-                let mut mapping = Mapping::default();
-                mapping.read_xdr(args)?;
-                let res = self.set(mapping).await;
-                res.write_xdr(ret)?;
-                Ok(())
+                // Not implemented
+                log::error!("PMAPPROC_SET not implemented");
+                Err(RpcError::ProcUnavail)
             }
             PMAPPROC_UNSET => {
-                let mut mapping = Mapping::default();
-                mapping.read_xdr(args)?;
-                let res = self.unset(mapping).await;
-                res.write_xdr(ret)?;
-                Ok(())
+                // Not implemented
+                log::error!("PMAPPROC_UNSET not implemented");
+                Err(RpcError::ProcUnavail)
             }
             PMAPPROC_GETPORT => {
                 let mut mapping = Mapping::default();
                 mapping.read_xdr(args)?;
-                let res = self.getport(mapping).await;
-                res.write_xdr(ret)?;
+                let port = self.mappings
+                    .iter()
+                    .find(|m| m.prog == mapping.prog && m.vers == mapping.vers && m.prot == mapping.prot)
+                    .map_or(0, |m| m.port as u16);
+                port.write_xdr(ret)?;
                 Ok(())
             }
             PMAPPROC_DUMP => {
