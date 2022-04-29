@@ -1,20 +1,26 @@
 use core::option::Option;
 use core::result::Result;
-use std::fmt::{Display, Formatter};
+use std::{
+    fmt::{Display, Formatter},
+    io,
+    sync::Arc,
+};
 
 use bitfield::bitfield;
 
 use byteorder::{BigEndian, ByteOrder, NetworkEndian};
 
-use crate::protocol::errors::{Error, FatalErrorCode, NonFatalErrorCode};
+use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+
+use super::Protocol;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Header {
     pub message_type: MessageType,
     pub control_code: u8,
     pub message_parameter: u32,
-    pub len: usize,
+    pub len: u64,
 }
 
 impl Header {
@@ -35,7 +41,7 @@ impl Header {
                 ));
             }
 
-            let len = BigEndian::read_u64(&x[8..16]) as usize;
+            let len = BigEndian::read_u64(&x[8..16]);
 
             Ok(Header {
                 message_type: MessageType::from_message_type(x[2]).ok_or(Error::NonFatal(
@@ -58,69 +64,92 @@ impl Header {
         NetworkEndian::write_u32(&mut x[4..8], self.message_parameter);
         NetworkEndian::write_u64(&mut x[8..16], self.len as u64);
     }
+
+    pub(crate) fn with_payload(mut self, payload: Vec<u8>) -> Message {
+        self.len = payload.len() as u64;
+        Message {
+            header: self,
+            payload,
+        }
+    }
+
+    pub(crate) fn no_payload(mut self) -> Message {
+        self.len = 0;
+        Message {
+            header: self,
+            payload: Vec::new(),
+        }
+    }
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct Message {
-    pub(crate) header: Header,
-    pub(crate) payload: Vec<u8>,
+    header: Header,
+    payload: Vec<u8>,
 }
 
 impl Message {
-    pub fn new(
-        message_type: MessageType,
-        control_code: u8,
-        message_parameter: u32,
-        payload: Vec<u8>,
-    ) -> Self {
-        Message {
-            header: Header {
-                message_type,
-                control_code,
-                message_parameter,
-                len: payload.len(),
-            },
-            payload,
-        }
+    pub(crate) fn message_type(&self) -> MessageType {
+        self.header.message_type
     }
 
     pub(crate) fn message_parameter(&self) -> u32 {
         self.header.message_parameter
     }
 
-    pub(crate) fn control_code(&self) -> u32 {
-        self.header.message_parameter
+    pub(crate) fn control_code(&self) -> u8 {
+        self.header.control_code
     }
 
     pub fn payload(&self) -> &Vec<u8> {
         &self.payload
     }
-}
 
-impl Message {
-    pub(crate) async fn read_from(
-        reader: &mut (dyn AsyncRead + Unpin),
-        _maxlen: usize,
-    ) -> Result<Message, Error> {
+    pub(crate) async fn read_from<RD>(
+        reader: &mut RD,
+        maxlen: u64,
+    ) -> Result<Result<Message, Error>, io::Error> where RD: AsyncRead + Unpin {
         let mut buf = [0u8; Header::MESSAGE_HEADER_SIZE];
         reader.read_exact(&mut buf).await?;
-
-        let header = Header::from_buffer(&buf)?;
-        let mut payload = Vec::with_capacity(header.len);
-        if header.len > 0 {
-            reader.read_exact(payload.as_mut_slice()).await;
+        match Header::from_buffer(&buf) {
+            Ok(header) => {
+                if header.len > maxlen {
+                    Ok(Err(Error::NonFatal(
+                        NonFatalErrorCode::MessageTooLarge,
+                        b"Message payload too large",
+                    )))
+                } else {
+                    let mut payload = Vec::with_capacity(header.len as usize);
+                    reader.take(header.len).read_to_end(&mut payload).await?;
+                    Ok(Ok(Message { header, payload }))
+                }
+            }
+            Err(err) => Ok(Err(err)),
         }
-        Ok(Message { header, payload })
     }
 
-    pub(crate) async fn write_to(
+    pub(crate) async fn write_to<WR>(
         &self,
-        writer: &mut (dyn AsyncWrite + Unpin),
-    ) -> Result<(), Error> {
+        writer: &mut WR,
+    ) -> Result<(), io::Error> where WR: AsyncWrite + Unpin{
         let mut buf = [0u8; Header::MESSAGE_HEADER_SIZE];
         self.header.pack_buffer(&mut buf);
         writer.write_all(&buf).await?;
         writer.write_all(self.payload.as_slice()).await?;
         Ok(())
+    }
+}
+
+impl From<Error> for Message {
+    fn from(err: Error) -> Self {
+        match err {
+            Error::Fatal(code, msg) => MessageType::FatalError
+                .message_params(code.error_code(), 0)
+                .with_payload(msg.to_vec()),
+            Error::NonFatal(code, msg) => MessageType::Error
+                .message_params(code.error_code(), 0)
+                .with_payload(msg.to_vec()),
+        }
     }
 }
 
@@ -264,21 +293,21 @@ impl MessageType {
         }
     }
 
-    pub fn message(self, len: usize) -> Header {
+    pub fn message(self) -> Header {
         Header {
             message_type: self,
             control_code: 0,
             message_parameter: 0,
-            len,
+            len: 0,
         }
     }
 
-    pub fn message_params(self, len: usize, control_code: u8, message_parameter: u32) -> Header {
+    pub fn message_params(self, control_code: u8, message_parameter: u32) -> Header {
         Header {
             message_type: self,
             control_code,
             message_parameter,
-            len,
+            len:0,
         }
     }
 }
@@ -381,39 +410,5 @@ impl FeatureBitmap {
         s.set_encryption(encryption);
         s.set_initial_encryption(initial_encryption);
         s
-    }
-}
-
-bitfield! {
-    #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone)]
-    pub struct Protocol(u16);
-    impl Debug;
-    // The fields default to u16
-    pub u8, major, set_major : 15, 8;
-    pub u8, minor, set_minor : 7, 0;
-}
-
-impl Protocol {
-    pub fn as_parameter(&self, session_id: u16) -> u32 {
-        ((self.0 as u32) << 16) | session_id as u32
-    }
-}
-
-impl Display for Protocol {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // Display as `major.minor`
-        write!(f, "{}.{}", self.major(), self.minor())
-    }
-}
-
-impl From<u16> for Protocol {
-    fn from(x: u16) -> Self {
-        Protocol(x)
-    }
-}
-
-impl From<Protocol> for u16 {
-    fn from(p: Protocol) -> Self {
-        p.0
     }
 }

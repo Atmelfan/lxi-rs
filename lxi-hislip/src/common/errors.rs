@@ -7,8 +7,8 @@ pub enum Error {
 }
 
 impl Error {
-    fn is_fatal(&self) {
-        matches!(self, Self::Fatal(...))
+    pub fn is_fatal(&self) -> bool {
+        matches!(self, Self::Fatal(..))
     }
 }
 
