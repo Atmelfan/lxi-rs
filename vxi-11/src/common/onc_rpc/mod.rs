@@ -27,14 +27,20 @@ mod record;
 ///
 #[derive(Debug)]
 pub enum RpcError {
+    /// Program not available
     ProgUnavail,
+    /// Program version not available (se accepted version low-high in [MissmatchInfo])
     ProgMissmatch(MissmatchInfo),
-
+    /// Procedure not available
     ProcUnavail,
     /// Arguments have too many or too few bytes to deserialize
     GarbageArgs,
     /// Internal error
     SystemErr,
+    /// RPC version not supported
+    RpcMissmatch(MissmatchInfo),
+    /// Error during RPC authentication
+    AuthError(AuthStat),
     /// (De-)serialiation error on RPC channel
     Io(Error),
 }
@@ -51,18 +57,38 @@ pub(crate) trait RpcService {
         Ok(())
     }
 
-    async fn call(
-        &self,
-        prog: u32,
-        vers: u32,
-        proc: u32,
-        args: &mut Cursor<Vec<u8>>,
-        ret: &mut Cursor<Vec<u8>>,
-    ) -> Result<(), RpcError> {
-        Err(RpcError::ProgUnavail)
+    async fn serve_tcp(self: Arc<Self>, stream: TcpStream) -> io::Result<()> {
+        loop {
+            // Read message
+            let fragment = read_record(&mut stream, 1024 * 1024).await?;
+    
+            let _reply = self.handle_message(fragment).await?;
+        }
     }
 
-    async fn handle_message(&self, data_in: Vec<u8>) -> Result<Vec<u8>, Error> {
+    async fn serve_tcp_noreply(self: Arc<Self>, stream: TcpStream) -> io::Result<()> {
+        loop {
+            // Read message
+            let fragment = read_record(&mut stream, 1024 * 1024).await?;
+    
+            let _reply = self.handle_message(fragment).await?;
+        }
+    }
+
+    async fn serve_udp(self: Arc<Self>, socket: UdpSocket) -> io::Result<()> {
+        loop {
+            // Read message
+            let mut buf = vec![0; 1500];
+            let (n, peer) = socket.recv_from(&mut buf).await?;
+    
+            let reply = self.handle_message(fragment[..n]).await?;
+    
+            socket.sendto(reply, peer).await?;
+        }
+    }
+    
+
+    async fn handle_message(self: Arc<Self>, data_in: Vec<u8>) -> Result<Vec<u8>, Error> {
         let mut ret = Cursor::new(Vec::new());
         let mut data_in = Cursor::new(data_in);
         let mut msg = RpcMessage::default();
@@ -116,61 +142,18 @@ pub(crate) trait RpcService {
 
         Ok(data_out.into_inner())
     }
-}
 
-pub(crate) async fn handle_stream<IO, SERVICE>(
-    mut stream: IO,
-    service: SERVICE,
-) -> io::Result<()>
-where
-    RD: AsyncRead + Unpin,
-    WR: AsyncWrite + Unpin,
-    SERVICE: RpcService + Sync,
-{
-    loop {
-        // Read message
-        let fragment = read_record(&mut stream, 1024 * 1024).await?;
-
-        let reply = service.handle_message(fragment).await?;
-
-        write_record(&mut stream, reply).await?;
+    async fn call(
+        self: Arc<Self>,
+        prog: u32,
+        vers: u32,
+        proc: u32,
+        args: &mut Cursor<Vec<u8>>,
+        ret: &mut Cursor<Vec<u8>>,
+    ) -> Result<(), RpcError> {
+        Err(RpcError::ProgUnavail)
     }
 }
-
-pub(crate) async fn handle_stream_noreply<IO, SERVICE>(
-    mut stream: IO,
-    service: SERVICE,
-) -> io::Result<()>
-where
-    IO: AsyncRead + Unpin,
-    SERVICE: RpcService + Sync,
-{
-    loop {
-        // Read message
-        let fragment = read_record(&mut stream, 1024 * 1024).await?;
-
-        let _reply = service.handle_message(fragment).await?;
-    }
-}
-
-pub(crate) async fn handle_udp<SERVICE>(
-    socket: UdpSocket,
-    service: SERVICE,
-) -> io::Result<()>
-where
-    SERVICE: RpcService + Sync,
-{
-    loop {
-        // Read message
-        let mut buf = vec![0; 1500];
-        let (n, peer) = socket.recv_from(&mut buf).await?;
-
-        let reply = service.handle_message(fragment[..n]).await?;
-
-        socket.sendto(reply, peer).await?;
-    }
-}
-
 
 
 #[async_std::test]
@@ -185,12 +168,13 @@ async fn test_serve_rpc() {
         .handle_errors(Duration::from_millis(100))
         .backpressure(10);
 
+    let t = Arc::new(T);
     while let Some((token, stream)) = incoming.next().await {
         let peer = stream.peer_addr().unwrap();
         println!("Accepted from: {}", peer);
 
         task::spawn(async move {
-            if let Err(err) = serve_rpc(stream, T).await {
+            if let Err(err) = t.serve_tcp(stream).await {
                 log::warn!("Error processing client: {}", err)
             }
             drop(token);
@@ -203,8 +187,10 @@ pub(crate) struct RpcClient<IO> {
     io: IO
 }
 
-impl<IO> RpcClient<IO> {
-    pub(crate) fn new(io: IO) -> Self {
+impl<IO> RpcClient<IO>
+    where IO: AsyncRead + AsyncWrite + Unpin {
+
+    pub(crate) fn new(io: IO, prog: u32, vers: u32) -> Self {
         Self {
             xid: 0,
             io
@@ -212,27 +198,17 @@ impl<IO> RpcClient<IO> {
     }
 
     /// Call the null procedure of program/version
-    pub(crate) async fn null(
-        &mut self,
-        prog: u32,
-        vers: u32,
-    ) -> Result<(), RpcError>
-    where
-        IO: AsyncRead + AsyncWrite + Unpin,
-    {
-        self.call(prog, vers, 0, ()).await
+    pub(crate) async fn null(&mut self) -> Result<(), RpcError> {
+        self.call(0, ()).await
     }
 
     /// Call procedure `proc` with arguments of type `ARGS`. Returns `Ok(RET)` if successfull.
     pub(crate) async fn call<ARGS, RET>(
-        &mut self,
-        prog: u32,
-        vers: u32,
+        &mut self
         proc: u32,
         args: ARGS,
     ) -> Result<RET, RpcError>
     where
-        IO: AsyncRead + AsyncWrite + Unpin,
         ARGS: XdrEncode,
         RET: XdrDecode + Default,
     {
@@ -240,14 +216,17 @@ impl<IO> RpcClient<IO> {
 
         let mut args_cursor = Cursor::new(Vec::new());
 
-        let msg = RpcMessage::call(self.xid, prog, vers, proc);
+        // Send a call
+        let msg = RpcMessage::call(self.xid, self.prog, self.vers, proc);
         msg.write_xdr(&mut args_cursor)?;
         args.write_xdr(&mut args_cursor)?;
         write_record(&mut self.io, args_cursor.into_inner()).await?;
 
+        // Read response
         let fragment = read_record(&mut self.io, 1024 * 1024).await?;
         let mut ret_cursor = Cursor::new(fragment);
 
+        // Deserialize and parse response
         let mut reply = RpcMessage::default();
         let mut ret: RET = Default::default();
         reply.read_xdr(&mut ret_cursor)?;
@@ -257,7 +236,7 @@ impl<IO> RpcClient<IO> {
                     MsgType::Reply(Replybody {
                         stat: ReplyStat::Accepted(accepted),
                     }),
-                ..
+                xid
             } => match accepted.stat {
                 AcceptStat::Success => {
                     ret.read_xdr(&mut ret_cursor)?;
@@ -272,10 +251,14 @@ impl<IO> RpcClient<IO> {
             RpcMessage {
                 mtype:
                     MsgType::Reply(Replybody {
-                        stat: ReplyStat::Denied(rejected),
+                        stat: ReplyStat::Denied(RejectedReply{ stat }),
                     }),
                 ..
             } => {
+                match stat {
+                    RejectStat::RpcMissmatch(m) => Err(RpcError::RpcMissmatch(m)),
+                    RejectStat::AuthError(err) => Err(RpcError::AuthError(err))
+                }
                 todo!()
             }
             RpcMessage {

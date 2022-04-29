@@ -112,8 +112,6 @@ impl<DEV> VxiCoreServer<DEV> {
             let peer = stream.peer_addr()?;
             log::info!("Accepted connection from {}", peer);
 
-            let inner = self.inner.clone();
-
             task::spawn(async move {
                 loop {
                     // Read message
@@ -122,7 +120,7 @@ impl<DEV> VxiCoreServer<DEV> {
                         Err(err) => break err,
                     }
             
-                    let reply = match service.handle_message(fragment).await {
+                    let reply = match s.handle_message(fragment).await {
                         Ok(r) => r,
                         Err(err) => break err,
                     }
@@ -336,12 +334,31 @@ impl VxiServerBuilder {
         // Register async service
         portmap
             .set(Mapping::new(
-                DEVICE_CORE,
-                DEVICE_CORE_VERSION,
+                DEVICE_ASYNC,
+                DEVICE_ASYNC_VERSION,
                 PORTMAPPER_PROT_TCP,
                 self.async_port as u32,
             ))
             .await?;
+        Ok(self)
+    }
+
+    /// Register VXI server using [StaticPortMap]
+    pub fn register_static_portmap(self, portmap: &mut StaticPortMap) -> Result<Self, RpcError> {
+        // Register core service
+        portmap.set(Mapping::new(
+            DEVICE_CORE,
+            DEVICE_CORE_VERSION,
+            PORTMAPPER_PROT_TCP,
+            self.core_port as u32,
+        ));
+        // Register async service
+        portmap.set(Mapping::new(
+            DEVICE_ASYNC,
+            DEVICE_ASYNC_VERSION,
+            PORTMAPPER_PROT_TCP,
+            self.async_port as u32,
+        ));
         Ok(self)
     }
 
@@ -361,5 +378,16 @@ impl VxiServerBuilder {
                 inner: inner.clone(),
             },
         )
+    }
+
+    pub fn serve<DEV>(
+        self,
+        shared: Arc<Mutex<SharedLock>>,
+        device: Arc<Mutex<DEV>> 
+    ) -> io::Result<()> {
+        let (core_service, async_service) = self.build(shared, device)
+        let serve_core = async move {
+
+        };
     }
 }

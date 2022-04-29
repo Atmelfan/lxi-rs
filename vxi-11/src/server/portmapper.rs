@@ -81,39 +81,96 @@ mod test_portmap_client {
     }
 }
 
-/// Create a simple static (does not allow set/unset) portmapper
-///
-struct StaticPortMapper {
+struct StaticPortMapBuilder {
     mappings: Vec<Mapping>,
 }
 
-impl StaticPortMapper {
-    /// Initialize new static portmapper with no active mappings
+impl StaticPortMapBuilder {
     pub fn new() -> Self {
-        Self {
-            mappings: Vec::new(),
-        }
+        let mappings = Vec::new();
+        mappings.push(Mapping::new(PORTMAPPER_PROG, PORTMAPPER_VERS, PORTMAPPER_PROT_TCP, PORTMAPPER_PORT));
+        mappings.push(Mapping::new(PORTMAPPER_PROG, PORTMAPPER_VERS, PORTMAPPER_PROT_UDP, PORTMAPPER_PORT));
+        StaticPortMapBuilder { mappings }
     }
 
-    /// Add a mapping
-    pub fn add(&mut self, prog: u32, vers: u32, prot: u32, port: u16) -> Self {
-        self.mappings.push(Mapping::new(prog, vers, prot, port as u32));
+    /// Set a mapping
+    pub fn set(self, mapping: Mapping) -> Self {
+        self.mappings.push(mapping);
+        self
     }
 
-    async fn serve_tcp(&self, addrs: impl ToSocketAddrs) -> Result<(), RpcError> {
-
-    }
-
-    async fn serve_udp(&self, addrs: impl ToSocketAddrs) -> Result<(), RpcError> {
-
+    /// Set a mapping
+    pub fn build(self) -> Arc<StaticPortMap> {
+        Arc::new(StaticPortMap { self.mappings })
     }
 
 }
 
+/// Create a simple static portmapper
+///
+/// The static portmapper allows null, getport and dump procedures, others will respond with a ProcUnavail error
+pub struct StaticPortMap {
+    mappings: Vec<Mapping>,
+}
+
+impl StaticPortMap {
+
+    /// Serve both TCP and UDP calls at standard address
+    pub async fn serve(self: Arc<Self>, addr: IpAddr) -> io::Result<()>{
+        try_join!(
+            self.clone().serve_tcp((Ipv4Addr::UNSPECIFIED, PORTMAPPER_PORT)),
+            self.clone().serve_udp((Ipv4Addr::UNSPECIFIED, PORTMAPPER_PORT))
+        )
+    }
+
+    /// Serve TCP calls
+    pub fn serve_tcp(self: Arc<Self>, addrs: impl ToSocketAddrs) -> io::Result<()> {
+        let listener = TcpListener::bind(addrs).await?;
+        log::info!("Listening on {}", listener.local_addr());
+        let mut incoming = listener
+            .incoming()
+            .log_warnings(|warn| log::warn!("Listening error: {}", warn))
+            .handle_errors(Duration::from_millis(100))
+            .backpressure(10);
+
+        while let Some((token, stream)) = incoming.next().await {
+            let peer = stream.peer_addr()?;
+            println!("Accepted from: {}", peer);
+
+            let s = self.clone();
+            task::spawn(async move {
+                if let Err(err) = s.serve_tcp(stream).await {
+                    log::warn!("Error processing client: {}", err)
+                }
+                drop(token);
+            });
+        }
+        log::info!("Stopped");
+        Ok(())
+    }
+
+    /// Serve UDP calls
+    pub fn serve_udp(self: Arc<Self>, addrs: impl ToSocketAddrs) -> io::Result<()> {
+        let socket = UdpSocket::bind(addrs).await?;
+        log::info!("Listening on {}", listener.local_addr());
+        loop {
+            // Read message
+            let mut buf = vec![0; 1500];
+            let (n, peer) = socket.recv_from(&mut buf).await?;
+        
+            let reply = self.handle_message(fragment[..n]).await?;
+        
+            socket.sendto(reply, peer).await?;
+        }
+        log::info!("Stopped");
+        Ok(())
+    }
+}
+
 #[async_trait]
-impl RpcService for StaticPortMapper {
+impl RpcService for StaticPortMap {
     async fn call(
-        &self,
+        self: Arc<Self>,
         prog: u32,
         vers: u32,
         proc: u32,
@@ -131,16 +188,6 @@ impl RpcService for StaticPortMapper {
         }
         match proc {
             PMAPPROC_NULL => Ok(()),
-            PMAPPROC_SET => {
-                // Not implemented
-                log::error!("PMAPPROC_SET not implemented");
-                Err(RpcError::ProcUnavail)
-            }
-            PMAPPROC_UNSET => {
-                // Not implemented
-                log::error!("PMAPPROC_UNSET not implemented");
-                Err(RpcError::ProcUnavail)
-            }
             PMAPPROC_GETPORT => {
                 let mut mapping = Mapping::default();
                 mapping.read_xdr(args)?;
@@ -159,10 +206,6 @@ impl RpcService for StaticPortMapper {
                 }
                 false.write_xdr(ret)?;
                 Ok(())
-            }
-            PMAPPROC_CALLIT => {
-                log::error!("PMAPPROC_CALLIT not implemented");
-                Err(RpcError::ProcUnavail)
             }
             _ => Err(RpcError::ProcUnavail),
         }
