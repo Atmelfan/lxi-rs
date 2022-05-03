@@ -1,5 +1,11 @@
+// Run on system 
 
+#[async_std::test]
+async fn getport() {
+    
+}
 
-fn test_rpcbind() {
+#[async_std::test]
+async fn register() {
     
 }

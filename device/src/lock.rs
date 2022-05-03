@@ -9,7 +9,7 @@ pub enum SharedLockError {
     AlreadyLocked,
     /// Already unlocked
     AlreadyUnlocked,
-    /// Cannot acquire shared lock duw to other shared lock
+    /// Cannot acquire shared lock due to other shared lock
     LockedByShared,
     /// Cannot aquire exclusive lock due to other exclusive lock
     LockedByExclusive,
@@ -85,13 +85,13 @@ impl<DEV> LockHandle<DEV>
         } else if self.has_shared {
             // I have a shared lock
             if shared.exclusive_lock {
-                // Someone else have acquired a exclusive
+                // Someone else have acquired an exclusive
                 Err(SharedLockError::LockedByExclusive)
             } else {
                 Ok(())
             }
         } else {
-            // I do not have any locks,
+            // I do not have any locks
             // Check if anyone else have one?
             if shared.exclusive_lock {
                 Err(SharedLockError::LockedByExclusive)
@@ -183,7 +183,9 @@ impl<DEV> LockHandle<DEV>
             shared.exclusive_lock = false;
             self.has_exclusive = false;
             Ok(SharedLockMode::Exclusive)
-        } else {
+        }
+
+        if self.has_shared {
             shared.num_shared_locks -= 1;
             if shared.num_shared_locks == 0 {
                 shared.shared_lock = None;
@@ -307,7 +309,7 @@ mod tests {
         assert!(handle1.try_release().is_ok());
 
         // Both handles have a shared lock
-        assert!(handle1.can_lock().is_ok());
+        assert!(handle1.can_lock().is_err());
         assert!(handle2.can_lock().is_ok());
     }
 
