@@ -16,13 +16,13 @@ use crate::common::{
         onc_rpc::xdr::MissmatchInfo,
         portmapper::{
             PMAPPROC_CALLIT, PMAPPROC_DUMP, PMAPPROC_GETPORT, PMAPPROC_NULL, PMAPPROC_SET,
-            PMAPPROC_UNSET, PORTMAPPER_PROG, PORTMAPPER_VERS, PORTMAPPER_PORT,
+            PMAPPROC_UNSET, PORTMAPPER_PROG, PORTMAPPER_VERS, 
         },
     },
 };
 
-pub(crate) use crate::common::xdr::portmapper::{
-    xdr::Mapping, PORTMAPPER_PROT_TCP, PORTMAPPER_PROT_UDP,
+pub use crate::common::xdr::portmapper::{
+    xdr::Mapping, PORTMAPPER_PROT_TCP, PORTMAPPER_PROT_UDP, PORTMAPPER_PORT
 };
 
 pub(crate) struct PortMapperClient<IO>(RpcClient<IO>);
@@ -121,23 +121,22 @@ pub struct StaticPortMap {
 impl StaticPortMap {
 
     /// Serve both TCP and UDP calls at standard address
-    pub async fn serve(self: Arc<Self>, addr: IpAddr) -> io::Result<((),())>{
-        let a = async {
-            self.clone().serve_tcp((addr, PORTMAPPER_PORT)).await
-        };
-        let b = async {
-            match UdpSocket::bind((addr, PORTMAPPER_PORT)).await {
-                Ok(socket) => self.clone().serve_udp(socket).await,
-                Err(err) => Err(err),
-            }
-        };
-        try_join!(a, b)
+    pub async fn serve(self: Arc<Self>, addr: impl ToSocketAddrs+Clone) -> io::Result<()>{
+        let a = self.clone().serve_tcp(addr.clone());
+        let b = self.clone().serve_udp(addr.clone());
+        try_join!(a, b).map(|_| ())
+    }
+
+    pub async fn serve_udp(self: Arc<Self>, addrs: impl ToSocketAddrs) -> io::Result<()> {
+        let socket = UdpSocket::bind(addrs).await?;
+        log::info!("Listening on UDP {:?}", socket.local_addr()?);
+        self.serve_udp_socket(socket).await
     }
 
     /// Serve TCP calls
     pub async fn serve_tcp(self: Arc<Self>, addrs: impl ToSocketAddrs) -> io::Result<()> {
         let listener = TcpListener::bind(addrs).await?;
-        log::info!("Listening on {}", listener.local_addr()?);
+        log::info!("Listening on TCP {}", listener.local_addr()?);
         let mut incoming = listener
             .incoming()
             .log_warnings(|warn| log::warn!("Listening error: {}", warn))
@@ -146,12 +145,12 @@ impl StaticPortMap {
 
         while let Some((token, stream)) = incoming.next().await {
             let peer = stream.peer_addr()?;
-            println!("Accepted from: {}", peer);
+            log::debug!("Accepted from: {}", peer);
 
             let s = self.clone();
             task::spawn(async move {
                 if let Err(err) = s.serve_tcp_stream(stream).await {
-                    log::warn!("Error processing client: {}", err)
+                    log::debug!("Error processing client: {}", err)
                 }
                 drop(token);
             });

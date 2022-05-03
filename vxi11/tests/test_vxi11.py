@@ -1,9 +1,10 @@
 import pyvisa
 
-def test_tcpip_vxi11(vxi11_example):
-    rm = pyvisa.ResourceManager()
+def test_tcpip_vxi11(resource_manager: pyvisa.ResourceManager):
+    resource_manager
+    inst = resource_manager.open_resource(f'TCPIP::127.0.0.1::inst0::INSTR')
 
-    inst = rm.open_resource(f'TCPIP::127.0.0.1::{vxi11_example}::INSTR')
+    #resp = inst.query("*IDN?")
+    #assert resp == "*IDN?"
 
-    resp = inst.query("*IDN?")
-    assert resp == "*IDN?"
+    inst.close()

@@ -173,17 +173,8 @@ impl<DEV> LockHandle<DEV>
     }
 
     pub fn try_release(&mut self) -> Result<SharedLockMode, SharedLockError> {
-        if !self.has_shared && !self.has_exclusive {
-            return Err(SharedLockError::AlreadyUnlocked);
-        }
-
         let mut shared = self.parent.lock();
-
-        if self.has_exclusive {
-            shared.exclusive_lock = false;
-            self.has_exclusive = false;
-            Ok(SharedLockMode::Exclusive)
-        }
+        let mut res = Err(SharedLockError::AlreadyUnlocked);
 
         if self.has_shared {
             shared.num_shared_locks -= 1;
@@ -191,8 +182,16 @@ impl<DEV> LockHandle<DEV>
                 shared.shared_lock = None;
             }
             self.has_shared = false;
-            Ok(SharedLockMode::Shared)
+            res = Ok(SharedLockMode::Shared);
         }
+
+        if self.has_exclusive {
+            shared.exclusive_lock = false;
+            self.has_exclusive = false;
+            res = Ok(SharedLockMode::Exclusive);
+        }
+        
+        res
     }
 
     /// Check if the shared lock is available and then lock

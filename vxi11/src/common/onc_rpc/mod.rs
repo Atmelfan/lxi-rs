@@ -69,7 +69,10 @@ pub(crate) trait RpcService {
             // Read message
             let fragment = read_record(&mut stream, 1024 * 1024).await?;
 
-            let _reply = self.clone().handle_message(fragment).await?;
+            let reply = self.clone().handle_message(fragment).await?;
+
+            write_record(&mut stream, reply).await?;
+            //stream.write_all(&reply).await?;
         }
     }
 
@@ -85,7 +88,7 @@ pub(crate) trait RpcService {
         }
     }
 
-    async fn serve_udp(self: Arc<Self>, socket: UdpSocket) -> io::Result<()>
+    async fn serve_udp_socket(self: Arc<Self>, socket: UdpSocket) -> io::Result<()>
     where
         Self: Sync,
     {
@@ -108,7 +111,7 @@ pub(crate) trait RpcService {
         let mut data_in = Cursor::new(data_in);
         let mut msg = RpcMessage::default();
         msg.read_xdr(&mut data_in)?;
-        println!("-> {:?}", msg);
+        log::trace!("-> {:?}", msg);
 
         let xid = msg.xid;
 
@@ -152,7 +155,7 @@ pub(crate) trait RpcService {
             xid,
             mtype: MsgType::Reply(Replybody { stat }),
         };
-        println!("<- {:?}", reply);
+        log::trace!("<- {:?}", reply);
 
         let mut data_out = Cursor::new(Vec::new());
         reply.write_xdr(&mut data_out)?;
@@ -173,33 +176,6 @@ pub(crate) trait RpcService {
         Self: Sync,
     {
         Err(RpcError::ProgUnavail)
-    }
-}
-
-#[async_std::test]
-async fn test_serve_rpc() {
-    struct T;
-    impl RpcService for T {}
-
-    let listener = TcpListener::bind(("127.0.0.1", 5000)).await.unwrap();
-    let mut incoming = listener
-        .incoming()
-        .log_warnings(|warn| log::warn!("Listening error: {}", warn))
-        .handle_errors(Duration::from_millis(100))
-        .backpressure(10);
-
-    let t = Arc::new(T);
-    while let Some((token, stream)) = incoming.next().await {
-        let peer = stream.peer_addr().unwrap();
-        println!("Accepted from: {}", peer);
-
-        let t = t.clone();
-        task::spawn(async move {
-            if let Err(err) = t.serve_tcp_stream(stream).await {
-                log::warn!("Error processing client: {}", err)
-            }
-            drop(token);
-        });
     }
 }
 
@@ -288,82 +264,4 @@ where
             }
         }
     }
-}
-
-pub async fn call_rpc<RD, WR, ARGS, RET>(
-    mut reader: RD,
-    mut writer: WR,
-    prog: u32,
-    vers: u32,
-    proc: u32,
-    args: ARGS,
-) -> Result<RET, RpcError>
-where
-    RD: AsyncRead + Unpin,
-    WR: AsyncWrite + Unpin,
-    ARGS: XdrEncode,
-    RET: XdrDecode + Default,
-{
-    let mut args_cursor = Cursor::new(Vec::new());
-
-    let msg = RpcMessage::call(1, prog, vers, proc);
-    msg.write_xdr(&mut args_cursor)?;
-    args.write_xdr(&mut args_cursor)?;
-    write_record(&mut writer, args_cursor.into_inner()).await?;
-
-    let fragment = read_record(&mut reader, 1024 * 1024).await?;
-    let mut ret_cursor = Cursor::new(fragment);
-
-    let mut reply = RpcMessage::default();
-    let mut ret: RET = Default::default();
-    reply.read_xdr(&mut ret_cursor)?;
-    match reply {
-        RpcMessage {
-            mtype:
-                MsgType::Reply(Replybody {
-                    stat: ReplyStat::Accepted(accepted),
-                }),
-            ..
-        } => match accepted.stat {
-            AcceptStat::Success => {
-                ret.read_xdr(&mut ret_cursor)?;
-                Ok(ret)
-            }
-            AcceptStat::ProgUnavail => Err(RpcError::ProgUnavail),
-            AcceptStat::ProgMissmatch(m) => Err(RpcError::ProgMissmatch(m)),
-            AcceptStat::ProcUnavail => Err(RpcError::ProcUnavail),
-            AcceptStat::GarbageArgs => Err(RpcError::GarbageArgs),
-            AcceptStat::SystemErr => Err(RpcError::SystemErr),
-        },
-        RpcMessage {
-            mtype:
-                MsgType::Reply(Replybody {
-                    stat: ReplyStat::Denied(rejected),
-                }),
-            ..
-        } => {
-            todo!()
-        }
-        RpcMessage {
-            mtype: MsgType::Call(..),
-            ..
-        } => {
-            todo!()
-        }
-    }
-}
-
-#[async_std::test]
-async fn test_call_rpc() {
-    let mut stream = async_std::net::TcpStream::connect("127.0.0.1:111")
-        .await
-        .unwrap();
-    println!("Connected to {}", &stream.peer_addr().unwrap());
-    let (mut reader, mut writer) = stream.split();
-
-    let ret: i32 = call_rpc(reader, writer, 100000, 2, 3, Mapping::new(100000, 2, 6, 0))
-        .await
-        .unwrap();
-
-    println!("Port = {ret}")
 }

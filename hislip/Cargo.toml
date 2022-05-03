@@ -15,7 +15,6 @@ byteorder = "1.3"
 bitfield = "0.13"
 
 # Logging
-kv-log-macro = "1.0.7"
 log = { version = "0.4.17", features = ["kv_unstable_std"] }
 
 [dependencies.lxi-device]

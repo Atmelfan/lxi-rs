@@ -16,19 +16,15 @@ The specifications consists of a [core specification](https://www.lxistandard.or
 #TBD
 ```
 
-## Organisation
-
-- [device](device)
-
-- [hislip](hislip)
-- [socket](socket)
-- [vxi11](vxi11)
-- [telnet](telnet)
-
-- [client](client)
-
 ## Scope
 This crate does not handle command parsing and/or execution, look at [scpi-rs](https://github.com/Atmelfan/scpi-rs)(:crab:) or [libscpi](https://github.com/j123b567/scpi-parser)(C) for that.
+
+
+## Testing
+This crate uses two types of tests, the cargo test framework and pytest. Cargo test is mostly used for unit-testing while pytest is integration tests against pyvisa.
+
+1. Install [NI-VISA](https://www.ni.com/sv-se/support/downloads/drivers/download.ni-visa.html) for Linux, see [pyvisa guide here](https://pyvisa.readthedocs.io/en/latest/faq/getting_nivisa.html#faq-getting-nivisa) 
+2. 
 
 
 ## License

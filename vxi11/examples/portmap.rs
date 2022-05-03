@@ -1,20 +1,48 @@
+use std::{io, net::Ipv4Addr};
 
+use vxi11::server::{portmapper::{StaticPortMapBuilder, Mapping, PORTMAPPER_PROT_TCP, PORTMAPPER_PORT}, vxi11::{DEVICE_CORE, DEVICE_CORE_VERSION, DEVICE_ASYNC, DEVICE_ASYNC_VERSION}};
+
+use clap::Parser;
+
+/// Demo VXI-11 server using system rpcbind/portmap
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+struct Args {
+    /// Ip for server to bind to
+    #[clap(default_value = "127.0.0.1")]
+    ip: String,
+
+    #[clap(default_value_t = PORTMAPPER_PORT)]
+    port: u16,
+
+    /// Port of Core channel
+    #[clap(default_value_t = 4322)]
+    core_port: u16,
+
+    /// Port of Async channel
+    #[clap(default_value_t = 4323)]
+    async_port: u16,
+}
 
 #[async_std::main]
 async fn main() -> io::Result<()> {
+    env_logger::init();
+    let args = Args::parse();
+
+    println!("Running server ...");
     let portmap = StaticPortMapBuilder::new()
         .set(Mapping::new(
-            100079,
-            1,
+            DEVICE_CORE,// VXI-11 CORE
+            DEVICE_CORE_VERSION,
             PORTMAPPER_PROT_TCP,
-            12345,
+            args.core_port as u32,
         ))
         .set(Mapping::new(
-            100079,
-            1,
-            PORTMAPPER_PROT_UDP,
-            12345,
+            DEVICE_ASYNC,// VXI-11 ASYNC
+            DEVICE_ASYNC_VERSION,
+            PORTMAPPER_PROT_TCP,
+            args.async_port as u32,
         ))
         .build();
-    portmap.serve(IpAddrV4::UNSPECIFIED).await
+    portmap.serve((Ipv4Addr::UNSPECIFIED, args.port)).await
 }

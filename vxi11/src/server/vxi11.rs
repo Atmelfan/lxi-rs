@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     io::{self, Cursor, Error, Read, Write},
+    net::IpAddr,
     sync::{atomic::AtomicU32, Arc},
     time::{Duration, Instant},
 };
@@ -22,15 +23,18 @@ use crate::common::{
     xdr::{
         basic::{XdrDecode, XdrEncode},
         onc_rpc::xdr::MissmatchInfo,
-        portmapper::xdr::Mapping,
+        portmapper::{xdr::Mapping, PORTMAPPER_PORT},
         vxi11::{
-            xdr::{CreateLinkParms, CreateLinkResp, DeviceErrorCode, DeviceLink, DeviceError},
-            *,
+            xdr::{CreateLinkParms, CreateLinkResp, DeviceError, DeviceErrorCode, DeviceLink}, *
         },
     },
 };
 
-use super::portmapper::{PortMapperClient, PORTMAPPER_PROT_TCP, StaticPortMap, StaticPortMapBuilder};
+pub use crate::common::xdr::vxi11::{DEVICE_CORE, DEVICE_CORE_VERSION, DEVICE_ASYNC, DEVICE_ASYNC_VERSION, DEVICE_INTR, DEVICE_INTR_VERSION};
+
+use super::portmapper::{
+    PortMapperClient, StaticPortMap, StaticPortMapBuilder, PORTMAPPER_PROT_TCP,
+};
 
 struct Link<DEV> {
     id: u32,
@@ -88,11 +92,38 @@ impl<DEV> VxiInner<DEV> {
 pub struct VxiCoreServer<DEV> {
     inner: Arc<Mutex<VxiInner<DEV>>>,
     max_recv_size: u32,
+    core_port: u16,
     async_port: u16,
 }
 
-impl<DEV> VxiCoreServer<DEV> {
+impl<DEV> VxiCoreServer<DEV>
+where
+    DEV: Send + 'static,
+{
+    pub async fn serve(self: Arc<Self>, addrs: IpAddr) -> io::Result<()> {
+        let listener = TcpListener::bind((addrs, self.core_port)).await?;
+        log::info!("Listening on TCP {}", listener.local_addr()?);
+        let mut incoming = listener
+            .incoming()
+            .log_warnings(|warn| log::warn!("Listening error: {}", warn))
+            .handle_errors(Duration::from_millis(100))
+            .backpressure(10);
 
+        while let Some((token, stream)) = incoming.next().await {
+            let peer = stream.peer_addr()?;
+            log::debug!("Accepted from: {}", peer);
+
+            let s = self.clone();
+            task::spawn(async move {
+                if let Err(err) = s.serve_tcp_stream(stream).await {
+                    log::debug!("Error processing client: {}", err)
+                }
+                drop(token);
+            });
+        }
+        log::info!("Stopped");
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -107,7 +138,10 @@ where
         proc: u32,
         args: &mut Cursor<Vec<u8>>,
         ret: &mut Cursor<Vec<u8>>,
-    ) -> Result<(), RpcError> where Self: Sync {
+    ) -> Result<(), RpcError>
+    where
+        Self: Sync,
+    {
         if prog != DEVICE_CORE {
             return Err(RpcError::ProgUnavail);
         }
@@ -123,8 +157,6 @@ where
             create_link => {
                 let mut inner = self.inner.lock().await;
 
-
-
                 let mut parms = CreateLinkParms::default();
                 parms.read_xdr(args)?;
 
@@ -138,7 +170,7 @@ where
                     max_recv_size: self.max_recv_size,
                 };
 
-                if parms.device.eq_ignore_ascii_case("instr0") {
+                if parms.device.eq_ignore_ascii_case("inst0") {
                     // Add link
                     inner.add_link(lid, link_arc.clone());
 
@@ -190,14 +222,17 @@ where
 /// Async/abort RPC service
 pub struct VxiAsyncServer<DEV> {
     inner: Arc<Mutex<VxiInner<DEV>>>,
+    async_port: u16,
 }
 
-impl<DEV> VxiAsyncServer<DEV> {
-    pub async fn serve(self: Arc<Self>, addr: impl ToSocketAddrs) -> io::Result<()>
-    where
-        DEV: Device + Send + 'static,
-    {
-        let listener = TcpListener::bind(addr).await?;
+impl<DEV> VxiAsyncServer<DEV>
+where
+    DEV: Send + 'static,
+{
+    /// Serve TCP calls
+    pub async fn serve(self: Arc<Self>, addrs: IpAddr) -> io::Result<()> {
+        let listener = TcpListener::bind((addrs, self.async_port)).await?;
+        log::info!("Listening on TCP {}", listener.local_addr()?);
         let mut incoming = listener
             .incoming()
             .log_warnings(|warn| log::warn!("Listening error: {}", warn))
@@ -205,18 +240,18 @@ impl<DEV> VxiAsyncServer<DEV> {
             .backpressure(10);
 
         while let Some((token, stream)) = incoming.next().await {
-            let s = self.clone();
             let peer = stream.peer_addr()?;
-            log::error!("Accepted from: {}", peer);
+            log::debug!("Accepted from: {}", peer);
 
-            let inner = self.inner.clone();
-
+            let s = self.clone();
             task::spawn(async move {
-                let (reader, writer) = stream.split();
-                //TODO
+                if let Err(err) = s.serve_tcp_stream(stream).await {
+                    log::debug!("Error processing client: {}", err)
+                }
                 drop(token);
             });
         }
+        log::info!("Stopped");
         Ok(())
     }
 }
@@ -233,7 +268,10 @@ where
         proc: u32,
         args: &mut Cursor<Vec<u8>>,
         ret: &mut Cursor<Vec<u8>>,
-    ) -> Result<(), RpcError> where Self: Sync {
+    ) -> Result<(), RpcError>
+    where
+        Self: Sync,
+    {
         if prog != DEVICE_ASYNC {
             return Err(RpcError::ProgUnavail);
         }
@@ -246,6 +284,9 @@ where
         }
 
         match proc {
+            device_abort => {
+                Ok(())
+            }
             _ => Err(RpcError::ProcUnavail),
         }
     }
@@ -259,8 +300,8 @@ pub struct VxiServerBuilder {
 impl VxiServerBuilder {
     pub fn new() -> Self {
         Self {
-            core_port: 0,
-            async_port: 0,
+            core_port: 4322,
+            async_port: 4323,
         }
     }
 
@@ -278,10 +319,15 @@ impl VxiServerBuilder {
 
     /// Register VXI server using portmap/rpcbind
     pub async fn register_portmap(self, addrs: impl ToSocketAddrs) -> Result<Self, RpcError> {
+        if self.async_port == 0 || self.core_port == 0 {
+            log::error!("Dynamic port not supported");
+            return Err(RpcError::SystemErr);
+        }
+
         let stream = TcpStream::connect(addrs).await?;
         let mut portmap = PortMapperClient::new(stream);
         // Register core service
-        portmap
+        let mut res = portmap
             .set(Mapping::new(
                 DEVICE_CORE,
                 DEVICE_CORE_VERSION,
@@ -290,7 +336,7 @@ impl VxiServerBuilder {
             ))
             .await?;
         // Register async service
-        portmap
+        res &= portmap
             .set(Mapping::new(
                 DEVICE_ASYNC,
                 DEVICE_ASYNC_VERSION,
@@ -298,11 +344,18 @@ impl VxiServerBuilder {
                 self.async_port as u32,
             ))
             .await?;
-        Ok(self)
+        if res {
+            Ok(self)
+        } else {
+            Err(RpcError::SystemErr)
+        }
     }
 
     /// Register VXI server using [StaticPortMap]
-    pub fn register_static_portmap(self, portmap: &mut StaticPortMapBuilder) -> Result<Self, RpcError> {
+    pub fn register_static_portmap(
+        self,
+        portmap: &mut StaticPortMapBuilder,
+    ) -> Result<Self, RpcError> {
         // Register core service
         portmap.add(Mapping::new(
             DEVICE_CORE,
@@ -324,17 +377,19 @@ impl VxiServerBuilder {
         self,
         shared: Arc<SpinMutex<SharedLock>>,
         device: Arc<Mutex<DEV>>,
-    ) -> (VxiCoreServer<DEV>, VxiAsyncServer<DEV>) {
+    ) -> (Arc<VxiCoreServer<DEV>>, Arc<VxiAsyncServer<DEV>>) {
         let inner = VxiInner::new(shared, device);
         (
-            VxiCoreServer {
+            Arc::new(VxiCoreServer {
+                inner: inner.clone(),
+                core_port: self.core_port,
+                async_port: self.async_port,
+                max_recv_size: 128 * 1024,
+            }),
+            Arc::new(VxiAsyncServer {
                 inner: inner.clone(),
                 async_port: self.async_port,
-                max_recv_size: 128*1024,
-            },
-            VxiAsyncServer {
-                inner: inner.clone(),
-            },
+            }),
         )
     }
 }

@@ -2,7 +2,7 @@
 
 
 /// TCP port to use for portmapper/rpcbind
-pub(crate) const PORTMAPPER_PORT: u16 = 111;
+pub const PORTMAPPER_PORT: u16 = 111;
 
 // Program constants
 /// Portmapper program number
@@ -10,8 +10,8 @@ pub(crate) const PORTMAPPER_PROG: u32 = 100000;
 // Portmapper program version
 pub(crate) const PORTMAPPER_VERS: u32 = 2;
 
-pub(crate) const PORTMAPPER_PROT_TCP: u32 = 6;
-pub(crate) const PORTMAPPER_PROT_UDP: u32 = 17;
+pub const PORTMAPPER_PROT_TCP: u32 = 6;
+pub const PORTMAPPER_PROT_UDP: u32 = 17;
 
 
 // Procedures
