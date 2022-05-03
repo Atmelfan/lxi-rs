@@ -395,6 +395,21 @@ impl AsyncInitializeResponseControl {
 }
 
 bitfield! {
+    pub struct RmtDeliveredControl(u8);
+    impl Debug;
+    // The fields default to u16
+    pub rmt_delivered, set_rmt_delivered : 0;
+}
+
+impl RmtDeliveredControl {
+    pub(crate) fn new(rmt_delivered: bool) -> Self {
+        let mut x = RmtDeliveredControl(0);
+        x.set_rmt_delivered(rmt_delivered);
+        x
+    }
+}
+
+bitfield! {
     pub struct FeatureBitmap(u8);
     impl Debug;
     // The fields default to u16

@@ -36,7 +36,7 @@ pub trait FrontPanel {
     /// Control LAN status LED.
     /// 
     /// Might be controlled by hardware, in which case this method does nothing.
-    fn set_lan_status_led(&mut self, state: LanStateLed) -> Result<(), Self::Error> {
+    fn set_lan_status_led(&mut self, _state: LanStateLed) -> Result<(), Self::Error> {
         // Do nothing
         Ok(())
     }

@@ -1,10 +1,14 @@
 use std::{
     io::{self, Cursor, Error, ErrorKind, Read, Write},
+    sync::Arc,
     time::Duration,
 };
 
 use async_listen::ListenExt;
-use async_std::{net::TcpListener, task};
+use async_std::{
+    net::{TcpListener, TcpStream, UdpSocket},
+    task,
+};
 use async_trait::async_trait;
 use byteorder::ReadBytesExt;
 
@@ -57,38 +61,49 @@ pub(crate) trait RpcService {
         Ok(())
     }
 
-    async fn serve_tcp(self: Arc<Self>, stream: TcpStream) -> io::Result<()> {
+    async fn serve_tcp_stream(self: Arc<Self>, mut stream: TcpStream) -> io::Result<()>
+    where
+        Self: Sync,
+    {
         loop {
             // Read message
             let fragment = read_record(&mut stream, 1024 * 1024).await?;
-    
-            let _reply = self.handle_message(fragment).await?;
+
+            let _reply = self.clone().handle_message(fragment).await?;
         }
     }
 
-    async fn serve_tcp_noreply(self: Arc<Self>, stream: TcpStream) -> io::Result<()> {
+    async fn serve_tcp_stream_noreply(self: Arc<Self>, mut stream: TcpStream) -> io::Result<()>
+    where
+        Self: Sync,
+    {
         loop {
             // Read message
             let fragment = read_record(&mut stream, 1024 * 1024).await?;
-    
-            let _reply = self.handle_message(fragment).await?;
+
+            let _reply = self.clone().handle_message(fragment).await?;
         }
     }
 
-    async fn serve_udp(self: Arc<Self>, socket: UdpSocket) -> io::Result<()> {
+    async fn serve_udp(self: Arc<Self>, socket: UdpSocket) -> io::Result<()>
+    where
+        Self: Sync,
+    {
         loop {
             // Read message
             let mut buf = vec![0; 1500];
             let (n, peer) = socket.recv_from(&mut buf).await?;
-    
-            let reply = self.handle_message(fragment[..n]).await?;
-    
-            socket.sendto(reply, peer).await?;
+
+            let reply = self.clone().handle_message(buf[..n].to_vec()).await?;
+
+            socket.send_to(&reply, peer).await?;
         }
     }
-    
 
-    async fn handle_message(self: Arc<Self>, data_in: Vec<u8>) -> Result<Vec<u8>, Error> {
+    async fn handle_message(self: Arc<Self>, data_in: Vec<u8>) -> Result<Vec<u8>, Error>
+    where
+        Self: Sync,
+    {
         let mut ret = Cursor::new(Vec::new());
         let mut data_in = Cursor::new(data_in);
         let mut msg = RpcMessage::default();
@@ -117,6 +132,9 @@ pub(crate) trait RpcService {
                         RpcError::GarbageArgs => AcceptStat::GarbageArgs,
                         RpcError::SystemErr => AcceptStat::SystemErr,
                         RpcError::Io(err) => return Err(err),
+                        // Shouldn't be returned by call()
+                        RpcError::RpcMissmatch(_) => unreachable!(),
+                        RpcError::AuthError(_) => unreachable!(),
                     }
                 } else {
                     AcceptStat::Success
@@ -150,11 +168,13 @@ pub(crate) trait RpcService {
         proc: u32,
         args: &mut Cursor<Vec<u8>>,
         ret: &mut Cursor<Vec<u8>>,
-    ) -> Result<(), RpcError> {
+    ) -> Result<(), RpcError>
+    where
+        Self: Sync,
+    {
         Err(RpcError::ProgUnavail)
     }
 }
-
 
 #[async_std::test]
 async fn test_serve_rpc() {
@@ -173,8 +193,9 @@ async fn test_serve_rpc() {
         let peer = stream.peer_addr().unwrap();
         println!("Accepted from: {}", peer);
 
+        let t = t.clone();
         task::spawn(async move {
-            if let Err(err) = t.serve_tcp(stream).await {
+            if let Err(err) = t.serve_tcp_stream(stream).await {
                 log::warn!("Error processing client: {}", err)
             }
             drop(token);
@@ -184,16 +205,21 @@ async fn test_serve_rpc() {
 
 pub(crate) struct RpcClient<IO> {
     xid: u32,
-    io: IO
+    prog: u32,
+    vers: u32,
+    io: IO,
 }
 
 impl<IO> RpcClient<IO>
-    where IO: AsyncRead + AsyncWrite + Unpin {
-
+where
+    IO: AsyncRead + AsyncWrite + Unpin,
+{
     pub(crate) fn new(io: IO, prog: u32, vers: u32) -> Self {
         Self {
             xid: 0,
-            io
+            io,
+            prog,
+            vers,
         }
     }
 
@@ -203,11 +229,7 @@ impl<IO> RpcClient<IO>
     }
 
     /// Call procedure `proc` with arguments of type `ARGS`. Returns `Ok(RET)` if successfull.
-    pub(crate) async fn call<ARGS, RET>(
-        &mut self
-        proc: u32,
-        args: ARGS,
-    ) -> Result<RET, RpcError>
+    pub(crate) async fn call<ARGS, RET>(&mut self, proc: u32, args: ARGS) -> Result<RET, RpcError>
     where
         ARGS: XdrEncode,
         RET: XdrDecode + Default,
@@ -236,7 +258,7 @@ impl<IO> RpcClient<IO>
                     MsgType::Reply(Replybody {
                         stat: ReplyStat::Accepted(accepted),
                     }),
-                xid
+                xid,
             } => match accepted.stat {
                 AcceptStat::Success => {
                     ret.read_xdr(&mut ret_cursor)?;
@@ -251,16 +273,13 @@ impl<IO> RpcClient<IO>
             RpcMessage {
                 mtype:
                     MsgType::Reply(Replybody {
-                        stat: ReplyStat::Denied(RejectedReply{ stat }),
+                        stat: ReplyStat::Denied(RejectedReply { stat }),
                     }),
                 ..
-            } => {
-                match stat {
-                    RejectStat::RpcMissmatch(m) => Err(RpcError::RpcMissmatch(m)),
-                    RejectStat::AuthError(err) => Err(RpcError::AuthError(err))
-                }
-                todo!()
-            }
+            } => match stat {
+                RejectStat::RpcMissmatch(m) => Err(RpcError::RpcMissmatch(m)),
+                RejectStat::AuthError(err) => Err(RpcError::AuthError(err)),
+            },
             RpcMessage {
                 mtype: MsgType::Call(..),
                 ..

@@ -12,7 +12,7 @@ def find_free_port():
 
 
 @pytest.fixture
-def myserver(xprocess):
+def socket_example(xprocess, request):
     port = find_free_port()
 
     class Starter(ProcessStarter):
@@ -20,14 +20,12 @@ def myserver(xprocess):
         pattern = "Running server"
 
         # command to start process
-        args = ['cargo', 'run', '--example', 'server', '--', '--port', str(port)]
-
-
+        args = ['cargo', 'run', '--manifest-path', request.fspath.dirname+'/../Cargo.toml', '--example', 'server', '--', '--port', str(port)]
 
     # ensure process is running and return its logfile
-    logfile = xprocess.ensure("myserver", Starter)
+    logfile = xprocess.ensure("socket_example", Starter)
 
     yield port
 
     # clean up whole process tree afterwards
-    xprocess.getinfo("myserver").terminate()
+    xprocess.getinfo("socket_example").terminate()

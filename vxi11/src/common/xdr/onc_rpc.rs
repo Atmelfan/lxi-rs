@@ -243,7 +243,7 @@ pub(crate) mod xdr {
     }
 
     #[derive(Debug, Clone, Copy)]
-    pub(crate) enum AuthStat {
+    pub enum AuthStat {
         Ok,
         BadCred,
         RejectedCred,

@@ -7,12 +7,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# lock_api = "0.4" # TODO: No-std support
 futures = {version = "0.3", features = ["alloc"]}
+spin = {version = "0.9.3", default-features = false, features = ["spin_mutex", "mutex"]}
 
 [dev-dependencies]
-async-std = {version = "1.10", features = ["attributes"]}
 
 [features]
-default = ["std"]
+default = []
 std = []

@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use async_std::{io::BufReader, os::unix::net::UnixStream};
 use futures::{join, lock::Mutex, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
-use lxi_device::{lock::SharedLock, util::EchoDevice};
+use lxi_device::{lock::{SharedLock, SpinMutex}, util::EchoDevice};
 use lxi_socket::server::ServerConfig;
 
 async fn run_echo_server(
     stream: UnixStream,
-    shared_lock: Arc<Mutex<SharedLock>>,
+    shared_lock: Arc<SpinMutex<SharedLock>>,
     device: Arc<Mutex<EchoDevice>>,
 ) {
     let peer = stream.peer_addr().unwrap();

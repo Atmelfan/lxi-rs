@@ -16,6 +16,17 @@ The specifications consists of a [core specification](https://www.lxistandard.or
 #TBD
 ```
 
+## Organisation
+
+- [device](device)
+
+- [hislip](hislip)
+- [socket](socket)
+- [vxi11](vxi11)
+- [telnet](telnet)
+
+- [client](client)
+
 ## Scope
 This crate does not handle command parsing and/or execution, look at [scpi-rs](https://github.com/Atmelfan/scpi-rs)(:crab:) or [libscpi](https://github.com/j123b567/scpi-parser)(C) for that.
 

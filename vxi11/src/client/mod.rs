@@ -1,6 +1,6 @@
 use std::{
     io::{self, Cursor},
-    net::IpAddr,
+    net::IpAddr, sync::Arc,
 };
 
 use async_std::net::TcpStream;
@@ -45,14 +45,14 @@ impl From<io::Error> for VxiClientError {
     }
 }
 
-struct Vxi11CoreClient<IO> {
+struct Vxi11CoreClient {
     lid: DeviceLink,
-    rpc_client: RpcClient<IO>,
+    rpc_client: RpcClient<TcpStream>,
     max_recv_size: u32,
     async_port: u16,
 }
 
-impl Vxi11CoreClient<TcpStream> {
+impl Vxi11CoreClient {
     /// Create a new client and connect to the core channel
     pub async fn connect(
         addr: IpAddr,
@@ -75,7 +75,7 @@ impl Vxi11CoreClient<TcpStream> {
         log::debug!("Core channel @ port {}", core_port);
 
         let stream = TcpStream::connect((addr, core_port)).await?;
-        let mut core_client = RpcClient::new(stream);
+        let mut core_client = RpcClient::new(stream, DEVICE_CORE, DEVICE_CORE_VERSION);
 
         // Setup link
         let link_parms = CreateLinkParms {
@@ -85,7 +85,7 @@ impl Vxi11CoreClient<TcpStream> {
             device,
         };
         let link_resp: CreateLinkResp = core_client
-            .call(DEVICE_CORE, DEVICE_CORE_VERSION, create_link, link_parms)
+            .call(create_link, link_parms)
             .await?;
         if link_resp.error == DeviceErrorCode::NoError {
             Ok(Self {
@@ -103,11 +103,11 @@ impl Vxi11CoreClient<TcpStream> {
     /// Create a new client and connect to the async/abort channel.
     /// Can only be done after the core channel has been initialized
     pub async fn connect_async(
-        &self
+        &self,
         addr: IpAddr
     ) -> Result<Vxi11AsyncClient, VxiClientError> {
         let stream = TcpStream::connect((addr, self.async_port)).await?;
-        let mut async_client = RpcClient::new(stream);
+        let async_client = RpcClient::new(stream, DEVICE_ASYNC, DEVICE_ASYNC_VERSION);
         Ok(Vxi11AsyncClient {
             lid: self.lid,
             rpc_client: async_client
@@ -116,9 +116,9 @@ impl Vxi11CoreClient<TcpStream> {
 }
 
 
-struct Vxi11AsyncClient<IO> {
+struct Vxi11AsyncClient {
     lid: DeviceLink,
-    rpc_client: RpcClient<IO>,
+    rpc_client: RpcClient<TcpStream>,
 }
 
 
@@ -129,7 +129,7 @@ struct Vxi11IntrServer {
 #[async_trait::async_trait]
 impl RpcService for Vxi11IntrServer {
     async fn call(
-        &self,
+        self: Arc<Self>,
         prog: u32,
         vers: u32,
         proc: u32,

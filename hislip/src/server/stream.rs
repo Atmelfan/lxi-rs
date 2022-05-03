@@ -1,6 +1,6 @@
 use std::{pin::Pin, sync::Arc};
 
-use async_rustls::{server::TlsStream, TlsAcceptor, rustls::Session};
+use async_tls::{server::TlsStream, TlsAcceptor};
 use async_std::{io, net::TcpStream};
 use futures::{AsyncRead, AsyncWrite};
 

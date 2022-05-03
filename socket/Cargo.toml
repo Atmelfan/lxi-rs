@@ -11,9 +11,10 @@ async-std = {version = "1.10.0", features = ["attributes"]}
 async-listen = "0.2.1"
 futures = "0.3.13"
 log = {version = "0.4.4", features = ["kv_unstable_std"]}
+pin-project-lite = "0.2"
 
 [dependencies.lxi-device]
-path = "../lxi-device"
+path = "../device"
 
 [dependencies.async-tls]
 version = "0.11.0"

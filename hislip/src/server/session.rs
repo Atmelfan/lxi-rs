@@ -2,6 +2,7 @@ use async_std::sync::Arc;
 use async_std::net::TcpStream;
 use futures::channel::mpsc;
 use futures::StreamExt;
+use lxi_device::lock::LockHandle;
 
 use crate::common::Protocol;
 use crate::common::errors::Error;
@@ -12,8 +13,7 @@ pub enum SessionMode {
     Overlapped,
 }
 
-pub(crate) struct Session {
-    pub(crate) sub_adress: String,
+pub(crate) struct Session<DEV> {
     /// Negotiated rpc
     pub(crate) protocol: Protocol,
     /// Negotiated session mode
@@ -26,6 +26,8 @@ pub(crate) struct Session {
     // Internal statekeeping between async and sync channel
     pub(crate) async_connected: bool,
     pub(crate) async_encrypted: bool,
+
+    pub(crate) handle: LockHandle<DEV>
 }
 
 type Sender<T> = mpsc::UnboundedSender<T>;
@@ -39,17 +41,23 @@ pub enum Event {
     Data(Vec<u8>),
 }
 
-impl Session {
-    pub(crate) fn new(sub_adress: String, session_id: u16, protocol: Protocol) -> Self {
-        Session {
-            sub_adress,
+impl<DEV> Session<DEV> {
+    pub(crate) fn new(session_id: u16, protocol: Protocol, handle: LockHandle<DEV>) -> Self {
+        Self {
             protocol,
             mode: SessionMode::Synchronized,
             id: session_id,
             max_message_size: 256,
             async_connected: false,
             async_encrypted: false,
+            handle,
         }
+    }
+
+    pub(crate) fn close(&mut self) {
+        // Release any lock this session might be holding
+        // Should be called anyways by LockHandle::drop() but done here to be obvious
+        self.handle.force_release();
     }
 
     pub(crate) async fn session_async_writer_loop(
@@ -67,5 +75,11 @@ impl Session {
             }
         }
         Ok(())
+    }
+}
+
+impl<DEV> Drop for Session<DEV> {
+    fn drop(&mut self) {
+        self.close()
     }
 }

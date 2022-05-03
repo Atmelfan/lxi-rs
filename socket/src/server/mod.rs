@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use async_std::path::Path;
 use async_std::sync::Arc;
-use futures::{lock::Mutex, AsyncReadExt};
-use futures::{AsyncBufReadExt, AsyncWriteExt, StreamExt};
+use futures::{lock::Mutex, AsyncRead, AsyncReadExt};
+use futures::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, StreamExt, ready};
 
 use async_std::io::{self, BufReader, Read, Write};
 use async_std::net::{TcpListener, ToSocketAddrs};
@@ -16,10 +16,36 @@ use async_std::task;
 
 use async_listen::ListenExt;
 
+use lxi_device::lock::SpinMutex;
 use lxi_device::{
     lock::{LockHandle, SharedLock},
     Device,
 };
+
+pin_project_lite::pin_project! {
+struct ReadWhileUnlocked<'a, RD, DEV> {
+    #[pin]
+    reader: RD,
+    handle: &'a LockHandle<DEV>
+}}
+
+impl<RD, DEV> AsyncRead for ReadWhileUnlocked<'_, RD, DEV>
+where
+    RD: AsyncRead,
+{
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut task::Context<'_>,
+        buf: &mut [u8],
+    ) -> task::Poll<io::Result<usize>> {
+        // Read 
+        if self.handle.can_lock().is_ok() {
+            self.project().reader.poll_read(cx, buf)
+        } else {
+            task::Poll::Pending
+        }
+    }
+}
 
 pub struct Server(ServerConfig);
 
@@ -27,7 +53,7 @@ impl Server {
     pub async fn serve<DEV>(
         self: Arc<Self>,
         addr: impl ToSocketAddrs,
-        shared_lock: Arc<Mutex<SharedLock>>,
+        shared_lock: Arc<SpinMutex<SharedLock>>,
         device: Arc<Mutex<DEV>>,
     ) -> io::Result<()>
     where
@@ -66,7 +92,7 @@ impl Server {
     pub async fn serve_unix<DEV>(
         self: Arc<Self>,
         path: impl AsRef<Path>,
-        shared_lock: Arc<Mutex<SharedLock>>,
+        shared_lock: Arc<SpinMutex<SharedLock>>,
         device: Arc<Mutex<DEV>>,
     ) -> io::Result<()>
     where
@@ -106,7 +132,7 @@ impl Server {
         self: Arc<Self>,
         reader: RD,
         mut writer: WR,
-        shared_lock: Arc<Mutex<SharedLock>>,
+        shared_lock: Arc<SpinMutex<SharedLock>>,
         device: Arc<Mutex<DEV>>,
         peer: SA,
     ) -> io::Result<()>
@@ -138,6 +164,7 @@ impl Server {
             }
 
             'inner: loop {
+                // TODO: Await lock
                 let mut resp = if let Ok(mut x) = handle.try_lock().await {
                     x.execute(&cmd)
                 } else {

@@ -226,7 +226,7 @@ pub(crate) mod xdr {
 
     #[derive(Debug, Default, Clone, Copy)]
     pub(crate) struct DeviceError {
-        error: DeviceErrorCode,
+        pub(crate) error: DeviceErrorCode,
     }
 
     impl XdrEncode for DeviceError {

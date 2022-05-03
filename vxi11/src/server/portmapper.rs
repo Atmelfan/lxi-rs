@@ -1,12 +1,13 @@
 use std::{
     collections::HashMap,
-    io::{Cursor, Error, Read, Write},
-    sync::Arc,
+    io::{Cursor, Error, Read, Write, self},
+    sync::Arc, net::{IpAddr}, time::Duration,
 };
 
-use async_std::sync::RwLock;
+use async_listen::ListenExt;
+use async_std::{sync::RwLock, net::{TcpListener, ToSocketAddrs, UdpSocket}, task};
 use async_trait::async_trait;
-use futures::{AsyncRead, AsyncWrite};
+use futures::{AsyncRead, AsyncWrite, try_join, StreamExt};
 
 use crate::common::{
     onc_rpc::{RpcClient, RpcError, RpcService},
@@ -15,7 +16,7 @@ use crate::common::{
         onc_rpc::xdr::MissmatchInfo,
         portmapper::{
             PMAPPROC_CALLIT, PMAPPROC_DUMP, PMAPPROC_GETPORT, PMAPPROC_NULL, PMAPPROC_SET,
-            PMAPPROC_UNSET, PORTMAPPER_PROG, PORTMAPPER_VERS,
+            PMAPPROC_UNSET, PORTMAPPER_PROG, PORTMAPPER_VERS, PORTMAPPER_PORT,
         },
     },
 };
@@ -31,30 +32,30 @@ where
     IO: AsyncRead + AsyncWrite + Unpin,
 {
     pub(crate) fn new(io: IO) -> Self {
-        Self(RpcClient::new(io))
+        Self(RpcClient::new(io, PORTMAPPER_PROG, PORTMAPPER_VERS))
     }
 
     pub(crate) async fn null(&mut self, mapping: Mapping) -> Result<bool, RpcError> {
         self.0
-            .call(PORTMAPPER_PROG, PORTMAPPER_VERS, PMAPPROC_NULL, mapping)
+            .call(PMAPPROC_NULL, mapping)
             .await
     }
 
     pub(crate) async fn set(&mut self, mapping: Mapping) -> Result<bool, RpcError> {
         self.0
-            .call(PORTMAPPER_PROG, PORTMAPPER_VERS, PMAPPROC_SET, mapping)
+            .call(PMAPPROC_SET, mapping)
             .await
     }
 
     pub(crate) async fn unset(&mut self, mapping: Mapping) -> Result<bool, RpcError> {
         self.0
-            .call(PORTMAPPER_PROG, PORTMAPPER_VERS, PMAPPROC_UNSET, mapping)
+            .call(PMAPPROC_UNSET, mapping)
             .await
     }
 
     pub(crate) async fn getport(&mut self, mapping: Mapping) -> Result<u16, RpcError> {
         self.0
-            .call(PORTMAPPER_PROG, PORTMAPPER_VERS, PMAPPROC_GETPORT, mapping)
+            .call(PMAPPROC_GETPORT, mapping)
             .await
     }
 }
@@ -81,27 +82,31 @@ mod test_portmap_client {
     }
 }
 
-struct StaticPortMapBuilder {
+pub struct StaticPortMapBuilder {
     mappings: Vec<Mapping>,
 }
 
 impl StaticPortMapBuilder {
     pub fn new() -> Self {
-        let mappings = Vec::new();
-        mappings.push(Mapping::new(PORTMAPPER_PROG, PORTMAPPER_VERS, PORTMAPPER_PROT_TCP, PORTMAPPER_PORT));
-        mappings.push(Mapping::new(PORTMAPPER_PROG, PORTMAPPER_VERS, PORTMAPPER_PROT_UDP, PORTMAPPER_PORT));
+        let mut mappings = Vec::new();
+        mappings.push(Mapping::new(PORTMAPPER_PROG, PORTMAPPER_VERS, PORTMAPPER_PROT_TCP, PORTMAPPER_PORT as u32));
+        mappings.push(Mapping::new(PORTMAPPER_PROG, PORTMAPPER_VERS, PORTMAPPER_PROT_UDP, PORTMAPPER_PORT as u32));
         StaticPortMapBuilder { mappings }
     }
 
     /// Set a mapping
-    pub fn set(self, mapping: Mapping) -> Self {
+    pub fn set(mut self, mapping: Mapping) -> Self {
         self.mappings.push(mapping);
         self
     }
 
+    pub fn add(&mut self, mapping: Mapping) {
+        self.mappings.push(mapping);
+    }
+
     /// Set a mapping
     pub fn build(self) -> Arc<StaticPortMap> {
-        Arc::new(StaticPortMap { self.mappings })
+        Arc::new(StaticPortMap { mappings: self.mappings })
     }
 
 }
@@ -116,17 +121,23 @@ pub struct StaticPortMap {
 impl StaticPortMap {
 
     /// Serve both TCP and UDP calls at standard address
-    pub async fn serve(self: Arc<Self>, addr: IpAddr) -> io::Result<()>{
-        try_join!(
-            self.clone().serve_tcp((Ipv4Addr::UNSPECIFIED, PORTMAPPER_PORT)),
-            self.clone().serve_udp((Ipv4Addr::UNSPECIFIED, PORTMAPPER_PORT))
-        )
+    pub async fn serve(self: Arc<Self>, addr: IpAddr) -> io::Result<((),())>{
+        let a = async {
+            self.clone().serve_tcp((addr, PORTMAPPER_PORT)).await
+        };
+        let b = async {
+            match UdpSocket::bind((addr, PORTMAPPER_PORT)).await {
+                Ok(socket) => self.clone().serve_udp(socket).await,
+                Err(err) => Err(err),
+            }
+        };
+        try_join!(a, b)
     }
 
     /// Serve TCP calls
-    pub fn serve_tcp(self: Arc<Self>, addrs: impl ToSocketAddrs) -> io::Result<()> {
+    pub async fn serve_tcp(self: Arc<Self>, addrs: impl ToSocketAddrs) -> io::Result<()> {
         let listener = TcpListener::bind(addrs).await?;
-        log::info!("Listening on {}", listener.local_addr());
+        log::info!("Listening on {}", listener.local_addr()?);
         let mut incoming = listener
             .incoming()
             .log_warnings(|warn| log::warn!("Listening error: {}", warn))
@@ -139,28 +150,11 @@ impl StaticPortMap {
 
             let s = self.clone();
             task::spawn(async move {
-                if let Err(err) = s.serve_tcp(stream).await {
+                if let Err(err) = s.serve_tcp_stream(stream).await {
                     log::warn!("Error processing client: {}", err)
                 }
                 drop(token);
             });
-        }
-        log::info!("Stopped");
-        Ok(())
-    }
-
-    /// Serve UDP calls
-    pub fn serve_udp(self: Arc<Self>, addrs: impl ToSocketAddrs) -> io::Result<()> {
-        let socket = UdpSocket::bind(addrs).await?;
-        log::info!("Listening on {}", listener.local_addr());
-        loop {
-            // Read message
-            let mut buf = vec![0; 1500];
-            let (n, peer) = socket.recv_from(&mut buf).await?;
-        
-            let reply = self.handle_message(fragment[..n]).await?;
-        
-            socket.sendto(reply, peer).await?;
         }
         log::info!("Stopped");
         Ok(())
@@ -199,8 +193,7 @@ impl RpcService for StaticPortMap {
                 Ok(())
             }
             PMAPPROC_DUMP => {
-                let mappings = self.mappings.read().await;
-                for mapping in mappings.iter() {
+                for mapping in self.mappings.iter() {
                     true.write_xdr(ret)?;
                     mapping.write_xdr(ret)?;
                 }

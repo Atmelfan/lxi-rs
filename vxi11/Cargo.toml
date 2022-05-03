@@ -15,4 +15,4 @@ log = "0.4"
 byteorder = "1.4"
 
 [dependencies.lxi-device]
-path="../lxi-device"
+path="../device"

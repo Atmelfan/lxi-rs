@@ -13,7 +13,7 @@ use async_std::{
 use async_trait::async_trait;
 use futures::{lock::Mutex, AsyncReadExt, StreamExt};
 use lxi_device::{
-    lock::{LockHandle, SharedLock},
+    lock::{LockHandle, SharedLock, SpinMutex},
     Device,
 };
 
@@ -24,13 +24,13 @@ use crate::common::{
         onc_rpc::xdr::MissmatchInfo,
         portmapper::xdr::Mapping,
         vxi11::{
-            xdr::{CreateLinkParms, CreateLinkResp, DeviceErrorCode, DeviceLink},
+            xdr::{CreateLinkParms, CreateLinkResp, DeviceErrorCode, DeviceLink, DeviceError},
             *,
         },
     },
 };
 
-use super::portmapper::{PortMapperClient, PORTMAPPER_PROT_TCP};
+use super::portmapper::{PortMapperClient, PORTMAPPER_PROT_TCP, StaticPortMap, StaticPortMapBuilder};
 
 struct Link<DEV> {
     id: u32,
@@ -46,12 +46,12 @@ impl<DEV> Link<DEV> {
 struct VxiInner<DEV> {
     link_id: u32,
     links: HashMap<u32, Arc<Mutex<Link<DEV>>>>,
-    shared: Arc<Mutex<SharedLock>>,
+    shared: Arc<SpinMutex<SharedLock>>,
     device: Arc<Mutex<DEV>>,
 }
 
 impl<DEV> VxiInner<DEV> {
-    fn new(shared: Arc<Mutex<SharedLock>>, device: Arc<Mutex<DEV>>) -> Arc<Mutex<Self>> {
+    fn new(shared: Arc<SpinMutex<SharedLock>>, device: Arc<Mutex<DEV>>) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(Self {
             link_id: 0,
             links: HashMap::default(),
@@ -79,12 +79,8 @@ impl<DEV> VxiInner<DEV> {
         self.links.insert(lid, link);
     }
 
-    fn get_link(&mut self, lid: u32) -> Option<Arc<Mutex<Link<DEV>>>> {
-        self.links.get(lid)
-    }
-
     fn remove_link(&mut self, lid: u32) -> Option<Arc<Mutex<Link<DEV>>>> {
-        self.links.remove(lid)
+        self.links.remove(&lid)
     }
 }
 
@@ -96,47 +92,7 @@ pub struct VxiCoreServer<DEV> {
 }
 
 impl<DEV> VxiCoreServer<DEV> {
-    pub async fn serve(self: Arc<Self>, addr: impl ToSocketAddrs) -> io::Result<()>
-    where
-        DEV: Device + Send + 'static,
-    {
-        let listener = TcpListener::bind(addr).await?;
-        let mut incoming = listener
-            .incoming()
-            .log_warnings(|warn| log::warn!("Listening error: {}", warn))
-            .handle_errors(Duration::from_millis(100))
-            .backpressure(10);
 
-        while let Some((token, stream)) = incoming.next().await {
-            let s = self.clone();
-            let peer = stream.peer_addr()?;
-            log::info!("Accepted connection from {}", peer);
-
-            task::spawn(async move {
-                loop {
-                    // Read message
-                    let record = match read_record(&mut stream, 1024 * 1024).await {
-                        Ok(r) => r,
-                        Err(err) => break err,
-                    }
-            
-                    let reply = match s.handle_message(fragment).await {
-                        Ok(r) => r,
-                        Err(err) => break err,
-                    }
-            
-                    match write_record(&mut stream, reply).await {
-                        Ok(()) => {},
-                        Err(err) => break err,
-                    }
-                }
-
-                drop(token);
-                log::info!("Closed connection to {}", peer);
-            });
-        }
-        Ok(())
-    }
 }
 
 #[async_trait]
@@ -145,13 +101,13 @@ where
     DEV: Send,
 {
     async fn call(
-        &self,
+        self: Arc<Self>,
         prog: u32,
         vers: u32,
         proc: u32,
         args: &mut Cursor<Vec<u8>>,
         ret: &mut Cursor<Vec<u8>>,
-    ) -> Result<(), RpcError> {
+    ) -> Result<(), RpcError> where Self: Sync {
         if prog != DEVICE_CORE {
             return Err(RpcError::ProgUnavail);
         }
@@ -187,11 +143,12 @@ where
                     inner.add_link(lid, link_arc.clone());
 
                     // Try to lock
+                    // TODO: Await a lock
                     let t1 = Instant::now();
                     while parms.lock_device
                         && Instant::now() - t1 < Duration::from_millis(parms.lock_timeout.into())
                     {
-                        if link.handle.try_acquire_exclusive().await.is_ok() {
+                        if link.handle.try_acquire_exclusive().is_ok() {
                             resp.error = DeviceErrorCode::NoError;
                             break;
                         } else {
@@ -214,15 +171,16 @@ where
 
                 let mut resp = DeviceError::default();
 
-                if let Ok(link) = inner.get_link(parms.0) {
-                    link.handle.force_release().await;
-                    link.remove_link(parms.0);
+                if let Some(link) = inner.links.get(&parms.0) {
+                    let mut link = link.lock().await;
+                    link.handle.force_release();
                 } else {
-                    resp.0 = DeviceErrorCode::InvalidLinkIdentifier;
+                    resp.error = DeviceErrorCode::InvalidLinkIdentifier;
                 }
+                inner.remove_link(parms.0);
 
-
-
+                resp.write_xdr(ret)?;
+                Ok(())
             }
             _ => Err(RpcError::ProcUnavail),
         }
@@ -269,13 +227,13 @@ where
     DEV: Send,
 {
     async fn call(
-        &self,
+        self: Arc<Self>,
         prog: u32,
         vers: u32,
         proc: u32,
         args: &mut Cursor<Vec<u8>>,
         ret: &mut Cursor<Vec<u8>>,
-    ) -> Result<(), RpcError> {
+    ) -> Result<(), RpcError> where Self: Sync {
         if prog != DEVICE_ASYNC {
             return Err(RpcError::ProgUnavail);
         }
@@ -344,16 +302,16 @@ impl VxiServerBuilder {
     }
 
     /// Register VXI server using [StaticPortMap]
-    pub fn register_static_portmap(self, portmap: &mut StaticPortMap) -> Result<Self, RpcError> {
+    pub fn register_static_portmap(self, portmap: &mut StaticPortMapBuilder) -> Result<Self, RpcError> {
         // Register core service
-        portmap.set(Mapping::new(
+        portmap.add(Mapping::new(
             DEVICE_CORE,
             DEVICE_CORE_VERSION,
             PORTMAPPER_PROT_TCP,
             self.core_port as u32,
         ));
         // Register async service
-        portmap.set(Mapping::new(
+        portmap.add(Mapping::new(
             DEVICE_ASYNC,
             DEVICE_ASYNC_VERSION,
             PORTMAPPER_PROT_TCP,
@@ -364,7 +322,7 @@ impl VxiServerBuilder {
 
     pub fn build<DEV>(
         self,
-        shared: Arc<Mutex<SharedLock>>,
+        shared: Arc<SpinMutex<SharedLock>>,
         device: Arc<Mutex<DEV>>,
     ) -> (VxiCoreServer<DEV>, VxiAsyncServer<DEV>) {
         let inner = VxiInner::new(shared, device);
@@ -378,16 +336,5 @@ impl VxiServerBuilder {
                 inner: inner.clone(),
             },
         )
-    }
-
-    pub fn serve<DEV>(
-        self,
-        shared: Arc<Mutex<SharedLock>>,
-        device: Arc<Mutex<DEV>> 
-    ) -> io::Result<()> {
-        let (core_service, async_service) = self.build(shared, device)
-        let serve_core = async move {
-
-        };
     }
 }

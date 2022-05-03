@@ -37,15 +37,15 @@ pub(crate) mod xdr {
 
 
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-    pub(crate) struct Mapping {
-        pub(crate) prog: u32,
-        pub(crate) vers: u32,
-        pub(crate) prot: u32,
-        pub(crate) port: u32,
+    pub struct Mapping {
+        pub prog: u32,
+        pub vers: u32,
+        pub prot: u32,
+        pub port: u32,
     }
 
     impl Mapping {
-        pub(crate) fn new(prog: u32, vers: u32, prot: u32, port: u32) -> Self { Self { prog, vers, prot, port } }
+        pub fn new(prog: u32, vers: u32, prot: u32, port: u32) -> Self { Self { prog, vers, prot, port } }
     }
 
     impl XdrEncode for Mapping {
