@@ -121,7 +121,7 @@ where
                         .await?;
                 } else {
                     // Lock
-                    let timeout = msg.message_parameter();
+                    let dur = Duration::from_milli(msg.message_parameter());
                     let lockstr = if let Ok(s) = std::str::from_utf8(msg.payload()) {
                         s.trim_end_matches('\0')
                     } else {
@@ -137,31 +137,24 @@ where
                     log::debug!(session_id = session.id, timeout=timeout; "Async lock: '{}'", lockstr);
 
                     // Try to acquire lock
-                    // TODO: Await lock
                     let res = if timeout == 0 {
+                        // Try to lock immediately
                         if lockstr.is_empty() {
                             session.handle.try_acquire_exclusive()
                         } else {
                             session.handle.try_acquire_shared(lockstr)
                         }
                     } else {
-                        let t1 = Instant::now();
-                        loop {
-                            let res = if lockstr.is_empty() {
-                                session.handle.try_acquire_exclusive()
-                            } else {
-                                session.handle.try_acquire_shared(lockstr.clone())
-                            };
-                            // Return if successfully locked or last error if timed out
-                            if res.is_ok()
-                                || Instant::now() - t1 > Duration::from_millis(timeout as u64)
-                            {
-                                break res;
-                            }
-                        }
+                        // Try to lock until timed out
+                        let fut = if lockstr.is_empty() {
+                            session.handle.async_acquire_exclusive()
+                        } else {
+                            session.handle.async_acquire_shared(lockstr.clone())
+                        };
+                        timeout(dur, fut).map_err(|_| SharedLockError::Timeout).and_then(|res| res)
                     };
 
-                    log::debug!(session_id = session.id, timeout=timeout; "Async lock: {:?}", res);
+                    log::debug!(session_id = session.id; "Async lock: {:?}", res);
 
                     let control = match res {
                         Ok(_) => 1,
