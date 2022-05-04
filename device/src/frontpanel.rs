@@ -21,22 +21,29 @@ pub enum LanStateLed {
 
 /// Frontpanel controls for a device. 
 pub trait FrontPanel {
-    type Error;
 
     /// Indicates if a "LAN configuration initialize" (LCI) or "LAN reset" button is pressed.
     /// 
     /// Required by LXI device specification.
-    fn lan_reset_pressed(&mut self) -> Result<TristateButtonState, Self::Error>;
-
-    ///  Indicates if a "Local" button is pressed
-    fn local_pressed(&mut self) -> Result<TristateButtonState, Self::Error> {
+    fn lan_reset_pressed(&mut self) -> TristateButtonState {
         return Ok(TristateButtonState::Clear)
     }
 
-    /// Control LAN status LED.
+    ///  Indicates if a "Local" button is pressed
+    fn local_pressed(&mut self) -> TristateButtonState {
+        return Ok(TristateButtonState::Clear)
+    }
+
+    /// Control 'RMT' status indicator
+    fn set_remote_status(&mut self, _remote: bool) {
+        // Do nothing
+        Ok(())
+    }
+
+    /// Control LAN status indicator.
     /// 
     /// Might be controlled by hardware, in which case this method does nothing.
-    fn set_lan_status_led(&mut self, _state: LanStateLed) -> Result<(), Self::Error> {
+    fn set_lan_status(&mut self, _state: LanStateLed) {
         // Do nothing
         Ok(())
     }

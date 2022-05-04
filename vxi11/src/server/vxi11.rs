@@ -173,6 +173,7 @@ where
                 if parms.device.eq_ignore_ascii_case("inst0") {
                     // Add link
                     inner.add_link(lid, link_arc.clone());
+                    drop(inner);
 
                     // Try to lock
                     // TODO: Await a lock

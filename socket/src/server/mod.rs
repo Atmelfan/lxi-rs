@@ -152,35 +152,24 @@ impl Server {
         loop {
             // Read a line from stream.
             let n = reader.read_until(self.0.read_termination, &mut cmd).await?;
-
-            // If this is the end of stream, return.
             if n == 0 {
                 log::info!("{:?} disconnected", peer);
                 break;
             }
 
-            if log::log_enabled!(log::Level::Debug) {
-                log::debug!("{:?} read {:?}", peer, cmd);
-            }
+            log::debug!("{:?} read {:?}", peer, cmd);
 
-            'inner: loop {
-                // TODO: Await lock
-                let mut resp = if let Ok(mut x) = handle.try_lock().await {
-                    x.execute(&cmd)
-                } else {
-                    // Wait until lock becomes available
-                    continue 'inner;
-                };
-                // Write back
-                if !resp.is_empty() {
-                    resp.push(self.0.write_termination);
-                    if log::log_enabled!(log::Level::Debug) {
-                        log::debug!("{:?} write {:?}", peer, resp);
-                    }
-                    writer.write_all(&resp).await?;
-                    //writer.flush().await?;
-                }
-                break 'inner;
+            let resp = {
+                let device = handle.async_lock().await;
+                device.execute(&cmd)
+            };
+            
+            // Write back
+            if !resp.is_empty() {
+                resp.push(self.0.write_termination);
+                log::debug!("{:?} write {:?}", peer, resp);
+                writer.write_all(&resp).await?;
+                //writer.flush().await?;
             }
 
             // Clear until next message
