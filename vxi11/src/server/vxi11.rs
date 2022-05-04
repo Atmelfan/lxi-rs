@@ -19,7 +19,7 @@ use lxi_device::{
 };
 
 use crate::common::{
-    onc_rpc::{RpcError, RpcService},
+    onc_rpc::{RpcError, RpcService, RpcClient},
     xdr::{
         basic::{XdrDecode, XdrEncode},
         onc_rpc::xdr::MissmatchInfo,
@@ -39,11 +39,20 @@ use super::portmapper::{
 struct Link<DEV> {
     id: u32,
     handle: LockHandle<DEV>,
+    intr: Option<RpcClient<TcpStream>>
 }
 
 impl<DEV> Link<DEV> {
     fn new(id: u32, handle: LockHandle<DEV>) -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Self { id, handle }))
+        Arc::new(Mutex::new(Self { id, handle, intr: None }))
+    }
+
+    fn interrupt(&mut self) {
+        if let Some(client) = &self.intr {
+            if let Err(err) = client.call_no_reply(srq_request, ()).await {
+                log::error!("Failed to send interrupt to client: {:?}", err)
+            }
+        }
     }
 }
 

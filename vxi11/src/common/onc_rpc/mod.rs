@@ -186,10 +186,7 @@ pub(crate) struct RpcClient<IO> {
     io: IO,
 }
 
-impl<IO> RpcClient<IO>
-where
-    IO: AsyncRead + AsyncWrite + Unpin,
-{
+impl<IO> RpcClient<IO> {
     pub(crate) fn new(io: IO, prog: u32, vers: u32) -> Self {
         Self {
             xid: 0,
@@ -198,7 +195,12 @@ where
             vers,
         }
     }
+}
 
+impl<IO> RpcClient<IO>
+where
+    IO: AsyncRead + AsyncWrite + Unpin,
+{
     /// Call the null procedure of program/version
     pub(crate) async fn null(&mut self) -> Result<(), RpcError> {
         self.call(0, ()).await
@@ -263,5 +265,23 @@ where
                 todo!()
             }
         }
+    }
+
+    /// Call procedure `proc` with arguments of type `ARGS`. Returns `Ok(RET)` if successfull.
+    pub(crate) async fn call_no_reply<ARGS>(&mut self, proc: u32, args: ARGS) -> Result<(), RpcError>
+    where
+        ARGS: XdrEncode,
+    {
+        self.xid += 1;
+
+        let mut args_cursor = Cursor::new(Vec::new());
+
+        // Send a call
+        let msg = RpcMessage::call(self.xid, self.prog, self.vers, proc);
+        msg.write_xdr(&mut args_cursor)?;
+        args.write_xdr(&mut args_cursor)?;
+        write_record(&mut self.io, args_cursor.into_inner()).await?;
+
+        Ok(())
     }
 }
