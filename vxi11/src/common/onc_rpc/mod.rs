@@ -12,7 +12,10 @@ use async_std::{
 use async_trait::async_trait;
 use byteorder::ReadBytesExt;
 
-use crate::common::{onc_rpc::record::write_record, xdr::portmapper::xdr::Mapping};
+use crate::{
+    client,
+    common::{onc_rpc::record::write_record, xdr::portmapper::xdr::Mapping},
+};
 
 use self::record::read_record;
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, StreamExt};
@@ -179,14 +182,126 @@ pub(crate) trait RpcService {
     }
 }
 
-pub(crate) struct RpcClient<IO> {
+pub(crate) struct UdpRpcClient {
+    xid: u32,
+    prog: u32,
+    vers: u32,
+    socket: UdpSocket,
+}
+
+impl UdpRpcClient {
+    pub(crate) fn new(prog: u32, vers: u32, socket: UdpSocket) -> Self {
+        Self {
+            xid: 0,
+            prog,
+            vers,
+            socket,
+        }
+    }
+
+    /// Call the null procedure of program/version
+    pub(crate) async fn null(&mut self) -> Result<(), RpcError> {
+        self.call(0, ()).await
+    }
+
+    /// Call the null procedure of program/version
+    pub(crate) async fn null_no_reply(&mut self) -> Result<(), RpcError> {
+        self.call_no_reply(0, ()).await
+    }
+
+    /// Call procedure `proc` with arguments of type `ARGS`. Returns `Ok(RET)` if successfull.
+    pub(crate) async fn call<ARGS, RET>(&mut self, proc: u32, args: ARGS) -> Result<RET, RpcError>
+    where
+        ARGS: XdrEncode,
+        RET: XdrDecode + Default,
+    {
+        self.xid += 1;
+
+        let mut args_cursor = Cursor::new(Vec::new());
+
+        // Send a call
+        let msg = RpcMessage::call(self.xid, self.prog, self.vers, proc);
+        msg.write_xdr(&mut args_cursor)?;
+        args.write_xdr(&mut args_cursor)?;
+        self.socket.send(&args_cursor.into_inner()).await?;
+
+        // Read response
+        let mut buf = vec![0; 1024];
+        self.socket.recv(&mut buf).await?;
+        let mut ret_cursor = Cursor::new(buf);
+
+        // Deserialize and parse response
+        let mut reply = RpcMessage::default();
+        let mut ret: RET = Default::default();
+        reply.read_xdr(&mut ret_cursor)?;
+        match reply {
+            RpcMessage {
+                mtype:
+                    MsgType::Reply(Replybody {
+                        stat: ReplyStat::Accepted(accepted),
+                    }),
+                xid,
+            } => match accepted.stat {
+                AcceptStat::Success => {
+                    ret.read_xdr(&mut ret_cursor)?;
+                    Ok(ret)
+                }
+                AcceptStat::ProgUnavail => Err(RpcError::ProgUnavail),
+                AcceptStat::ProgMissmatch(m) => Err(RpcError::ProgMissmatch(m)),
+                AcceptStat::ProcUnavail => Err(RpcError::ProcUnavail),
+                AcceptStat::GarbageArgs => Err(RpcError::GarbageArgs),
+                AcceptStat::SystemErr => Err(RpcError::SystemErr),
+            },
+            RpcMessage {
+                mtype:
+                    MsgType::Reply(Replybody {
+                        stat: ReplyStat::Denied(RejectedReply { stat }),
+                    }),
+                ..
+            } => match stat {
+                RejectStat::RpcMissmatch(m) => Err(RpcError::RpcMissmatch(m)),
+                RejectStat::AuthError(err) => Err(RpcError::AuthError(err)),
+            },
+            RpcMessage {
+                mtype: MsgType::Call(..),
+                ..
+            } => {
+                todo!()
+            }
+        }
+    }
+
+    /// Call procedure `proc` with arguments of type `ARGS`. Returns `Ok(RET)` if successfull.
+    pub(crate) async fn call_no_reply<ARGS>(
+        &mut self,
+        proc: u32,
+        args: ARGS,
+    ) -> Result<(), RpcError>
+    where
+        ARGS: XdrEncode,
+    {
+        self.xid += 1;
+
+        let mut args_cursor = Cursor::new(Vec::new());
+
+        // Send a call
+        let msg = RpcMessage::call(self.xid, self.prog, self.vers, proc);
+        msg.write_xdr(&mut args_cursor)?;
+        args.write_xdr(&mut args_cursor)?;
+        self.socket.send(&args_cursor.into_inner()).await?;
+
+        Ok(())
+    }
+}
+
+pub(crate) struct StreamRpcClient<IO> {
     xid: u32,
     prog: u32,
     vers: u32,
     io: IO,
 }
 
-impl<IO> RpcClient<IO> {
+impl<IO> StreamRpcClient<IO> {
     pub(crate) fn new(io: IO, prog: u32, vers: u32) -> Self {
         Self {
             xid: 0,
@@ -197,13 +312,18 @@ impl<IO> RpcClient<IO> {
     }
 }
 
-impl<IO> RpcClient<IO>
+impl<IO> StreamRpcClient<IO>
 where
     IO: AsyncRead + AsyncWrite + Unpin,
 {
     /// Call the null procedure of program/version
     pub(crate) async fn null(&mut self) -> Result<(), RpcError> {
         self.call(0, ()).await
+    }
+
+    /// Call the null procedure of program/version
+    pub(crate) async fn null_no_reply(&mut self) -> Result<(), RpcError> {
+        self.call_no_reply(0, ()).await
     }
 
     /// Call procedure `proc` with arguments of type `ARGS`. Returns `Ok(RET)` if successfull.
@@ -268,7 +388,11 @@ where
     }
 
     /// Call procedure `proc` with arguments of type `ARGS`. Returns `Ok(RET)` if successfull.
-    pub(crate) async fn call_no_reply<ARGS>(&mut self, proc: u32, args: ARGS) -> Result<(), RpcError>
+    pub(crate) async fn call_no_reply<ARGS>(
+        &mut self,
+        proc: u32,
+        args: ARGS,
+    ) -> Result<(), RpcError>
     where
         ARGS: XdrEncode,
     {
@@ -283,5 +407,49 @@ where
         write_record(&mut self.io, args_cursor.into_inner()).await?;
 
         Ok(())
+    }
+}
+
+pub(crate) enum RpcClient {
+    Udp(UdpRpcClient),
+    Tcp(StreamRpcClient<TcpStream>),
+}
+
+impl RpcClient {
+    /// Call the null procedure of program/version
+    pub(crate) async fn null(&mut self) -> Result<(), RpcError> {
+        self.call(0, ()).await
+    }
+
+    /// Call the null procedure of program/version
+    pub(crate) async fn null_no_reply(&mut self) -> Result<(), RpcError> {
+        self.call_no_reply(0, ()).await
+    }
+
+    /// Call procedure `proc` with arguments of type `ARGS`. Returns `Ok(RET)` if successfull.
+    pub(crate) async fn call<ARGS, RET>(&mut self, proc: u32, args: ARGS) -> Result<RET, RpcError>
+    where
+        ARGS: XdrEncode,
+        RET: XdrDecode + Default,
+    {
+        match self {
+            RpcClient::Udp(client) => client.call(proc, args).await,
+            RpcClient::Tcp(client) => client.call(proc, args).await,
+        }
+    }
+
+    /// Call procedure `proc` with arguments of type `ARGS`. Returns `Ok(RET)` if successfull.
+    pub(crate) async fn call_no_reply<ARGS>(
+        &mut self,
+        proc: u32,
+        args: ARGS,
+    ) -> Result<(), RpcError>
+    where
+        ARGS: XdrEncode,
+    {
+        match self {
+            RpcClient::Udp(client) => client.call_no_reply(proc, args).await,
+            RpcClient::Tcp(client) => client.call_no_reply(proc, args).await,
+        }
     }
 }

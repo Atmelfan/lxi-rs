@@ -26,18 +26,17 @@ pub trait FrontPanel {
     /// 
     /// Required by LXI device specification.
     fn lan_reset_pressed(&mut self) -> TristateButtonState {
-        return Ok(TristateButtonState::Clear)
+        return TristateButtonState::Clear
     }
 
     ///  Indicates if a "Local" button is pressed
     fn local_pressed(&mut self) -> TristateButtonState {
-        return Ok(TristateButtonState::Clear)
+        return TristateButtonState::Clear
     }
 
     /// Control 'RMT' status indicator
     fn set_remote_status(&mut self, _remote: bool) {
         // Do nothing
-        Ok(())
     }
 
     /// Control LAN status indicator.
@@ -45,7 +44,6 @@ pub trait FrontPanel {
     /// Might be controlled by hardware, in which case this method does nothing.
     fn set_lan_status(&mut self, _state: LanStateLed) {
         // Do nothing
-        Ok(())
     }
 
 }

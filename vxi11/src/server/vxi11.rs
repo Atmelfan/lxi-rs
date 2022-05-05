@@ -1,57 +1,106 @@
 use std::{
     collections::HashMap,
-    io::{self, Cursor, Error, Read, Write},
-    net::IpAddr,
-    sync::{atomic::AtomicU32, Arc},
+    io::{self, Cursor},
+    net::{IpAddr, Ipv4Addr},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use async_listen::ListenExt;
 use async_std::{
-    net::{TcpListener, TcpStream, ToSocketAddrs},
+    net::{TcpListener, TcpStream, ToSocketAddrs, UdpSocket},
     task,
 };
 use async_trait::async_trait;
-use futures::{lock::Mutex, AsyncReadExt, StreamExt};
-use lxi_device::{
-    lock::{LockHandle, SharedLock, SpinMutex},
-    Device,
-};
+use futures::{lock::Mutex, StreamExt};
+use lxi_device::lock::{LockHandle, SharedLock, SpinMutex};
 
 use crate::common::{
-    onc_rpc::{RpcError, RpcService, RpcClient},
+    onc_rpc::{RpcClient, RpcError, RpcService, StreamRpcClient, UdpRpcClient},
     xdr::{
         basic::{XdrDecode, XdrEncode},
         onc_rpc::xdr::MissmatchInfo,
-        portmapper::{xdr::Mapping, PORTMAPPER_PORT},
         vxi11::{
-            xdr::{CreateLinkParms, CreateLinkResp, DeviceError, DeviceErrorCode, DeviceLink}, *
+            xdr::{
+                CreateLinkParms, CreateLinkResp, DeviceError, DeviceErrorCode,
+                DeviceLink,
+            },
+            *,
         },
     },
 };
 
-pub use crate::common::xdr::vxi11::{DEVICE_CORE, DEVICE_CORE_VERSION, DEVICE_ASYNC, DEVICE_ASYNC_VERSION, DEVICE_INTR, DEVICE_INTR_VERSION};
 
-use super::portmapper::{
-    PortMapperClient, StaticPortMap, StaticPortMapBuilder, PORTMAPPER_PROT_TCP,
-};
+
+use super::portmapper::prelude::*;
+
+pub mod prelude {
+    pub use crate::common::xdr::vxi11::{
+        DEVICE_ASYNC, DEVICE_ASYNC_VERSION, DEVICE_CORE, DEVICE_CORE_VERSION, DEVICE_INTR,
+        DEVICE_INTR_VERSION,
+    };
+    pub use super::{VxiAsyncServer, VxiCoreServer, VxiServerBuilder};
+}
 
 struct Link<DEV> {
     id: u32,
     handle: LockHandle<DEV>,
-    intr: Option<RpcClient<TcpStream>>
+
+    // Service request
+    intr: Option<RpcClient>,
+    srq_enable: bool,
+    srq_handle: Option<Vec<u8>>,
 }
 
 impl<DEV> Link<DEV> {
     fn new(id: u32, handle: LockHandle<DEV>) -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Self { id, handle, intr: None }))
+        Arc::new(Mutex::new(Self {
+            id,
+            handle,
+            intr: None,
+            srq_enable: true,
+            srq_handle: None,
+        }))
     }
 
-    fn interrupt(&mut self) {
-        if let Some(client) = &self.intr {
-            if let Err(err) = client.call_no_reply(srq_request, ()).await {
-                log::error!("Failed to send interrupt to client: {:?}", err)
+    async fn create_interrupt_channel(
+        &mut self,
+        host_addr: u32,
+        host_port: u16,
+        prog_num: u32,
+        prog_vers: u32,
+        udp: bool,
+    ) -> io::Result<()> {
+        let client = if udp {
+            let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await?;
+            socket
+                .connect((Ipv4Addr::from(host_addr), host_port))
+                .await?;
+            RpcClient::Udp(UdpRpcClient::new(prog_num, prog_vers, socket))
+        } else {
+            let stream = TcpStream::connect((Ipv4Addr::from(host_addr), host_port)).await?;
+            RpcClient::Tcp(StreamRpcClient::new(stream, prog_num, prog_vers))
+        };
+
+        let old = self.intr.replace(client);
+
+        // Close old client (if any)
+        drop(old);
+        Ok(())
+    }
+
+    async fn send_interrupt(&mut self) -> Result<(), RpcError> {
+        if !self.srq_enable {
+            Ok(())
+        } else if let Some(client) = &mut self.intr {
+            let mut handle = Vec::new();
+            if let Some(h) = &self.srq_handle {
+                handle.extend(h)
             }
+            let parms = xdr::DeviceSrqParms::new(handle);
+            client.call_no_reply(device_intr_srq, parms).await
+        } else {
+            Ok(())
         }
     }
 }
@@ -109,15 +158,18 @@ impl<DEV> VxiCoreServer<DEV>
 where
     DEV: Send + 'static,
 {
-    pub async fn serve(self: Arc<Self>, addrs: IpAddr) -> io::Result<()> {
-        let listener = TcpListener::bind((addrs, self.core_port)).await?;
-        log::info!("Listening on TCP {}", listener.local_addr()?);
+    pub async fn bind(self: Arc<Self>, addrs: IpAddr) -> io::Result<()> {
+        let listener = TcpListener::bind((addrs, self.async_port)).await?;
+        self.serve(listener).await
+    }
+
+    pub async fn serve(self: Arc<Self>, listener: TcpListener) -> io::Result<()> {
+        log::info!("Core listening on {}", listener.local_addr()?);
         let mut incoming = listener
             .incoming()
             .log_warnings(|warn| log::warn!("Listening error: {}", warn))
             .handle_errors(Duration::from_millis(100))
             .backpressure(10);
-
         while let Some((token, stream)) = incoming.next().await {
             let peer = stream.peer_addr()?;
             log::debug!("Accepted from: {}", peer);
@@ -204,6 +256,17 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
+            device_write => todo!("device_write"),
+            device_read => todo!("device_read"),
+            device_readstb => todo!("device_readstb"),
+            device_trigger => todo!("device_trigger"),
+            device_clear => todo!("device_clear"),
+            device_remote => todo!("device_remote"),
+            device_local => todo!("device_local"),
+            device_lock => todo!("device_lock"),
+            device_unlock => todo!("device_unlock"),
+            device_enable_srq => todo!("device_enable_srq"),
+            device_docmd => todo!("device_docmd"),
             destroy_link => {
                 let mut inner = self.inner.lock().await;
 
@@ -224,6 +287,8 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
+            create_intr_chan => todo!("create_intr_chan"),
+            destroy_intr_chan => todo!("destroy_intr_chan"),
             _ => Err(RpcError::ProcUnavail),
         }
     }
@@ -239,10 +304,13 @@ impl<DEV> VxiAsyncServer<DEV>
 where
     DEV: Send + 'static,
 {
-    /// Serve TCP calls
-    pub async fn serve(self: Arc<Self>, addrs: IpAddr) -> io::Result<()> {
+    pub async fn bind(self: Arc<Self>, addrs: IpAddr) -> io::Result<()> {
         let listener = TcpListener::bind((addrs, self.async_port)).await?;
-        log::info!("Listening on TCP {}", listener.local_addr()?);
+        self.serve(listener).await
+    }
+
+    pub async fn serve(self: Arc<Self>, listener: TcpListener) -> io::Result<()> {
+        log::info!("Async listening on {}", listener.local_addr()?);
         let mut incoming = listener
             .incoming()
             .log_warnings(|warn| log::warn!("Listening error: {}", warn))
@@ -295,6 +363,17 @@ where
 
         match proc {
             device_abort => {
+                let mut inner = self.inner.lock().await;
+
+                // Read parameters
+                let mut parms = DeviceLink::default();
+                parms.read_xdr(args)?;
+
+                let mut resp = DeviceError::default();
+
+                // TODO
+
+                resp.write_xdr(ret)?;
                 Ok(())
             }
             _ => Err(RpcError::ProcUnavail),

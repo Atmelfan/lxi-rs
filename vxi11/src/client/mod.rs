@@ -7,7 +7,7 @@ use async_std::net::TcpStream;
 
 use crate::{
     common::{
-        onc_rpc::{RpcClient, RpcError, RpcService},
+        onc_rpc::{StreamRpcClient, RpcError, RpcService},
         xdr::{
             onc_rpc::xdr::MissmatchInfo,
             portmapper::PORTMAPPER_PORT,
@@ -19,7 +19,7 @@ use crate::{
             }, basic::{XdrDecode, XdrEncode},
         },
     },
-    server::portmapper::{Mapping, PortMapperClient, PORTMAPPER_PROT_TCP},
+    server::portmapper::prelude::*
 };
 
 enum VxiClientError {
@@ -47,7 +47,7 @@ impl From<io::Error> for VxiClientError {
 
 struct Vxi11CoreClient {
     lid: DeviceLink,
-    rpc_client: RpcClient<TcpStream>,
+    rpc_client: StreamRpcClient<TcpStream>,
     max_recv_size: u32,
     async_port: u16,
 }
@@ -75,7 +75,7 @@ impl Vxi11CoreClient {
         log::debug!("Core channel @ port {}", core_port);
 
         let stream = TcpStream::connect((addr, core_port)).await?;
-        let mut core_client = RpcClient::new(stream, DEVICE_CORE, DEVICE_CORE_VERSION);
+        let mut core_client = StreamRpcClient::new(stream, DEVICE_CORE, DEVICE_CORE_VERSION);
 
         // Setup link
         let link_parms = CreateLinkParms {
@@ -107,7 +107,7 @@ impl Vxi11CoreClient {
         addr: IpAddr
     ) -> Result<Vxi11AsyncClient, VxiClientError> {
         let stream = TcpStream::connect((addr, self.async_port)).await?;
-        let async_client = RpcClient::new(stream, DEVICE_ASYNC, DEVICE_ASYNC_VERSION);
+        let async_client = StreamRpcClient::new(stream, DEVICE_ASYNC, DEVICE_ASYNC_VERSION);
         Ok(Vxi11AsyncClient {
             lid: self.lid,
             rpc_client: async_client
@@ -118,7 +118,7 @@ impl Vxi11CoreClient {
 
 struct Vxi11AsyncClient {
     lid: DeviceLink,
-    rpc_client: RpcClient<TcpStream>,
+    rpc_client: StreamRpcClient<TcpStream>,
 }
 
 

@@ -159,8 +159,8 @@ impl Server {
 
             log::debug!("{:?} read {:?}", peer, cmd);
 
-            let resp = {
-                let device = handle.async_lock().await;
+            let mut resp = {
+                let mut device = handle.async_lock().await.unwrap();
                 device.execute(&cmd)
             };
             

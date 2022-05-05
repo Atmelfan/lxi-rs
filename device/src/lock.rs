@@ -1,9 +1,7 @@
-use alloc::{string::{String, ToString}, sync::Arc};
-use futures::{lock::{Mutex, MutexGuard}, Future, FutureExt};
+use alloc::{string::{String, ToString}, vec::Vec, sync::Arc};
+use futures::{lock::{Mutex, MutexGuard}, channel::oneshot::{Receiver, Sender, channel}};
 
 pub use spin::Mutex as SpinMutex;
-
-use event_listener::{Event, EventListener};
 
 #[derive(Debug)]
 pub enum SharedLockError {
@@ -31,7 +29,7 @@ pub struct SharedLock {
     shared_lock: Option<String>,
     num_shared_locks: u32,
     exclusive_lock: bool,
-    event: Event
+    event: Vec<Sender<()>>
 }
 
 impl SharedLock {
@@ -41,7 +39,7 @@ impl SharedLock {
             shared_lock: None,
             num_shared_locks: 0,
             exclusive_lock: false,
-            event: Event::new(),
+            event: Vec::new(),
         }))
     }
 
@@ -56,6 +54,25 @@ impl SharedLock {
     pub fn exclusive_lock(&self) -> bool {
         self.exclusive_lock
     }
+
+
+    fn notify_release(&mut self) {
+        for sender in self.event.drain(..) {
+            let _ = sender.send(());
+        }
+    }
+
+    fn notify_acquired(&mut self) {
+        for sender in self.event.drain(..) {
+            let _ = sender.send(());
+        }
+    }
+
+    fn listen(&mut self) -> Receiver<()> {
+        let (sender, receiver) = channel();
+        self.event.push(sender);
+        receiver
+    } 
 }
 
 /// A handle to a locked resource.
@@ -67,7 +84,7 @@ pub struct LockHandle<DEV>
     parent: Arc<SpinMutex<SharedLock>>,
     device: Arc<Mutex<DEV>>,
     has_shared: bool,
-    has_exclusive: bool
+    has_exclusive: bool,
 }
 
 impl<DEV> LockHandle<DEV>
@@ -125,7 +142,7 @@ impl<DEV> LockHandle<DEV>
                 self.has_exclusive = true;
 
                 // 
-                shared.event.notify();
+                shared.notify_acquired();
                 Ok(())
             }
             // Current state: Exclusively locked
@@ -137,7 +154,7 @@ impl<DEV> LockHandle<DEV>
                     shared.exclusive_lock = true;
 
                     // 
-                    shared.event.notify();
+                    shared.notify_acquired();
                     Ok(())
                 } else {
                     Err(SharedLockError::LockedByShared)
@@ -158,12 +175,12 @@ impl<DEV> LockHandle<DEV>
                 Err(SharedLockError::LockedByShared) | Err(SharedLockError::LockedByExclusive) => match listener.take() {
                     None => {
                         // Start listening and then try locking again.
-                        let shared = self.parent.lock();
-                        listener = Some(shared.event.listen());
+                        let mut shared = self.parent.lock();
+                        listener = Some(shared.listen());
                     }
                     Some(l) => {
                         // Wait until a notification is received.
-                        l.await;
+                        let _ = l.await;
                     }
                 }
                 Err(err) => { break Err(err); }
@@ -186,7 +203,7 @@ impl<DEV> LockHandle<DEV>
                 self.has_shared = true;
 
                 // 
-                shared.event.notify();
+                shared.notify_acquired();
                 Ok(())
             }
             // Current state: Exclusively locked
@@ -204,7 +221,7 @@ impl<DEV> LockHandle<DEV>
                     self.has_shared = true;
 
                     //
-                    shared.event.notify();
+                    shared.notify_acquired();
                     Ok(())
                 } else {
                     Err(SharedLockError::LockedByShared)
@@ -213,21 +230,21 @@ impl<DEV> LockHandle<DEV>
         }
     }
 
-    pub async fn async_acquire_shared(&mut self) -> Result<(), SharedLockError> {
+    pub async fn async_acquire_shared(&mut self, lockstr: &str) -> Result<(), SharedLockError> {
         let mut listener = None;
 
         loop {
-            match self.try_acquire_shared() {
+            match self.try_acquire_shared(lockstr) {
                 Ok(()) => { break Ok(()) },
                 Err(SharedLockError::LockedByShared) | Err(SharedLockError::LockedByExclusive) => match listener.take() {
                     None => {
                         // Start listening and then try locking again.
-                        let shared = self.parent.lock();
-                        listener = Some(shared.event.listen());
+                        let mut shared = self.parent.lock();
+                        listener = Some(shared.listen());
                     }
                     Some(l) => {
                         // Wait until a notification is received.
-                        l.await;
+                        let _ = l.await;
                     }
                 }
                 Err(err) => { break Err(err); }
@@ -260,7 +277,7 @@ impl<DEV> LockHandle<DEV>
 
         // Notify others waiting that lock might be available
         if res.is_ok() {
-            shared.event.notify();
+            shared.notify_release();
         }
         
         res
@@ -271,7 +288,7 @@ impl<DEV> LockHandle<DEV>
         // Check any active locks
         self.can_lock()?;
         // Lock device and return a guard
-        self.device.try_lock().map_err(|_| SharedLockError::Busy)
+        self.device.try_lock().ok_or(SharedLockError::Busy)
     }
 
     /// Lock device if allowed
@@ -283,27 +300,27 @@ impl<DEV> LockHandle<DEV>
             match self.can_lock() {
                 // Allowed to try and lock
                 Ok(()) => {
-                    let shared = self.parent.lock();
-                    let l = shared.event.listen();
+                    let mut shared = self.parent.lock();
+                    let mut l = shared.listen();
                     drop(shared);
 
-                    select!{
+                    futures::select!{
                         // Device acquired
                         guard = self.device.lock() => return Ok(guard),
                         // Interrupted by a new lock being granted/released
-                        () = l => continue;
+                        _event = l => continue
                     }
                 },
                 // Currently locked by someone else
                 Err(SharedLockError::LockedByShared) | Err(SharedLockError::LockedByExclusive) => match listener.take() {
                     None => {
                         // Start listening and then try locking again.
-                        let shared = self.parent.lock();
-                        listener = Some(shared.event.listen());
+                        let mut shared = self.parent.lock();
+                        listener = Some(shared.listen());
                     }
                     Some(l) => {
                         // Wait until a notification is received.
-                        l.await;
+                        let _ = l.await;
                     }
                 }
                 // Invalid attempt to lock
@@ -344,7 +361,7 @@ mod tests {
 
     use super::{LockHandle, SharedLock};
     use crate::util::EchoDevice;
-    use alloc::{string::ToString, sync::Arc};
+    use alloc::sync::Arc;
     use futures::lock::Mutex;
 
     #[test]

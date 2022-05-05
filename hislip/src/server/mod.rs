@@ -4,6 +4,7 @@ use std::io;
 use std::str::from_utf8;
 use std::time::{Duration, Instant};
 
+use async_std::future;
 use async_std::sync::Arc;
 use async_std::{
     net::{TcpListener, TcpStream, ToSocketAddrs}, // 3
@@ -121,7 +122,7 @@ where
                         .await?;
                 } else {
                     // Lock
-                    let dur = Duration::from_milli(msg.message_parameter());
+                    let timeout = msg.message_parameter();
                     let lockstr = if let Ok(s) = std::str::from_utf8(msg.payload()) {
                         s.trim_end_matches('\0')
                     } else {
@@ -146,12 +147,23 @@ where
                         }
                     } else {
                         // Try to lock until timed out
-                        let fut = if lockstr.is_empty() {
-                            session.handle.async_acquire_exclusive()
+                        if lockstr.is_empty() {
+                            future::timeout(
+                                Duration::from_millis(timeout as u64),
+                                session.handle.async_acquire_exclusive(),
+                            )
+                            .await
+                            .map_err(|_| SharedLockError::Timeout)
+                            .and_then(|res| res)
                         } else {
-                            session.handle.async_acquire_shared(lockstr.clone())
-                        };
-                        timeout(dur, fut).map_err(|_| SharedLockError::Timeout).and_then(|res| res)
+                            future::timeout(
+                                Duration::from_millis(timeout as u64),
+                                session.handle.async_acquire_shared(lockstr),
+                            )
+                            .await
+                            .map_err(|_| SharedLockError::Timeout)
+                            .and_then(|res| res)
+                        }
                     };
 
                     log::debug!(session_id = session.id; "Async lock: {:?}", res);

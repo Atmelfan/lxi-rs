@@ -44,6 +44,7 @@ pub(crate) mod xdr {
     pub(crate) enum DeviceAddrFamily {
         Tcp,
         Udp,
+        _Invalid
     }
 
     impl Default for DeviceAddrFamily {
@@ -60,6 +61,7 @@ pub(crate) mod xdr {
             writer.write_u32::<NetworkEndian>(match self {
                 DeviceAddrFamily::Tcp => 1,
                 DeviceAddrFamily::Udp => 2,
+                _ => panic!()
             })
         }
     }
@@ -73,7 +75,7 @@ pub(crate) mod xdr {
             *self = match discriminant {
                 1 => DeviceAddrFamily::Tcp,
                 2 => DeviceAddrFamily::Udp,
-                _ => return Err(ErrorKind::InvalidData.into()),
+                _ => DeviceAddrFamily::_Invalid,
             };
             Ok(())
         }
@@ -663,6 +665,12 @@ pub(crate) mod xdr {
     #[derive(Debug, Default, Clone)]
     pub(crate) struct DeviceSrqParms {
         pub(crate) handle: Vec<u8>,
+    }
+
+    impl DeviceSrqParms {
+        pub(crate) fn new(handle: Vec<u8>) -> Self {
+            Self { handle }
+        }
     }
 
     impl XdrEncode for DeviceSrqParms {

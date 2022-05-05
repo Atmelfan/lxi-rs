@@ -1,6 +1,6 @@
 use std::{io, net::Ipv4Addr};
 
-use vxi11::server::{portmapper::{StaticPortMapBuilder, Mapping, PORTMAPPER_PROT_TCP, PORTMAPPER_PORT}, vxi11::{DEVICE_CORE, DEVICE_CORE_VERSION, DEVICE_ASYNC, DEVICE_ASYNC_VERSION}};
+use vxi11::server::{portmapper::prelude::*, vxi11::prelude::*};
 
 use clap::Parser;
 
@@ -32,17 +32,17 @@ async fn main() -> io::Result<()> {
     println!("Running server ...");
     let portmap = StaticPortMapBuilder::new()
         .set(Mapping::new(
-            DEVICE_CORE,// VXI-11 CORE
+            DEVICE_CORE, // VXI-11 CORE
             DEVICE_CORE_VERSION,
             PORTMAPPER_PROT_TCP,
             args.core_port as u32,
         ))
         .set(Mapping::new(
-            DEVICE_ASYNC,// VXI-11 ASYNC
+            DEVICE_ASYNC, // VXI-11 ASYNC
             DEVICE_ASYNC_VERSION,
             PORTMAPPER_PROT_TCP,
             args.async_port as u32,
         ))
         .build();
-    portmap.serve((Ipv4Addr::UNSPECIFIED, args.port)).await
+    portmap.bind((Ipv4Addr::UNSPECIFIED, args.port)).await
 }
