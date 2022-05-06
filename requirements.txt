@@ -1,0 +1,9 @@
+# Python requirements
+
+# Testing
+pytest >= 7.1
+pytest-xprocess >= 0.18
+
+# VISA framework
+pyvisa >= 1.11
+pyvisa-py >= 0.5

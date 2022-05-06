@@ -3,7 +3,7 @@ import pyvisa
 import pyvisa.util
 
 if "ivi" not in pyvisa.util.get_system_details():
-    pytest.skip("Skipping tests only supported with NI-VISA installed", allow_module_level=True)
+    pytest.skip("Cannot test HiSLIP without NI-VISA installed", allow_module_level=True)
 
 def test_hislip_idn(hislip_example, resource_manager):
     inst = resource_manager.open_resource(f'TCPIP::127.0.0.1::hislip0,{hislip_example}::INSTR')
@@ -17,7 +17,6 @@ def test_hislip_exclusive_lock(hislip_example, resource_manager: pyvisa.Resource
     # Lock and unlock
     inst.lock_excl(25.0)
     inst.unlock()
-
 
 def test_hislip_shared_lock(hislip_example, resource_manager: pyvisa.ResourceManager):
     inst1 = resource_manager.open_resource(f'TCPIP::127.0.0.1::hislip0,{hislip_example}::INSTR')
