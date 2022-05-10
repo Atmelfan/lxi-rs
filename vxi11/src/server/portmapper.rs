@@ -1,103 +1,43 @@
-use std::{
-    collections::HashMap,
-    io::{self, Cursor, Error, Read, Write},
-    net::IpAddr,
-    sync::Arc,
-    time::Duration,
-};
+use std::{io, sync::Arc, time::Duration};
 
 use async_listen::ListenExt;
 use async_std::{
     net::{TcpListener, ToSocketAddrs, UdpSocket},
-    sync::RwLock,
     task,
 };
-use futures::{try_join, AsyncRead, AsyncWrite, StreamExt};
+use futures::{try_join, StreamExt};
 
 use crate::common::{
-    onc_rpc::{RpcError, RpcService, StreamRpcClient},
-    xdr::{
-        basic::{XdrDecode, XdrEncode},
-        onc_rpc::xdr::MissmatchInfo,
-        portmapper::{
-            PMAPPROC_CALLIT, PMAPPROC_DUMP, PMAPPROC_GETPORT, PMAPPROC_NULL, PMAPPROC_SET,
-            PMAPPROC_UNSET, PORTMAPPER_PROG, PORTMAPPER_VERS,
-        },
+    onc_rpc::prelude::*,
+    portmapper::{
+        xdr, PMAPPROC_DUMP, PMAPPROC_GETPORT, PMAPPROC_NULL, PORTMAPPER_PORT, PORTMAPPER_PROG,
+        PORTMAPPER_PROT_TCP, PORTMAPPER_PROT_UDP, PORTMAPPER_VERS,
     },
+    xdr::prelude::*,
 };
 
 pub mod prelude {
-    pub use super::{PortMapperClient, StaticPortMap, StaticPortMapBuilder};
-    pub use crate::common::xdr::portmapper::{
-        xdr::Mapping, PORTMAPPER_PORT, PORTMAPPER_PROT_TCP, PORTMAPPER_PROT_UDP,
-    }; 
-}
-
-use prelude::*;
-
-pub struct PortMapperClient<IO>(StreamRpcClient<IO>);
-
-impl<IO> PortMapperClient<IO>
-where
-    IO: AsyncRead + AsyncWrite + Unpin,
-{
-    pub fn new(io: IO) -> Self {
-        Self(StreamRpcClient::new(io, PORTMAPPER_PROG, PORTMAPPER_VERS))
-    }
-
-    pub async fn null(&mut self, mapping: Mapping) -> Result<bool, RpcError> {
-        self.0.call(PMAPPROC_NULL, mapping).await
-    }
-
-    pub async fn set(&mut self, mapping: Mapping) -> Result<bool, RpcError> {
-        self.0.call(PMAPPROC_SET, mapping).await
-    }
-
-    pub async fn unset(&mut self, mapping: Mapping) -> Result<bool, RpcError> {
-        self.0.call(PMAPPROC_UNSET, mapping).await
-    }
-
-    pub async fn getport(&mut self, mapping: Mapping) -> Result<u16, RpcError> {
-        self.0.call(PMAPPROC_GETPORT, mapping).await
-    }
-}
-
-#[cfg(test)]
-mod test_portmap_client {
-    use super::*;
-
-    #[async_std::test]
-    async fn test_call_rpc() {
-        let stream = async_std::net::TcpStream::connect("127.0.0.1:111")
-            .await
-            .unwrap();
-        println!("Connected to {}", &stream.peer_addr().unwrap());
-        let mut client = PortMapperClient::new(stream);
-
-        assert_eq!(
-            client
-                .getport(Mapping::new(PORTMAPPER_PROG, PORTMAPPER_VERS, 6, 0))
-                .await
-                .unwrap(),
-            111
-        );
-    }
+    pub use super::{StaticPortMap, StaticPortMapBuilder};
+    pub use crate::common::portmapper::{
+        xdr::Mapping, PORTMAPPER_PORT, PORTMAPPER_PROG, PORTMAPPER_PROT_TCP, PORTMAPPER_PROT_UDP,
+        PORTMAPPER_VERS,
+    };
 }
 
 pub struct StaticPortMapBuilder {
-    mappings: Vec<Mapping>,
+    mappings: Vec<xdr::Mapping>,
 }
 
 impl StaticPortMapBuilder {
     pub fn new() -> Self {
         let mut mappings = Vec::new();
-        mappings.push(Mapping::new(
+        mappings.push(xdr::Mapping::new(
             PORTMAPPER_PROG,
             PORTMAPPER_VERS,
             PORTMAPPER_PROT_TCP,
             PORTMAPPER_PORT as u32,
         ));
-        mappings.push(Mapping::new(
+        mappings.push(xdr::Mapping::new(
             PORTMAPPER_PROG,
             PORTMAPPER_VERS,
             PORTMAPPER_PROT_UDP,
@@ -107,12 +47,12 @@ impl StaticPortMapBuilder {
     }
 
     /// Set a mapping
-    pub fn set(mut self, mapping: Mapping) -> Self {
+    pub fn set(mut self, mapping: xdr::Mapping) -> Self {
         self.mappings.push(mapping);
         self
     }
 
-    pub fn add(&mut self, mapping: Mapping) {
+    pub fn add(&mut self, mapping: xdr::Mapping) {
         self.mappings.push(mapping);
     }
 
@@ -128,7 +68,7 @@ impl StaticPortMapBuilder {
 ///
 /// The static portmapper allows null, getport and dump procedures, others will respond with a ProcUnavail error
 pub struct StaticPortMap {
-    mappings: Vec<Mapping>,
+    mappings: Vec<xdr::Mapping>,
 }
 
 impl StaticPortMap {
@@ -183,8 +123,8 @@ impl RpcService for StaticPortMap {
         prog: u32,
         vers: u32,
         proc: u32,
-        args: &mut Cursor<Vec<u8>>,
-        ret: &mut Cursor<Vec<u8>>,
+        args: &mut io::Cursor<Vec<u8>>,
+        ret: &mut io::Cursor<Vec<u8>>,
     ) -> Result<(), RpcError> {
         if prog != PORTMAPPER_PROG {
             return Err(RpcError::ProgUnavail);
@@ -198,7 +138,7 @@ impl RpcService for StaticPortMap {
         match proc {
             PMAPPROC_NULL => Ok(()),
             PMAPPROC_GETPORT => {
-                let mut mapping = Mapping::default();
+                let mut mapping = xdr::Mapping::default();
                 mapping.read_xdr(args)?;
                 let port = self
                     .mappings

@@ -42,7 +42,7 @@ pub enum FatalErrorCode {
     // Library specific Device defined errors
     // These error codes shall only be sent by the server
     IoError,
-    LockError
+    LockError,
 }
 
 impl FatalErrorCode {

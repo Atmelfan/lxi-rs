@@ -1,9 +1,8 @@
-
 enum ResourceIdentifier {
     Gpib,
     Serial,
     TcpIp,
-    Usb
+    Usb,
 }
 
 impl ResourceIdentifier {
@@ -16,7 +15,3 @@ impl ResourceIdentifier {
         }
     }
 }
-
-
-
-

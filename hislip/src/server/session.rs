@@ -1,11 +1,11 @@
-use async_std::sync::Arc;
 use async_std::net::TcpStream;
+use async_std::sync::Arc;
 use futures::channel::mpsc;
 use futures::StreamExt;
 use lxi_device::lock::LockHandle;
 
-use crate::common::Protocol;
 use crate::common::errors::Error;
+use crate::common::Protocol;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SessionMode {
@@ -27,7 +27,7 @@ pub(crate) struct Session<DEV> {
     pub(crate) async_connected: bool,
     pub(crate) async_encrypted: bool,
 
-    pub(crate) handle: LockHandle<DEV>
+    pub(crate) handle: LockHandle<DEV>,
 }
 
 type Sender<T> = mpsc::UnboundedSender<T>;

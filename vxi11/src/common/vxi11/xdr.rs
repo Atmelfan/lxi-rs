@@ -1,5 +1,4 @@
-
-use std::io::{ErrorKind, Read, Result, Write};
+use std::io::{Read, Result, Write};
 
 use crate::common::xdr::prelude::*;
 
@@ -7,7 +6,7 @@ use crate::common::xdr::prelude::*;
 pub(crate) enum DeviceAddrFamily {
     Tcp,
     Udp,
-    _Invalid
+    _Invalid,
 }
 
 impl Default for DeviceAddrFamily {
@@ -24,7 +23,7 @@ impl XdrEncode for DeviceAddrFamily {
         writer.write_u32::<NetworkEndian>(match self {
             DeviceAddrFamily::Tcp => 1,
             DeviceAddrFamily::Udp => 2,
-            _ => panic!()
+            _ => panic!(),
         })
     }
 }

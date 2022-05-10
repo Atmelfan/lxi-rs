@@ -108,7 +108,10 @@ impl Message {
     pub(crate) async fn read_from<RD>(
         reader: &mut RD,
         maxlen: u64,
-    ) -> Result<Result<Message, Error>, io::Error> where RD: AsyncRead + Unpin {
+    ) -> Result<Result<Message, Error>, io::Error>
+    where
+        RD: AsyncRead + Unpin,
+    {
         let mut buf = [0u8; Header::MESSAGE_HEADER_SIZE];
         reader.read_exact(&mut buf).await?;
         match Header::from_buffer(&buf) {
@@ -128,10 +131,10 @@ impl Message {
         }
     }
 
-    pub(crate) async fn write_to<WR>(
-        &self,
-        writer: &mut WR,
-    ) -> Result<(), io::Error> where WR: AsyncWrite + Unpin{
+    pub(crate) async fn write_to<WR>(&self, writer: &mut WR) -> Result<(), io::Error>
+    where
+        WR: AsyncWrite + Unpin,
+    {
         let mut buf = [0u8; Header::MESSAGE_HEADER_SIZE];
         self.header.pack_buffer(&mut buf);
         writer.write_all(&buf).await?;
@@ -307,7 +310,7 @@ impl MessageType {
             message_type: self,
             control_code,
             message_parameter,
-            len:0,
+            len: 0,
         }
     }
 }

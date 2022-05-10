@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use async_std::{io::BufReader, os::unix::net::UnixStream};
 use futures::{join, lock::Mutex, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
-use lxi_device::{lock::{SharedLock, SpinMutex}, util::EchoDevice};
+use lxi_device::{
+    lock::{SharedLock, SpinMutex},
+    util::EchoDevice,
+};
 use lxi_socket::server::ServerConfig;
 
 async fn run_echo_server(

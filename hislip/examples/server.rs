@@ -1,5 +1,5 @@
 use async_std::io;
-use lxi_device::{util::EchoDevice, lock::SharedLock};
+use lxi_device::{lock::SharedLock, util::EchoDevice};
 use lxi_hislip::server::Server;
 pub use lxi_hislip::{PROTOCOL_2_0, STANDARD_PORT};
 

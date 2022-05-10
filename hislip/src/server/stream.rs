@@ -1,7 +1,7 @@
 use std::{pin::Pin, sync::Arc};
 
-use async_tls::{server::TlsStream, TlsAcceptor};
 use async_std::{io, net::TcpStream};
+use async_tls::{server::TlsStream, TlsAcceptor};
 use futures::{AsyncRead, AsyncWrite};
 
 pub(crate) enum HislipStream {

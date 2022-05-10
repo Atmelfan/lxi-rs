@@ -529,12 +529,17 @@ impl XdrDecode for RpcMessage {
 }
 
 impl RpcMessage {
-
-
-    pub(crate) fn call(xid: u32, prog: u32, vers: u32, proc: u32) -> Self  {
+    pub(crate) fn call(xid: u32, prog: u32, vers: u32, proc: u32) -> Self {
         Self {
             xid,
-            mtype: MsgType::Call(Callbody { rpc_vers: 2, prog, vers, proc, cred: Default::default(), verf: Default::default() })
+            mtype: MsgType::Call(Callbody {
+                rpc_vers: 2,
+                prog,
+                vers,
+                proc,
+                cred: Default::default(),
+                verf: Default::default(),
+            }),
         }
     }
 }

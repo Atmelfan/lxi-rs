@@ -4,7 +4,7 @@ use std::time::Duration;
 use async_std::path::Path;
 use async_std::sync::Arc;
 use futures::{lock::Mutex, AsyncRead, AsyncReadExt};
-use futures::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, StreamExt, ready};
+use futures::{ready, AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, StreamExt};
 
 use async_std::io::{self, BufReader, Read, Write};
 use async_std::net::{TcpListener, ToSocketAddrs};
@@ -38,7 +38,7 @@ where
         cx: &mut task::Context<'_>,
         buf: &mut [u8],
     ) -> task::Poll<io::Result<usize>> {
-        // Read 
+        // Read
         if self.handle.can_lock().is_ok() {
             self.project().reader.poll_read(cx, buf)
         } else {
@@ -163,7 +163,7 @@ impl Server {
                 let mut device = handle.async_lock().await.unwrap();
                 device.execute(&cmd)
             };
-            
+
             // Write back
             if !resp.is_empty() {
                 resp.push(self.0.write_termination);

@@ -1,5 +1,5 @@
 //! Portmapper XDR types, see [RFC1833](https://datatracker.ietf.org/doc/html/rfc1833).
-//! 
+//!
 
 use std::io::{Read, Result, Write};
 
@@ -14,7 +14,14 @@ pub struct Mapping {
 }
 
 impl Mapping {
-    pub fn new(prog: u32, vers: u32, prot: u32, port: u32) -> Self { Self { prog, vers, prot, port } }
+    pub fn new(prog: u32, vers: u32, prot: u32, port: u32) -> Self {
+        Self {
+            prog,
+            vers,
+            prot,
+            port,
+        }
+    }
 }
 
 impl XdrEncode for Mapping {
@@ -98,4 +105,3 @@ impl XdrDecode for CallResult {
         self.res.read_xdr(reader)
     }
 }
-

@@ -1,11 +1,12 @@
-use std::io::{Result, ErrorKind};
+use std::io::{ErrorKind, Result};
 
-use byteorder::{NetworkEndian, ByteOrder};
+use byteorder::{ByteOrder, NetworkEndian};
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-
-
-pub(crate) async fn read_record<RD>(reader: &mut RD, maxlen: usize) -> Result<Vec<u8>> where RD: AsyncRead + Unpin {
+pub(crate) async fn read_record<RD>(reader: &mut RD, maxlen: usize) -> Result<Vec<u8>>
+where
+    RD: AsyncRead + Unpin,
+{
     let mut buf = Vec::new();
 
     loop {
@@ -19,7 +20,10 @@ pub(crate) async fn read_record<RD>(reader: &mut RD, maxlen: usize) -> Result<Ve
         if buf.len() + len > maxlen || buf.try_reserve(len).is_err() {
             return Err(ErrorKind::OutOfMemory.into());
         }
-        reader.take((fragment_len & 0x7FFFFFFF) as u64).read_to_end(&mut buf).await?;
+        reader
+            .take((fragment_len & 0x7FFFFFFF) as u64)
+            .read_to_end(&mut buf)
+            .await?;
 
         // Check if last fragment
         if fragment_len & 0x80000000 != 0 {
@@ -28,7 +32,10 @@ pub(crate) async fn read_record<RD>(reader: &mut RD, maxlen: usize) -> Result<Ve
     }
 }
 
-pub(crate) async fn write_record<WR>(writer: &mut WR, record: Vec<u8>) -> Result<()> where WR: AsyncWrite + Unpin {
+pub(crate) async fn write_record<WR>(writer: &mut WR, record: Vec<u8>) -> Result<()>
+where
+    WR: AsyncWrite + Unpin,
+{
     // Write header
     let fragment_len: u32 = 0x80000000 | (record.len() & 0x7FFFFFFF) as u32;
     let mut fragment_header = [0u8; 4];

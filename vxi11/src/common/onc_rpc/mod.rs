@@ -1,30 +1,24 @@
 use std::{
-    io::{self, Cursor, Error, ErrorKind, Read, Write},
+    io::{self, Cursor, Error, ErrorKind, Write},
     sync::Arc,
-    time::Duration,
 };
 
-use async_listen::ListenExt;
-use async_std::{
-    net::{TcpListener, TcpStream, UdpSocket},
-    task,
-};
+use async_std::net::{TcpStream, UdpSocket};
 use async_trait::async_trait;
-use byteorder::ReadBytesExt;
-
-use crate::common::portmapper::xdr::Mapping;
 
 use self::record::{read_record, write_record};
-use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, StreamExt};
-
-use crate::common::xdr::prelude::*;
-use self::xdr::{
-    AcceptStat, AcceptedReply, AuthFlavour, AuthStat, MissmatchInfo, MsgType, OpaqueAuth,
-    RejectStat, RejectedReply, ReplyStat, Replybody, RpcMessage,
-};
+use futures::{AsyncRead, AsyncWrite};
 
 mod record;
 mod xdr;
+
+pub(crate) mod prelude {
+    pub(crate) use super::xdr::{AuthStat, MissmatchInfo};
+    pub(crate) use super::{RpcClient, RpcError, RpcService, StreamRpcClient, UdpRpcClient};
+}
+
+use self::prelude::*;
+use crate::common::xdr::prelude::*;
 
 /// An error which occured during an RPC call
 ///
@@ -108,19 +102,19 @@ pub(crate) trait RpcService {
     {
         let mut ret = Cursor::new(Vec::new());
         let mut data_in = Cursor::new(data_in);
-        let mut msg = RpcMessage::default();
+        let mut msg = xdr::RpcMessage::default();
         msg.read_xdr(&mut data_in)?;
         log::trace!("-> {:?}", msg);
 
         let xid = msg.xid;
 
-        let stat = if let MsgType::Call(call) = msg.mtype {
+        let stat = if let xdr::MsgType::Call(call) = msg.mtype {
             if call.rpc_vers != 2 {
-                ReplyStat::rpc_vers_missmatch(2, 2)
-            } else if call.cred.flavour != AuthFlavour::None {
-                ReplyStat::auth_error(AuthStat::RejectedCred)
-            } else if call.verf.flavour != AuthFlavour::None {
-                ReplyStat::auth_error(AuthStat::RejectedVerf)
+                xdr::ReplyStat::rpc_vers_missmatch(2, 2)
+            } else if call.cred.flavour != xdr::AuthFlavour::None {
+                xdr::ReplyStat::auth_error(AuthStat::RejectedCred)
+            } else if call.verf.flavour != xdr::AuthFlavour::None {
+                xdr::ReplyStat::auth_error(AuthStat::RejectedVerf)
             } else {
                 // OK call
                 let res = self
@@ -128,21 +122,21 @@ pub(crate) trait RpcService {
                     .await;
                 let stat = if let Err(err) = res {
                     match err {
-                        RpcError::ProgUnavail => AcceptStat::ProgUnavail,
-                        RpcError::ProgMissmatch(m) => AcceptStat::ProgMissmatch(m),
-                        RpcError::ProcUnavail => AcceptStat::ProcUnavail,
-                        RpcError::GarbageArgs => AcceptStat::GarbageArgs,
-                        RpcError::SystemErr => AcceptStat::SystemErr,
+                        RpcError::ProgUnavail => xdr::AcceptStat::ProgUnavail,
+                        RpcError::ProgMissmatch(m) => xdr::AcceptStat::ProgMissmatch(m),
+                        RpcError::ProcUnavail => xdr::AcceptStat::ProcUnavail,
+                        RpcError::GarbageArgs => xdr::AcceptStat::GarbageArgs,
+                        RpcError::SystemErr => xdr::AcceptStat::SystemErr,
                         RpcError::Io(err) => return Err(err),
                         // Shouldn't be returned by call()
                         RpcError::RpcMissmatch(_) => unreachable!(),
                         RpcError::AuthError(_) => unreachable!(),
                     }
                 } else {
-                    AcceptStat::Success
+                    xdr::AcceptStat::Success
                 };
 
-                ReplyStat::Accepted(AcceptedReply {
+                xdr::ReplyStat::Accepted(xdr::AcceptedReply {
                     verf: Default::default(),
                     stat,
                 })
@@ -150,9 +144,9 @@ pub(crate) trait RpcService {
         } else {
             return Err(ErrorKind::Unsupported.into());
         };
-        let reply = RpcMessage {
+        let reply = xdr::RpcMessage {
             xid,
-            mtype: MsgType::Reply(Replybody { stat }),
+            mtype: xdr::MsgType::Reply(xdr::Replybody { stat }),
         };
         log::trace!("<- {:?}", reply);
 
@@ -216,7 +210,7 @@ impl UdpRpcClient {
         let mut args_cursor = Cursor::new(Vec::new());
 
         // Send a call
-        let msg = RpcMessage::call(self.xid, self.prog, self.vers, proc);
+        let msg = xdr::RpcMessage::call(self.xid, self.prog, self.vers, proc);
         msg.write_xdr(&mut args_cursor)?;
         args.write_xdr(&mut args_cursor)?;
         self.socket.send(&args_cursor.into_inner()).await?;
@@ -227,39 +221,39 @@ impl UdpRpcClient {
         let mut ret_cursor = Cursor::new(buf);
 
         // Deserialize and parse response
-        let mut reply = RpcMessage::default();
+        let mut reply = xdr::RpcMessage::default();
         let mut ret: RET = Default::default();
         reply.read_xdr(&mut ret_cursor)?;
         match reply {
-            RpcMessage {
+            xdr::RpcMessage {
                 mtype:
-                    MsgType::Reply(Replybody {
-                        stat: ReplyStat::Accepted(accepted),
+                    xdr::MsgType::Reply(xdr::Replybody {
+                        stat: xdr::ReplyStat::Accepted(accepted),
                     }),
                 xid,
             } => match accepted.stat {
-                AcceptStat::Success => {
+                xdr::AcceptStat::Success => {
                     ret.read_xdr(&mut ret_cursor)?;
                     Ok(ret)
                 }
-                AcceptStat::ProgUnavail => Err(RpcError::ProgUnavail),
-                AcceptStat::ProgMissmatch(m) => Err(RpcError::ProgMissmatch(m)),
-                AcceptStat::ProcUnavail => Err(RpcError::ProcUnavail),
-                AcceptStat::GarbageArgs => Err(RpcError::GarbageArgs),
-                AcceptStat::SystemErr => Err(RpcError::SystemErr),
+                xdr::AcceptStat::ProgUnavail => Err(RpcError::ProgUnavail),
+                xdr::AcceptStat::ProgMissmatch(m) => Err(RpcError::ProgMissmatch(m)),
+                xdr::AcceptStat::ProcUnavail => Err(RpcError::ProcUnavail),
+                xdr::AcceptStat::GarbageArgs => Err(RpcError::GarbageArgs),
+                xdr::AcceptStat::SystemErr => Err(RpcError::SystemErr),
             },
-            RpcMessage {
+            xdr::RpcMessage {
                 mtype:
-                    MsgType::Reply(Replybody {
-                        stat: ReplyStat::Denied(RejectedReply { stat }),
+                    xdr::MsgType::Reply(xdr::Replybody {
+                        stat: xdr::ReplyStat::Denied(xdr::RejectedReply { stat }),
                     }),
                 ..
             } => match stat {
-                RejectStat::RpcMissmatch(m) => Err(RpcError::RpcMissmatch(m)),
-                RejectStat::AuthError(err) => Err(RpcError::AuthError(err)),
+                xdr::RejectStat::RpcMissmatch(m) => Err(RpcError::RpcMissmatch(m)),
+                xdr::RejectStat::AuthError(err) => Err(RpcError::AuthError(err)),
             },
-            RpcMessage {
-                mtype: MsgType::Call(..),
+            xdr::RpcMessage {
+                mtype: xdr::MsgType::Call(..),
                 ..
             } => {
                 todo!()
@@ -281,7 +275,7 @@ impl UdpRpcClient {
         let mut args_cursor = Cursor::new(Vec::new());
 
         // Send a call
-        let msg = RpcMessage::call(self.xid, self.prog, self.vers, proc);
+        let msg = xdr::RpcMessage::call(self.xid, self.prog, self.vers, proc);
         msg.write_xdr(&mut args_cursor)?;
         args.write_xdr(&mut args_cursor)?;
         self.socket.send(&args_cursor.into_inner()).await?;
@@ -333,7 +327,7 @@ where
         let mut args_cursor = Cursor::new(Vec::new());
 
         // Send a call
-        let msg = RpcMessage::call(self.xid, self.prog, self.vers, proc);
+        let msg = xdr::RpcMessage::call(self.xid, self.prog, self.vers, proc);
         msg.write_xdr(&mut args_cursor)?;
         args.write_xdr(&mut args_cursor)?;
         write_record(&mut self.io, args_cursor.into_inner()).await?;
@@ -343,39 +337,39 @@ where
         let mut ret_cursor = Cursor::new(fragment);
 
         // Deserialize and parse response
-        let mut reply = RpcMessage::default();
+        let mut reply = xdr::RpcMessage::default();
         let mut ret: RET = Default::default();
         reply.read_xdr(&mut ret_cursor)?;
         match reply {
-            RpcMessage {
+            xdr::RpcMessage {
                 mtype:
-                    MsgType::Reply(Replybody {
-                        stat: ReplyStat::Accepted(accepted),
+                    xdr::MsgType::Reply(xdr::Replybody {
+                        stat: xdr::ReplyStat::Accepted(accepted),
                     }),
                 xid,
             } => match accepted.stat {
-                AcceptStat::Success => {
+                xdr::AcceptStat::Success => {
                     ret.read_xdr(&mut ret_cursor)?;
                     Ok(ret)
                 }
-                AcceptStat::ProgUnavail => Err(RpcError::ProgUnavail),
-                AcceptStat::ProgMissmatch(m) => Err(RpcError::ProgMissmatch(m)),
-                AcceptStat::ProcUnavail => Err(RpcError::ProcUnavail),
-                AcceptStat::GarbageArgs => Err(RpcError::GarbageArgs),
-                AcceptStat::SystemErr => Err(RpcError::SystemErr),
+                xdr::AcceptStat::ProgUnavail => Err(RpcError::ProgUnavail),
+                xdr::AcceptStat::ProgMissmatch(m) => Err(RpcError::ProgMissmatch(m)),
+                xdr::AcceptStat::ProcUnavail => Err(RpcError::ProcUnavail),
+                xdr::AcceptStat::GarbageArgs => Err(RpcError::GarbageArgs),
+                xdr::AcceptStat::SystemErr => Err(RpcError::SystemErr),
             },
-            RpcMessage {
+            xdr::RpcMessage {
                 mtype:
-                    MsgType::Reply(Replybody {
-                        stat: ReplyStat::Denied(RejectedReply { stat }),
+                    xdr::MsgType::Reply(xdr::Replybody {
+                        stat: xdr::ReplyStat::Denied(xdr::RejectedReply { stat }),
                     }),
                 ..
             } => match stat {
-                RejectStat::RpcMissmatch(m) => Err(RpcError::RpcMissmatch(m)),
-                RejectStat::AuthError(err) => Err(RpcError::AuthError(err)),
+                xdr::RejectStat::RpcMissmatch(m) => Err(RpcError::RpcMissmatch(m)),
+                xdr::RejectStat::AuthError(err) => Err(RpcError::AuthError(err)),
             },
-            RpcMessage {
-                mtype: MsgType::Call(..),
+            xdr::RpcMessage {
+                mtype: xdr::MsgType::Call(..),
                 ..
             } => {
                 todo!()
@@ -397,7 +391,7 @@ where
         let mut args_cursor = Cursor::new(Vec::new());
 
         // Send a call
-        let msg = RpcMessage::call(self.xid, self.prog, self.vers, proc);
+        let msg = xdr::RpcMessage::call(self.xid, self.prog, self.vers, proc);
         msg.write_xdr(&mut args_cursor)?;
         args.write_xdr(&mut args_cursor)?;
         write_record(&mut self.io, args_cursor.into_inner()).await?;

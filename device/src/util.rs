@@ -1,7 +1,4 @@
-use alloc::{
-    vec::Vec,
-    sync::Arc
-};
+use alloc::{sync::Arc, vec::Vec};
 use futures::lock::Mutex;
 
 use crate::Device;
@@ -35,18 +32,11 @@ impl SimpleDevice {
 impl Device for SimpleDevice {
     fn execute(&mut self, cmd: &Vec<u8>) -> Vec<u8> {
         match cmd.as_slice() {
-            x if x.eq_ignore_ascii_case(b"*IDN?") => {
-                b"".to_vec()
-            },
-            x if x.eq_ignore_ascii_case(b"EVENT") => {
-                b"".to_vec()
-            },
-            x if x.eq_ignore_ascii_case(b"QUERY?") => {
-                b"RESPONSE".to_vec()
-            },
-            _ => cmd.clone()
+            x if x.eq_ignore_ascii_case(b"*IDN?") => b"".to_vec(),
+            x if x.eq_ignore_ascii_case(b"EVENT") => b"".to_vec(),
+            x if x.eq_ignore_ascii_case(b"QUERY?") => b"RESPONSE".to_vec(),
+            _ => cmd.clone(),
         }
-        
     }
 
     fn get_status(&mut self) -> u8 {

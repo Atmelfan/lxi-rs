@@ -14,32 +14,28 @@ use async_std::{
 use futures::{lock::Mutex, StreamExt};
 use lxi_device::lock::{LockHandle, SharedLock, SpinMutex};
 
-use crate::common::{
-    onc_rpc::{RpcClient, RpcError, RpcService, StreamRpcClient, UdpRpcClient},
-    xdr::{
-        basic::{XdrDecode, XdrEncode},
-        onc_rpc::xdr::MissmatchInfo,
-        vxi11::{
-            xdr::{
-                CreateLinkParms, CreateLinkResp, DeviceError, DeviceErrorCode,
-                DeviceLink,
-            },
-            *,
-        },
+use crate::{
+    client::portmapper::PortMapperClient,
+    common::{
+        onc_rpc::prelude::*,
+        portmapper::{xdr::Mapping, PORTMAPPER_PROT_TCP},
+        vxi11::{device_intr_srq, xdr},
     },
 };
 
-
-
-use super::portmapper::prelude::*;
+use crate::common::xdr::prelude::*;
 
 pub mod prelude {
-    pub use crate::common::xdr::vxi11::{
+    pub use super::{VxiAsyncServer, VxiCoreServer, VxiServerBuilder};
+    pub use crate::common::vxi11::{
         DEVICE_ASYNC, DEVICE_ASYNC_VERSION, DEVICE_CORE, DEVICE_CORE_VERSION, DEVICE_INTR,
         DEVICE_INTR_VERSION,
     };
-    pub use super::{VxiAsyncServer, VxiCoreServer, VxiServerBuilder};
 }
+
+use prelude::*;
+
+use super::portmapper::StaticPortMapBuilder;
 
 struct Link<DEV> {
     id: u32,
@@ -217,14 +213,14 @@ where
             create_link => {
                 let mut inner = self.inner.lock().await;
 
-                let mut parms = CreateLinkParms::default();
+                let mut parms = xdr::CreateLinkParms::default();
                 parms.read_xdr(args)?;
 
                 let (lid, link_arc) = inner.new_link();
                 let mut link = link_arc.lock().await;
 
-                let mut resp = CreateLinkResp {
-                    error: DeviceErrorCode::NoError,
+                let mut resp = xdr::CreateLinkResp {
+                    error: xdr::DeviceErrorCode::NoError,
                     lid: lid.into(),
                     abort_port: self.async_port,
                     max_recv_size: self.max_recv_size,
@@ -242,14 +238,14 @@ where
                         && Instant::now() - t1 < Duration::from_millis(parms.lock_timeout.into())
                     {
                         if link.handle.try_acquire_exclusive().is_ok() {
-                            resp.error = DeviceErrorCode::NoError;
+                            resp.error = xdr::DeviceErrorCode::NoError;
                             break;
                         } else {
-                            resp.error = DeviceErrorCode::DeviceLockedByAnotherLink;
+                            resp.error = xdr::DeviceErrorCode::DeviceLockedByAnotherLink;
                         }
                     }
                 } else {
-                    resp.error = DeviceErrorCode::InvalidAddress;
+                    resp.error = xdr::DeviceErrorCode::InvalidAddress;
                 }
 
                 resp.write_xdr(ret)?;
@@ -270,16 +266,16 @@ where
                 let mut inner = self.inner.lock().await;
 
                 // Read parameters
-                let mut parms = DeviceLink::default();
+                let mut parms = xdr::DeviceLink::default();
                 parms.read_xdr(args)?;
 
-                let mut resp = DeviceError::default();
+                let mut resp = xdr::DeviceError::default();
 
                 if let Some(link) = inner.links.get(&parms.0) {
                     let mut link = link.lock().await;
                     link.handle.force_release();
                 } else {
-                    resp.error = DeviceErrorCode::InvalidLinkIdentifier;
+                    resp.error = xdr::DeviceErrorCode::InvalidLinkIdentifier;
                 }
                 inner.remove_link(parms.0);
 
@@ -365,10 +361,10 @@ where
                 let mut inner = self.inner.lock().await;
 
                 // Read parameters
-                let mut parms = DeviceLink::default();
+                let mut parms = xdr::DeviceLink::default();
                 parms.read_xdr(args)?;
 
-                let mut resp = DeviceError::default();
+                let mut resp = xdr::DeviceError::default();
 
                 // TODO
 

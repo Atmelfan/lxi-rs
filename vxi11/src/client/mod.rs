@@ -1,26 +1,26 @@
 use std::{
     io::{self, Cursor},
-    net::IpAddr, sync::Arc,
+    net::IpAddr,
+    sync::Arc,
 };
 
 use async_std::net::TcpStream;
 
 use crate::{
+    client::portmapper::PortMapperClient,
     common::{
-        onc_rpc::{StreamRpcClient, RpcError, RpcService},
-        xdr::{
-            onc_rpc::xdr::MissmatchInfo,
-            portmapper::PORTMAPPER_PORT,
-            vxi11::{
-                xdr::{
-                    CreateLinkParms, CreateLinkResp, DeviceErrorCode, DeviceLink, DeviceSrqParms,
-                },
-                *,
-            }, basic::{XdrDecode, XdrEncode},
+        onc_rpc::prelude::*,
+        portmapper::{xdr::Mapping, PORTMAPPER_PORT, PORTMAPPER_PROT_TCP},
+        vxi11::{
+            create_link, device_intr_srq,
+            xdr::{CreateLinkParms, CreateLinkResp, DeviceErrorCode, DeviceLink, DeviceSrqParms},
+            DEVICE_ASYNC, DEVICE_CORE, DEVICE_CORE_VERSION, DEVICE_INTR, DEVICE_INTR_VERSION,
         },
+        xdr::prelude::*,
     },
-    server::portmapper::prelude::*
 };
+
+pub mod portmapper;
 
 enum VxiClientError {
     Rpc(RpcError),
@@ -84,9 +84,7 @@ impl Vxi11CoreClient {
             lock_timeout,
             device,
         };
-        let link_resp: CreateLinkResp = core_client
-            .call(create_link, link_parms)
-            .await?;
+        let link_resp: CreateLinkResp = core_client.call(create_link, link_parms).await?;
         if link_resp.error == DeviceErrorCode::NoError {
             Ok(Self {
                 lid: link_resp.lid,
@@ -102,25 +100,20 @@ impl Vxi11CoreClient {
 
     /// Create a new client and connect to the async/abort channel.
     /// Can only be done after the core channel has been initialized
-    pub async fn connect_async(
-        &self,
-        addr: IpAddr
-    ) -> Result<Vxi11AsyncClient, VxiClientError> {
+    pub async fn connect_async(&self, addr: IpAddr) -> Result<Vxi11AsyncClient, VxiClientError> {
         let stream = TcpStream::connect((addr, self.async_port)).await?;
-        let async_client = StreamRpcClient::new(stream, DEVICE_ASYNC, DEVICE_ASYNC_VERSION);
+        let async_client = StreamRpcClient::new(stream, DEVICE_ASYNC, DEVICE_CORE_VERSION);
         Ok(Vxi11AsyncClient {
             lid: self.lid,
-            rpc_client: async_client
+            rpc_client: async_client,
         })
     }
 }
-
 
 struct Vxi11AsyncClient {
     lid: DeviceLink,
     rpc_client: StreamRpcClient<TcpStream>,
 }
-
 
 struct Vxi11IntrServer {
     lid: DeviceLink,

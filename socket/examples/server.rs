@@ -15,12 +15,11 @@ struct Args {
     port: u16,
 }
 
-
 #[async_std::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init();
     let args = Args::parse();
-    
+
     let device = EchoDevice::new_arc();
     let shared_lock = SharedLock::new();
 

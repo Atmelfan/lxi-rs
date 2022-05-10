@@ -36,4 +36,3 @@ impl From<Protocol> for u16 {
         p.0
     }
 }
-

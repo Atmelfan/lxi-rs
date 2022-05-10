@@ -3,10 +3,10 @@
 extern crate alloc;
 use alloc::vec::Vec;
 
-pub mod lock;
 pub mod frontpanel;
-pub mod util;
+pub mod lock;
 pub mod session;
+pub mod util;
 
 pub trait Device {
     /// Execute a arbitrary command
