@@ -2,13 +2,12 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::io;
 use std::str::from_utf8;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use async_std::future;
 use async_std::sync::Arc;
 use async_std::{
-    net::{TcpListener, TcpStream, ToSocketAddrs}, // 3
-    prelude::*,
+    net::{TcpListener, TcpStream, ToSocketAddrs},
     task,
 };
 use byteorder::{ByteOrder, NetworkEndian};
@@ -19,7 +18,7 @@ use lxi_device::Device;
 
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::common::messages::{
-    AsyncInitializeResponseControl, AsyncInitializeResponseParameter, FeatureBitmap, Header,
+    AsyncInitializeResponseControl, AsyncInitializeResponseParameter, FeatureBitmap,
     InitializeParameter, InitializeResponseControl, InitializeResponseParameter, Message,
     MessageType, RmtDeliveredControl,
 };
@@ -330,7 +329,7 @@ where
                                         );
                                         match guard.new_session(lowest_protocol, handle) {
                                             Ok(s) => s,
-                                            Err(err) => {
+                                            Err(_err) => {
                                                 Message::from(Error::Fatal(
                                                     FatalErrorCode::InvalidInitialization,
                                                     b"Already initialized",
@@ -442,7 +441,7 @@ where
                                 }
                             }
                             ConnectionState::Synchronous(s) => {
-                                let mut session = s.lock().await;
+                                let session = s.lock().await;
                                 if !session.async_connected {
                                     Message::from(Error::Fatal(
                                         FatalErrorCode::AttemptUseWithoutBothChannels,

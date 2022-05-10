@@ -159,11 +159,11 @@ pub(crate) trait RpcService {
 
     async fn call(
         self: Arc<Self>,
-        prog: u32,
-        vers: u32,
-        proc: u32,
-        args: &mut Cursor<Vec<u8>>,
-        ret: &mut Cursor<Vec<u8>>,
+        _prog: u32,
+        _vers: u32,
+        _proc: u32,
+        _args: &mut Cursor<Vec<u8>>,
+        _ret: &mut Cursor<Vec<u8>>,
     ) -> Result<(), RpcError>
     where
         Self: Sync,
@@ -230,7 +230,7 @@ impl UdpRpcClient {
                     xdr::MsgType::Reply(xdr::Replybody {
                         stat: xdr::ReplyStat::Accepted(accepted),
                     }),
-                xid,
+                xid: _,
             } => match accepted.stat {
                 xdr::AcceptStat::Success => {
                     ret.read_xdr(&mut ret_cursor)?;
@@ -346,7 +346,7 @@ where
                     xdr::MsgType::Reply(xdr::Replybody {
                         stat: xdr::ReplyStat::Accepted(accepted),
                     }),
-                xid,
+                xid: _,
             } => match accepted.stat {
                 xdr::AcceptStat::Success => {
                     ret.read_xdr(&mut ret_cursor)?;

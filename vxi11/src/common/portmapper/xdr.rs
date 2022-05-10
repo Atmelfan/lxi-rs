@@ -1,10 +1,10 @@
 //! Portmapper XDR types, see [RFC1833](https://datatracker.ietf.org/doc/html/rfc1833).
-//!
 
 use std::io::{Read, Result, Write};
 
 use crate::common::xdr::prelude::*;
 
+/// A RPC mapping between service/version to a transport and port number
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Mapping {
     pub prog: u32,
@@ -50,10 +50,10 @@ impl XdrDecode for Mapping {
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct Callit {
-    prog: u32,
-    vers: u32,
-    proc: u32,
-    args: Vec<u8>,
+    pub(crate) prog: u32,
+    pub(crate) vers: u32,
+    pub(crate) proc: u32,
+    pub(crate) args: Vec<u8>,
 }
 
 impl XdrEncode for Callit {
@@ -82,8 +82,8 @@ impl XdrDecode for Callit {
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct CallResult {
-    port: u32,
-    res: Vec<u8>,
+    pub(crate) port: u32,
+    pub(crate) res: Vec<u8>,
 }
 
 impl XdrEncode for CallResult {

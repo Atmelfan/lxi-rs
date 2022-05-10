@@ -405,7 +405,7 @@ mod tests {
 
         let mut handle1 = LockHandle::new(shared.clone(), device.clone());
         let mut handle2 = LockHandle::new(shared.clone(), device.clone());
-        let mut handle3 = LockHandle::new(shared.clone(), device.clone());
+        let handle3 = LockHandle::new(shared.clone(), device.clone());
 
         // Multiple handles can acquire a shared lock "foo"
         assert!(handle1.try_acquire_shared("foo").is_ok());

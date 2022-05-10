@@ -55,7 +55,7 @@ pub trait XdrEncode {
 }
 
 impl XdrDecode for () {
-    fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()>
+    fn read_xdr<RD>(&mut self, _reader: &mut RD) -> Result<()>
     where
         RD: Read,
     {
@@ -64,7 +64,7 @@ impl XdrDecode for () {
 }
 
 impl XdrEncode for () {
-    fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()>
+    fn write_xdr<WR>(&self, _writer: &mut WR) -> Result<()>
     where
         WR: Write,
     {

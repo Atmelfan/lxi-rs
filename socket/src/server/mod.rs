@@ -4,7 +4,7 @@ use std::time::Duration;
 use async_std::path::Path;
 use async_std::sync::Arc;
 use futures::{lock::Mutex, AsyncRead, AsyncReadExt};
-use futures::{ready, AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, StreamExt};
+use futures::{AsyncBufReadExt, AsyncWriteExt, StreamExt};
 
 use async_std::io::{self, BufReader, Read, Write};
 use async_std::net::{TcpListener, ToSocketAddrs};

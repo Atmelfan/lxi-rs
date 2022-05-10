@@ -1,10 +1,6 @@
 use core::option::Option;
 use core::result::Result;
-use std::{
-    fmt::{Display, Formatter},
-    io,
-    sync::Arc,
-};
+use std::io;
 
 use bitfield::bitfield;
 

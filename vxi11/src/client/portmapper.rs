@@ -1,11 +1,15 @@
+use std::io::Cursor;
+
 use futures::{AsyncRead, AsyncWrite};
 
 use crate::common::{
     onc_rpc::prelude::*,
     portmapper::{
-        xdr::Mapping, PMAPPROC_GETPORT, PMAPPROC_NULL, PMAPPROC_SET, PMAPPROC_UNSET,
+        xdr::{CallResult, Callit, Mapping},
+        PMAPPROC_CALLIT, PMAPPROC_GETPORT, PMAPPROC_NULL, PMAPPROC_SET, PMAPPROC_UNSET,
         PORTMAPPER_PROG, PORTMAPPER_VERS,
     },
+    xdr::prelude::*,
 };
 
 pub mod prelude {
@@ -40,6 +44,31 @@ where
 
     pub async fn getport(&mut self, mapping: Mapping) -> Result<u16, RpcError> {
         self.0.call(PMAPPROC_GETPORT, mapping).await
+    }
+
+    pub async fn callit<ARGS, RET>(
+        &mut self,
+        prog: u32,
+        vers: u32,
+        proc: u32,
+        args: ARGS,
+    ) -> Result<RET, RpcError>
+    where
+        ARGS: XdrEncode,
+        RET: XdrDecode + Default,
+    {
+        let mut args_cursor = Cursor::new(Vec::new());
+        args.write_xdr(&mut args_cursor)?;
+        let callit_args = Callit {
+            prog,
+            vers,
+            proc,
+            args: args_cursor.into_inner(),
+        };
+        let res: CallResult = self.0.call(PMAPPROC_CALLIT, callit_args).await?;
+        let mut ret: RET = Default::default();
+        ret.read_xdr(&mut Cursor::new(res.res))?;
+        Ok(ret)
     }
 }
 

@@ -1,4 +1,4 @@
-//!
+//! Portmapper constants, see [RFC1833](https://datatracker.ietf.org/doc/html/rfc1833).
 
 pub(crate) mod xdr;
 
