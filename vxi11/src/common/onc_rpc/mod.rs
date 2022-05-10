@@ -12,23 +12,19 @@ use async_std::{
 use async_trait::async_trait;
 use byteorder::ReadBytesExt;
 
-use crate::{
-    client,
-    common::{onc_rpc::record::write_record, xdr::portmapper::xdr::Mapping},
-};
+use crate::common::portmapper::xdr::Mapping;
 
-use self::record::read_record;
+use self::record::{read_record, write_record};
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, StreamExt};
 
-use super::xdr::{
-    basic::{XdrDecode, XdrEncode},
-    onc_rpc::xdr::{
-        AcceptStat, AcceptedReply, AuthFlavour, AuthStat, MissmatchInfo, MsgType, OpaqueAuth,
-        RejectStat, RejectedReply, ReplyStat, Replybody, RpcMessage,
-    },
+use crate::common::xdr::prelude::*;
+use self::xdr::{
+    AcceptStat, AcceptedReply, AuthFlavour, AuthStat, MissmatchInfo, MsgType, OpaqueAuth,
+    RejectStat, RejectedReply, ReplyStat, Replybody, RpcMessage,
 };
 
 mod record;
+mod xdr;
 
 /// An error which occured during an RPC call
 ///

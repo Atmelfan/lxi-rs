@@ -11,7 +11,6 @@ use async_std::{
     net::{TcpListener, TcpStream, ToSocketAddrs, UdpSocket},
     task,
 };
-use async_trait::async_trait;
 use futures::{lock::Mutex, StreamExt};
 use lxi_device::lock::{LockHandle, SharedLock, SpinMutex};
 
@@ -187,7 +186,7 @@ where
     }
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl<DEV> RpcService for VxiCoreServer<DEV>
 where
     DEV: Send,
@@ -334,7 +333,7 @@ where
     }
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl<DEV> RpcService for VxiAsyncServer<DEV>
 where
     DEV: Send,

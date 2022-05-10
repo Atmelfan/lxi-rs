@@ -12,7 +12,6 @@ use async_std::{
     sync::RwLock,
     task,
 };
-use async_trait::async_trait;
 use futures::{try_join, AsyncRead, AsyncWrite, StreamExt};
 
 use crate::common::{
@@ -177,7 +176,7 @@ impl StaticPortMap {
     }
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl RpcService for StaticPortMap {
     async fn call(
         self: Arc<Self>,
