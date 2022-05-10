@@ -24,9 +24,6 @@
 use std::io::{Read, Result, Write};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 
-
-
-
 macro_rules! read_padding {
     ($reader:expr, $len:expr) => {
         let pad = (4 - ($len & 3)) & 3;
@@ -44,8 +41,6 @@ macro_rules! write_padding {
         }
     };
 }
-
-
 
 pub trait XdrDecode {
     fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()> where RD: Read;
