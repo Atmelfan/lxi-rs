@@ -26,8 +26,12 @@ pub(crate) struct Session<DEV> {
     // Internal statekeeping between async and sync channel
     pub(crate) async_connected: bool,
     pub(crate) async_encrypted: bool,
+    
+    pub(crate) handle: LockHandle<DEV>
 
-    pub(crate) handle: LockHandle<DEV>,
+    // Input/Output buffer
+    pub(crate) in_buf: Vec<u8>
+    pub(crate) out_buf: Vec<u8>
 }
 
 type Sender<T> = mpsc::UnboundedSender<T>;
@@ -51,6 +55,8 @@ impl<DEV> Session<DEV> {
             async_connected: false,
             async_encrypted: false,
             handle,
+            in_buf: Vec::new(),
+            out_buf: Vec::new(),
         }
     }
 

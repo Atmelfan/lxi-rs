@@ -252,6 +252,7 @@ where
         }
 
         match proc {
+            0 => Ok(()),
             create_link => {
                 let mut inner = self.inner.lock().await;
 
@@ -453,6 +454,7 @@ where
         }
 
         match proc {
+            0 => Ok(()),
             device_abort => {
                 let mut inner = self.inner.lock().await;
 
