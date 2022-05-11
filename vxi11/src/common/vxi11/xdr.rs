@@ -405,8 +405,8 @@ impl XdrDecode for DeviceReadResp {
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DeviceReadStbResp {
-    error: DeviceErrorCode,
-    stb: u32,
+    pub(crate) error: DeviceErrorCode,
+    pub(crate) stb: u8,
 }
 
 impl XdrEncode for DeviceReadStbResp {
@@ -431,10 +431,10 @@ impl XdrDecode for DeviceReadStbResp {
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DeviceGenericParms {
-    lid: DeviceLink,
-    flags: DeviceFlags,
-    lock_timeout: u32,
-    io_timeout: u32,
+    pub(crate) lid: DeviceLink,
+    pub(crate) flags: DeviceFlags,
+    pub(crate) lock_timeout: u32,
+    pub(crate) io_timeout: u32,
 }
 
 impl XdrEncode for DeviceGenericParms {

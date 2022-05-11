@@ -1,5 +1,6 @@
-use std::io::Cursor;
+use std::io;
 
+use async_std::net::{TcpStream, ToSocketAddrs, UdpSocket};
 use futures::{AsyncRead, AsyncWrite};
 
 use crate::common::{
@@ -20,18 +21,30 @@ pub mod prelude {
     };
 }
 
-pub struct PortMapperClient<IO>(StreamRpcClient<IO>);
+pub struct PortMapperClient(RpcClient);
 
-impl<IO> PortMapperClient<IO>
-where
-    IO: AsyncRead + AsyncWrite + Unpin,
-{
-    pub fn new(io: IO) -> Self {
-        Self(StreamRpcClient::new(io, PORTMAPPER_PROG, PORTMAPPER_VERS))
+impl PortMapperClient {
+    pub async fn connect_tcp(addrs: impl ToSocketAddrs) -> io::Result<Self> {
+        let io = TcpStream::connect(addrs).await?;
+        Ok(Self(RpcClient::Tcp(StreamRpcClient::new(
+            io,
+            PORTMAPPER_PROG,
+            PORTMAPPER_VERS,
+        ))))
     }
 
-    pub async fn null(&mut self, mapping: Mapping) -> Result<bool, RpcError> {
-        self.0.call(PMAPPROC_NULL, mapping).await
+    pub async fn connect_udp(addrs: impl ToSocketAddrs) -> io::Result<Self> {
+        let sock = UdpSocket::bind("127.0.0.1:0").await?;
+        sock.connect(addrs).await?;
+        Ok(Self(RpcClient::Udp(UdpRpcClient::new(
+            PORTMAPPER_PROG,
+            PORTMAPPER_VERS,
+            sock,
+        ))))
+    }
+
+    pub async fn null(&mut self) -> Result<(), RpcError> {
+        self.0.call(PMAPPROC_NULL, ()).await
     }
 
     pub async fn set(&mut self, mapping: Mapping) -> Result<bool, RpcError> {
@@ -57,7 +70,7 @@ where
         ARGS: XdrEncode,
         RET: XdrDecode + Default,
     {
-        let mut args_cursor = Cursor::new(Vec::new());
+        let mut args_cursor = io::Cursor::new(Vec::new());
         args.write_xdr(&mut args_cursor)?;
         let callit_args = Callit {
             prog,
@@ -67,29 +80,7 @@ where
         };
         let res: CallResult = self.0.call(PMAPPROC_CALLIT, callit_args).await?;
         let mut ret: RET = Default::default();
-        ret.read_xdr(&mut Cursor::new(res.res))?;
+        ret.read_xdr(&mut io::Cursor::new(res.res))?;
         Ok(ret)
-    }
-}
-
-#[cfg(test)]
-mod test_portmap_client {
-    use super::*;
-
-    #[async_std::test]
-    async fn test_call_rpc() {
-        let stream = async_std::net::TcpStream::connect("127.0.0.1:111")
-            .await
-            .unwrap();
-        println!("Connected to {}", &stream.peer_addr().unwrap());
-        let mut client = PortMapperClient::new(stream);
-
-        assert_eq!(
-            client
-                .getport(Mapping::new(PORTMAPPER_PROG, PORTMAPPER_VERS, 6, 0))
-                .await
-                .unwrap(),
-            111
-        );
     }
 }

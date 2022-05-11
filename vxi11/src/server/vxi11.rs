@@ -1,25 +1,35 @@
+#![allow(non_upper_case_globals)]
+
 use std::{
     collections::HashMap,
     io::{self, Cursor},
     net::{IpAddr, Ipv4Addr},
-    sync::Arc,
+    sync::{Arc, Weak},
     time::{Duration, Instant},
 };
 
 use async_listen::ListenExt;
 use async_std::{
+    future::timeout,
     net::{TcpListener, TcpStream, ToSocketAddrs, UdpSocket},
     task,
 };
-use futures::{lock::Mutex, StreamExt};
-use lxi_device::lock::{LockHandle, SharedLock, SpinMutex};
+use futures::{
+    channel::mpsc::{channel, Receiver, Sender},
+    lock::Mutex,
+    select, FutureExt, StreamExt,
+};
+use lxi_device::{
+    lock::{LockHandle, SharedLock, SharedLockError, SpinMutex},
+    Device,
+};
 
 use crate::{
     client::portmapper::PortMapperClient,
     common::{
         onc_rpc::prelude::*,
         portmapper::{xdr::Mapping, PORTMAPPER_PROT_TCP},
-        vxi11::{device_intr_srq, xdr},
+        vxi11::*,
     },
 };
 
@@ -37,9 +47,28 @@ use prelude::*;
 
 use super::portmapper::StaticPortMapBuilder;
 
+macro_rules! lock_handle {
+    ($handle:expr, $flags:expr, $timeout:expr) => {
+        if $flags.is_waitlock() {
+            match timeout(Duration::from_millis($timeout), $handle.async_lock()).await {
+                Ok(Ok(dev)) => Ok(dev),
+                Ok(Err(err)) => Err(err),
+                Err(_) => Err(SharedLockError::Timeout),
+            }
+        } else {
+            match $handle.try_lock() {
+                Ok(dev) => Ok(dev),
+                Err(err) => Err(err),
+            }
+        }
+    };
+}
+
 struct Link<DEV> {
     id: u32,
     handle: LockHandle<DEV>,
+
+    abort: Receiver<()>,
 
     // Service request
     intr: Option<RpcClient>,
@@ -48,14 +77,19 @@ struct Link<DEV> {
 }
 
 impl<DEV> Link<DEV> {
-    fn new(id: u32, handle: LockHandle<DEV>) -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Self {
-            id,
-            handle,
-            intr: None,
-            srq_enable: true,
-            srq_handle: None,
-        }))
+    fn new(id: u32, handle: LockHandle<DEV>) -> (Self, Sender<()>) {
+        let (sender, receiver) = channel(1);
+        (
+            Self {
+                id,
+                handle,
+                abort: receiver,
+                intr: None,
+                srq_enable: true,
+                srq_handle: None,
+            },
+            sender,
+        )
     }
 
     async fn create_interrupt_channel(
@@ -102,7 +136,7 @@ impl<DEV> Link<DEV> {
 
 struct VxiInner<DEV> {
     link_id: u32,
-    links: HashMap<u32, Arc<Mutex<Link<DEV>>>>,
+    links: HashMap<u32, Sender<()>>,
     shared: Arc<SpinMutex<SharedLock>>,
     device: Arc<Mutex<DEV>>,
 }
@@ -125,19 +159,16 @@ impl<DEV> VxiInner<DEV> {
         self.link_id
     }
 
-    fn new_link(&mut self) -> (u32, Arc<Mutex<Link<DEV>>>) {
+    fn new_link(&mut self) -> (u32, Link<DEV>) {
         let id = self.next_link_id();
         let handle = LockHandle::new(self.shared.clone(), self.device.clone());
-        let link = Link::new(id, handle);
+        let (link, sender) = Link::new(id, handle);
+        self.links.insert(id, sender);
         (id, link)
     }
 
-    fn add_link(&mut self, lid: u32, link: Arc<Mutex<Link<DEV>>>) {
-        self.links.insert(lid, link);
-    }
-
-    fn remove_link(&mut self, lid: u32) -> Option<Arc<Mutex<Link<DEV>>>> {
-        self.links.remove(&lid)
+    fn remove_link(&mut self, lid: u32) {
+        self.links.remove(&lid);
     }
 }
 
@@ -145,13 +176,19 @@ impl<DEV> VxiInner<DEV> {
 pub struct VxiCoreServer<DEV> {
     inner: Arc<Mutex<VxiInner<DEV>>>,
     max_recv_size: u32,
-    core_port: u16,
     async_port: u16,
+}
+
+pub struct VxiCoreSession<DEV> {
+    inner: Arc<Mutex<VxiInner<DEV>>>,
+    max_recv_size: u32,
+    async_port: u16,
+    links: Mutex<HashMap<u32, Link<DEV>>>,
 }
 
 impl<DEV> VxiCoreServer<DEV>
 where
-    DEV: Send + 'static,
+    DEV: Device + Send + 'static,
 {
     pub async fn bind(self: Arc<Self>, addrs: IpAddr) -> io::Result<()> {
         let listener = TcpListener::bind((addrs, self.async_port)).await?;
@@ -168,8 +205,13 @@ where
         while let Some((token, stream)) = incoming.next().await {
             let peer = stream.peer_addr()?;
             log::debug!("Accepted from: {}", peer);
+            let s = Arc::new(VxiCoreSession {
+                inner: self.inner.clone(),
+                max_recv_size: self.max_recv_size,
+                async_port: self.async_port,
+                links: Mutex::new(HashMap::new()),
+            });
 
-            let s = self.clone();
             task::spawn(async move {
                 if let Err(err) = s.serve_tcp_stream(stream).await {
                     log::debug!("Error processing client: {}", err)
@@ -183,9 +225,9 @@ where
 }
 
 #[async_trait::async_trait]
-impl<DEV> RpcService for VxiCoreServer<DEV>
+impl<DEV> RpcService for VxiCoreSession<DEV>
 where
-    DEV: Send,
+    DEV: Device + Send + 'static,
 {
     async fn call(
         self: Arc<Self>,
@@ -216,8 +258,7 @@ where
                 let mut parms = xdr::CreateLinkParms::default();
                 parms.read_xdr(args)?;
 
-                let (lid, link_arc) = inner.new_link();
-                let mut link = link_arc.lock().await;
+                let (lid, mut link) = inner.new_link();
 
                 let mut resp = xdr::CreateLinkResp {
                     error: xdr::DeviceErrorCode::NoError,
@@ -228,23 +269,33 @@ where
 
                 if parms.device.eq_ignore_ascii_case("inst0") {
                     // Add link
-                    inner.add_link(lid, link_arc.clone());
                     drop(inner);
 
                     // Try to lock
-                    // TODO: Await a lock
-                    let t1 = Instant::now();
-                    while parms.lock_device
-                        && Instant::now() - t1 < Duration::from_millis(parms.lock_timeout.into())
-                    {
-                        if link.handle.try_acquire_exclusive().is_ok() {
-                            resp.error = xdr::DeviceErrorCode::NoError;
-                            break;
-                        } else {
-                            resp.error = xdr::DeviceErrorCode::DeviceLockedByAnotherLink;
+                    if parms.lock_device {
+                        let res = timeout(
+                            Duration::from_millis(parms.lock_timeout as u64),
+                            link.handle.async_acquire_exclusive(),
+                        )
+                        .await;
+                        match res {
+                            Ok(Ok(())) => {
+                                log::debug!(link=lid; "Exclusive lock acquired")
+                            }
+                            Ok(Err(se)) => {
+                                log::debug!(link=lid; "Failed to acquire exclusive lock: {:?}", se);
+                                resp.error = xdr::DeviceErrorCode::DeviceLockedByAnotherLink
+                            }
+                            Err(_te) => {
+                                log::debug!(link=lid; "Timed out while waiting for exclusive lock");
+                                resp.error = xdr::DeviceErrorCode::DeviceLockedByAnotherLink
+                            }
                         }
                     }
+                    log::debug!(link=lid; "New link: {}", parms.device);
+                    self.links.lock().await.insert(lid, link);
                 } else {
+                    log::debug!(link=lid; "Invalid device address: {}", parms.device);
                     resp.error = xdr::DeviceErrorCode::InvalidAddress;
                 }
 
@@ -253,7 +304,53 @@ where
             }
             device_write => todo!("device_write"),
             device_read => todo!("device_read"),
-            device_readstb => todo!("device_readstb"),
+            device_readstb => {
+                // Read parameters
+                let mut parms = xdr::DeviceGenericParms::default();
+                parms.read_xdr(args)?;
+
+                let mut resp = xdr::DeviceReadStbResp::default();
+
+                if let Some(link) = self.links.lock().await.get_mut(&parms.lid.0) {
+                    // try to lock and read
+                    let mut dev = if parms.flags.is_waitlock() {
+                        let mut fut = Box::pin(
+                            timeout(
+                                Duration::from_millis(parms.lock_timeout as u64),
+                                link.handle.async_lock(),
+                            )
+                            .fuse(),
+                        );
+                        let mut abort = link.abort.next();
+
+                        select! {
+                            l = fut => {
+                                l.map_or(Err(xdr::DeviceErrorCode::DeviceLockedByAnotherLink),
+                                    |f| f.map_err(|_| xdr::DeviceErrorCode::DeviceLockedByAnotherLink)
+                                )
+                            },
+                            a = abort => {
+                                Err(xdr::DeviceErrorCode::Abort)
+                            }
+                        }
+                    } else {
+                        link.handle
+                            .try_lock()
+                            .map_err(|_| xdr::DeviceErrorCode::DeviceLockedByAnotherLink)
+                    };
+
+                    match dev {
+                        Ok(mut d) => resp.stb = d.get_status(),
+                        Err(err) => resp.error = err,
+                    }
+                } else {
+                    resp.error = xdr::DeviceErrorCode::InvalidLinkIdentifier;
+                }
+
+                // Write response
+                resp.write_xdr(ret)?;
+                Ok(())
+            }
             device_trigger => todo!("device_trigger"),
             device_clear => todo!("device_clear"),
             device_remote => todo!("device_remote"),
@@ -271,8 +368,7 @@ where
 
                 let mut resp = xdr::DeviceError::default();
 
-                if let Some(link) = inner.links.get(&parms.0) {
-                    let mut link = link.lock().await;
+                if let Some(link) = self.links.lock().await.get_mut(&parms.0) {
                     link.handle.force_release();
                 } else {
                     resp.error = xdr::DeviceErrorCode::InvalidLinkIdentifier;
@@ -367,6 +463,12 @@ where
                 let mut resp = xdr::DeviceError::default();
 
                 // TODO
+                if let Some(abort) = inner.links.get_mut(&parms.0) {
+                    let _ = abort.try_send(());
+                    
+                } else {
+                    resp.error = xdr::DeviceErrorCode::InvalidLinkIdentifier;
+                }
 
                 resp.write_xdr(ret)?;
                 Ok(())
@@ -408,8 +510,7 @@ impl VxiServerBuilder {
             return Err(RpcError::SystemErr);
         }
 
-        let stream = TcpStream::connect(addrs).await?;
-        let mut portmap = PortMapperClient::new(stream);
+        let mut portmap = PortMapperClient::connect_tcp(addrs).await?;
         // Register core service
         let mut res = portmap
             .set(Mapping::new(
@@ -466,7 +567,6 @@ impl VxiServerBuilder {
         (
             Arc::new(VxiCoreServer {
                 inner: inner.clone(),
-                core_port: self.core_port,
                 async_port: self.async_port,
                 max_recv_size: 128 * 1024,
             }),

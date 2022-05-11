@@ -44,8 +44,7 @@ async fn main() -> io::Result<()> {
         .build(shared, device);
 
     if args.register {
-        let stream = TcpStream::connect((Ipv4Addr::LOCALHOST, PORTMAPPER_PORT)).await?;
-        let mut portmap = PortMapperClient::new(stream);
+        let mut portmap = PortMapperClient::connect_tcp((Ipv4Addr::LOCALHOST, PORTMAPPER_PORT)).await?;
 
         // Register core service
         let core_set = portmap

@@ -62,8 +62,7 @@ impl Vxi11CoreClient {
         device: String,
     ) -> Result<Self, VxiClientError> {
         // Get port of core channel
-        let stream = TcpStream::connect((addr, PORTMAPPER_PORT)).await?;
-        let mut portmap = PortMapperClient::new(stream);
+        let mut portmap = PortMapperClient::connect_tcp((addr, PORTMAPPER_PORT)).await?;
         let core_port = portmap
             .getport(Mapping::new(
                 DEVICE_CORE,
