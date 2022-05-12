@@ -103,6 +103,15 @@ where
         msg: Message,
         stream: &mut TcpStream,
     ) -> Result<(), io::Error> {
+
+    }
+
+    async fn handle_async_message(
+        self: Arc<Self>,
+        session: &mut Session<DEV>,
+        msg: Message,
+        stream: &mut TcpStream,
+    ) -> Result<(), io::Error> {
         match msg.message_type() {
             MessageType::AsyncLock => {
                 if msg.control_code() == 0 {
@@ -250,6 +259,8 @@ where
         log::info!("{} connected", peer_addr);
 
         let mut connection_state = ConnectionState::Handshake;
+
+        let mut message_id: u32 = 0xffff_ff00;
 
         // Start reading packets from stream
         loop {
@@ -441,6 +452,9 @@ where
                                 }
                             }
                             ConnectionState::Synchronous(s) => {
+                                let mut session = s.lock().await;
+                                
+
                                 let session = s.lock().await;
                                 if !session.async_connected {
                                     Message::from(Error::Fatal(
@@ -452,43 +466,16 @@ where
                                     break;
                                 }
 
-                                match others {
-                                    MessageType::Data | MessageType::DataEnd => {
-                                        let control = RmtDeliveredControl(msg.control_code());
-                                        let messageid = msg.message_parameter();
-                                        let end = matches!(others, MessageType::DataEnd);
-                                        log::debug!(
-                                            "Session {}, Data, RMT-delivered={}, messageID={}, end={}, size={}",
-                                            session.id,
-                                            control.rmt_delivered(),
-                                            messageid,
-                                            end,
-                                            msg.payload().len()
-                                        );
-                                    }
-                                    MessageType::DeviceClearComplete => todo!(),
-                                    MessageType::Trigger => todo!(),
-                                    MessageType::Interrupted => todo!(),
-                                    MessageType::GetDescriptors => todo!(),
-                                    MessageType::StartTLS => todo!(),
-                                    MessageType::EndTLS => todo!(),
-                                    MessageType::GetSaslMechanismList => todo!(),
-                                    MessageType::GetSaslMechanismListResponse => todo!(),
-                                    MessageType::AuthenticationStart => todo!(),
-                                    MessageType::AuthenticationExchange => todo!(),
-                                    MessageType::AuthenticationResult => todo!(),
-                                    _ => {
-                                        log::error!(
-                                            "Unexpected message type in synchronous channel"
-                                        );
-                                        Message::from(Error::Fatal(
-                                            FatalErrorCode::InvalidInitialization,
-                                            b"Unexpected message in synchronous channel",
-                                        ))
-                                        .write_to(&mut stream)
-                                        .await?;
-                                        break;
-                                    }
+                                if let Err(err) = self
+                                    .clone()
+                                    .handle_async_message(&mut session, msg, &mut stream)
+                                    .await
+                                {
+                                    // Close session
+                                    let mut inner = self.inner.lock().await;
+                                    session.close();
+                                    inner.sessions.remove(&session.id);
+                                    return Err(err);
                                 }
                             }
                         },
@@ -517,7 +504,7 @@ enum ConnectionState<DEV> {
 }
 struct InnerServer<DEV> {
     session_id: u16,
-    sessions: HashMap<u16, Arc<Mutex<Session<DEV>>>>,
+    sessions: HashMap<u16, Weak<Mutex<Session<DEV>>>>,
 }
 
 impl<DEV> InnerServer<DEV> {
@@ -531,10 +518,11 @@ impl<DEV> InnerServer<DEV> {
     /// Get next available session id
     fn new_session_id(&mut self) -> Result<u16, Error> {
         let origin = self.session_id;
-        self.session_id += 2;
-        // Check if key already exists (wrapped around)
+        self.session_id.wrapping_add(2);
+
+        // Check if session id already exists (wrapped around)
         while self.sessions.contains_key(&self.session_id) {
-            self.session_id += 2;
+            self.session_id.wrapping_add(2);
             // Back at beginning, no more ids...
             if self.session_id == origin {
                 return Err(Error::Fatal(
@@ -555,7 +543,20 @@ impl<DEV> InnerServer<DEV> {
     ) -> Result<(u16, Arc<Mutex<Session<DEV>>>), Error> {
         let session_id = self.new_session_id()?;
         let session = Arc::new(Mutex::new(Session::new(session_id, protocol, handle)));
-        self.sessions.insert(session_id, session.clone());
+        // Store a weak pointer so that the session gets dropped when both sync and async channels are dropped
+        self.sessions.insert(session_id, Arc::downgrade(session.clone()));
         Ok((session_id, session))
+    }
+
+    /// Get a session
+    /// Note: Returns a strong reference which will keep any locks assosciated with session active until dropped
+    fn get_session(&mut self, session_id: u16) -> Option<Arc<Mutex<Session>>> {
+        let session = self.sessions.get(session_id)?;
+        session.upgrade()
+    }
+
+    /// Remove any stale session id
+    fn gc_sessions(&mut self){
+        self.sessions.retain(|_, v| v.strong_count() != 0)
     }
 }

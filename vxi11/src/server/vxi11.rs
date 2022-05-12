@@ -111,10 +111,10 @@ impl<DEV> Link<DEV> {
             RpcClient::Tcp(StreamRpcClient::new(stream, prog_num, prog_vers))
         };
 
+        // Replace and close old client (if any)
         let old = self.intr.replace(client);
-
-        // Close old client (if any)
         drop(old);
+
         Ok(())
     }
 
@@ -131,6 +131,17 @@ impl<DEV> Link<DEV> {
         } else {
             Ok(())
         }
+    }
+
+    fn close(&mut self) {
+        /// Release any held locks
+        self.handle.force_release();
+    }
+}
+
+impl<DEV> Drop for Link<DEV> {
+    fn drop(&mut self) {
+        self.close()
     }
 }
 
@@ -480,6 +491,7 @@ where
     }
 }
 
+/// Builder used to create a VXI11 server
 pub struct VxiServerBuilder {
     core_port: u16,
     async_port: u16,
