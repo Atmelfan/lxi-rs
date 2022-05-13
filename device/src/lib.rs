@@ -1,12 +1,10 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
-
-use alloc::vec::Vec;
+use alloc::{vec::Vec, box::Box};
 
 pub mod frontpanel;
 pub mod lock;
-pub mod session;
 pub mod util;
 
 #[derive(Debug)]
@@ -23,12 +21,13 @@ pub trait Device {
 
     /// Return a current device status (STB) byte
     /// Some flags (such as MAV) will be ignored.
-    fn get_status(&mut self) -> u8;
+    fn get_status(&mut self) -> Result<u8, DeviceError>;
 
     /// Send a trigger signal to device
-    fn trigger(&mut self) -> Result<(), DeviceError> {
-        Err(DeviceError::NotSupported)
-    }
+    fn trigger(&mut self) -> Result<(), DeviceError>;
+
+    /// Send a clear signal to device
+    fn clear(&mut self) -> Result<(), DeviceError>;
 
     /// Set remote/RMT state
     ///
@@ -44,4 +43,20 @@ pub trait Device {
     fn set_local_lockout(&mut self, _enable: bool) {
         // Do nothing
     }
+}
+
+// Blanket proxy implementation for boxed devices
+impl<DEV: Device + ?Size> Device for Box<DEV> {
+
+    fn execute(&mut self, cmd: &Vec<u8>) -> Vec<u8> { self.execute(cmd) }
+
+    fn get_status(&mut self) -> Result<u8, DeviceError> { self.get_status() }
+
+    fn trigger(&mut self) -> Result<(), DeviceError> { self.trigger() }
+
+    fn clear(&mut self) -> Result<(), DeviceError> { self.clear() }
+
+    fn set_remote(&mut self, remote: bool) -> Result<(), ()> { self.set_remote(remote) }
+
+    fn set_local_lockout(&mut self, enable: bool) { self.set_local_lockout(enable) }
 }
