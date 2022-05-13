@@ -24,6 +24,8 @@ pub enum SharedLockError {
     Busy,
     /// Timed out
     Timeout,
+    /// Aborted
+    Aborted,
 }
 
 #[derive(Debug)]
@@ -99,6 +101,11 @@ impl<DEV> LockHandle<DEV> {
             has_shared: false,
             has_exclusive: false,
         }
+    }
+
+    pub fn lock_info(&self) -> (bool, u32) {
+        let shared = self.parent.lock();
+        (shared.exclusive_lock(), shared.num_shared_locks())
     }
 
     /// Checks if the device is available to try and lock. I.e. this handle holds a lock, no other session holds an exclusive lock or no locks are active.

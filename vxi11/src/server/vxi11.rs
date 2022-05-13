@@ -1,6 +1,7 @@
 #![allow(non_upper_case_globals)]
 
 use std::{
+    cmp::min,
     collections::HashMap,
     io::{self, Cursor},
     net::{IpAddr, Ipv4Addr},
@@ -74,6 +75,10 @@ struct Link<DEV> {
     intr: Option<RpcClient>,
     srq_enable: bool,
     srq_handle: Option<Vec<u8>>,
+
+    // Buffers
+    in_buf: Vec<u8>,
+    out_buf: Vec<u8>,
 }
 
 impl<DEV> Link<DEV> {
@@ -87,9 +92,16 @@ impl<DEV> Link<DEV> {
                 intr: None,
                 srq_enable: true,
                 srq_handle: None,
+                in_buf: Vec::new(),
+                out_buf: Vec::new(),
             },
             sender,
         )
+    }
+
+    fn clear(&mut self) {
+        self.in_buf.clear();
+        self.out_buf.clear();
     }
 
     async fn create_interrupt_channel(
@@ -122,11 +134,8 @@ impl<DEV> Link<DEV> {
         if !self.srq_enable {
             Ok(())
         } else if let Some(client) = &mut self.intr {
-            let mut handle = Vec::new();
-            if let Some(h) = &self.srq_handle {
-                handle.extend(h)
-            }
-            let parms = xdr::DeviceSrqParms::new(handle);
+            let parms =
+                xdr::DeviceSrqParms::new(Opaque(self.srq_handle.clone().unwrap_or_default()));
             client.call_no_reply(device_intr_srq, parms).await
         } else {
             Ok(())
@@ -134,7 +143,8 @@ impl<DEV> Link<DEV> {
     }
 
     fn close(&mut self) {
-        /// Release any held locks
+        log::trace!("Link {} closed", self.id);
+        // Release any held locks
         self.handle.force_release();
     }
 }
@@ -194,6 +204,8 @@ pub struct VxiCoreSession<DEV> {
     inner: Arc<Mutex<VxiInner<DEV>>>,
     max_recv_size: u32,
     async_port: u16,
+    // Links created by this session
+    // Will be dropped when client disconnects
     links: Mutex<HashMap<u32, Link<DEV>>>,
 }
 
@@ -265,12 +277,13 @@ where
         match proc {
             0 => Ok(()),
             create_link => {
-                let mut inner = self.inner.lock().await;
-
                 let mut parms = xdr::CreateLinkParms::default();
                 parms.read_xdr(args)?;
 
-                let (lid, mut link) = inner.new_link();
+                let (lid, mut link) = {
+                    let mut inner = self.inner.lock().await;
+                    inner.new_link()
+                };
 
                 let mut resp = xdr::CreateLinkResp {
                     error: xdr::DeviceErrorCode::NoError,
@@ -280,26 +293,24 @@ where
                 };
 
                 if parms.device.eq_ignore_ascii_case("inst0") {
-                    // Add link
-                    drop(inner);
-
                     // Try to lock
                     if parms.lock_device {
                         let res = timeout(
                             Duration::from_millis(parms.lock_timeout as u64),
                             link.handle.async_acquire_exclusive(),
                         )
-                        .await;
+                        .await
+                        .map_or(Err(SharedLockError::Timeout), |f| f);
                         match res {
-                            Ok(Ok(())) => {
+                            Ok(()) => {
                                 log::debug!(link=lid; "Exclusive lock acquired")
                             }
-                            Ok(Err(se)) => {
-                                log::debug!(link=lid; "Failed to acquire exclusive lock: {:?}", se);
+                            Err(SharedLockError::Timeout) => {
+                                log::debug!(link=lid; "Timed out while waiting for exclusive lock");
                                 resp.error = xdr::DeviceErrorCode::DeviceLockedByAnotherLink
                             }
-                            Err(_te) => {
-                                log::debug!(link=lid; "Timed out while waiting for exclusive lock");
+                            Err(err) => {
+                                log::debug!(link=lid; "Failed to acquire exclusive lock: {:?}", err);
                                 resp.error = xdr::DeviceErrorCode::DeviceLockedByAnotherLink
                             }
                         }
@@ -314,46 +325,163 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            device_write => todo!("device_write"),
-            device_read => todo!("device_read"),
+            device_write => {
+                // Read parameters
+                let mut parms = xdr::DeviceWriteParms::default();
+                parms.read_xdr(args)?;
+
+                let mut resp = xdr::DeviceWriteResp::default();
+
+                log::debug!(link=parms.lid.0,
+                    lock_timeout=parms.lock_timeout,
+                    io_timeout=parms.io_timeout,
+                    flags=format!("{}", parms.flags); 
+                    "Write {:?}", parms.data.0);
+
+                if let Some(link) = self.links.lock().await.get_mut(&parms.lid.0) {
+                    // Lock device
+                    let dev = if parms.flags.is_waitlock() {
+                        timeout(
+                            Duration::from_millis(parms.lock_timeout as u64),
+                            link.handle.async_lock(),
+                        )
+                        .await
+                    } else {
+                        Ok(link.handle.try_lock())
+                    }
+                    .map_or(Err(SharedLockError::Timeout), |f| f);
+
+                    // Execute if END is set
+                    match dev {
+                        Ok(mut dev) => {
+                            link.in_buf
+                                .try_reserve(parms.data.len())
+                                .map_err(|_| RpcError::SystemErr)?;
+                            link.in_buf.extend_from_slice(&parms.data);
+                            resp.size = parms.data.0.len() as u32;
+
+                            if parms.flags.is_end() {
+                                let v = dev.execute(&link.in_buf);
+                                //log::debug!(link=parms.lid.0; "Execute {:?} -> {:?}", link.in_buf, v);
+                                link.out_buf.extend(&v);
+                                link.in_buf.clear();
+                            }
+                            resp.error = xdr::DeviceErrorCode::NoError;
+                        }
+                        Err(_) => {
+                            resp.size = 0;
+                            resp.error = xdr::DeviceErrorCode::DeviceLockedByAnotherLink;
+                        }
+                    }
+                } else {
+                    resp.error = xdr::DeviceErrorCode::InvalidLinkIdentifier
+                };
+
+                // Write response
+                resp.write_xdr(ret)?;
+                Ok(())
+            }
+            device_read => {
+                // Read parameters
+                let mut parms = xdr::DeviceReadParms::default();
+                parms.read_xdr(args)?;
+
+                let mut resp = xdr::DeviceReadResp::default();
+
+                log::debug!(link=parms.lid.0,
+                    lock_timeout=parms.lock_timeout,
+                    io_timeout=parms.io_timeout,
+                    flags=format!("{}", parms.flags); 
+                    "Read {:?}", parms.request_size);
+
+                resp.error = if let Some(link) = self.links.lock().await.get_mut(&parms.lid.0) {
+                    // Lock device
+                    let dev = if parms.flags.is_waitlock() {
+                        timeout(
+                            Duration::from_millis(parms.lock_timeout as u64),
+                            link.handle.async_lock(),
+                        )
+                        .await
+                    } else {
+                        Ok(link.handle.try_lock())
+                    }
+                    .map_or(Err(SharedLockError::Timeout), |f| f);
+
+                    // Execute if END is set
+                    match dev {
+                        Ok(_) => {
+                            let to_take = if parms.flags.is_termcharset() {
+                                let pos = link.out_buf.iter().position(|c| c.eq(&parms.term_char));
+
+                                // Take whatever is first terminator, or end
+                                let to_take = pos.map_or(parms.request_size as usize, |x| {
+                                    x.min(link.out_buf.len())
+                                });
+                                // Returning because of term_char
+                                if matches!(pos, Some(c) if c == to_take) {
+                                    resp.reason |= 0x2;
+                                }
+                                to_take
+                            } else {
+                                link.out_buf.len()
+                            }
+                            .min(parms.request_size as usize);
+
+                            // Returning because of request_size
+                            if to_take == parms.request_size as usize {
+                                resp.reason |= 0x1;
+                            }
+                            // Returning because of end
+                            if to_take == link.out_buf.len() {
+                                resp.reason |= 0x4;
+                            }
+                            let data = link.out_buf.drain(0..to_take);
+                            resp.data = Opaque(data.collect());
+
+                            xdr::DeviceErrorCode::NoError
+                        }
+                        Err(_) => xdr::DeviceErrorCode::DeviceLockedByAnotherLink,
+                    }
+                } else {
+                    xdr::DeviceErrorCode::InvalidLinkIdentifier
+                };
+                log::debug!(link=parms.lid.0; "Read {:?}, size={}, reason={}", resp.error, resp.data.len(), resp.reason);
+
+                // Write response
+                resp.write_xdr(ret)?;
+                Ok(())
+            }
             device_readstb => {
                 // Read parameters
                 let mut parms = xdr::DeviceGenericParms::default();
                 parms.read_xdr(args)?;
 
+                log::debug!(link=parms.lid.0,
+                    lock_timeout=parms.lock_timeout,
+                    io_timeout=parms.io_timeout,
+                    flags=format!("{}", parms.flags); 
+                    "Read stb");
+
                 let mut resp = xdr::DeviceReadStbResp::default();
 
                 if let Some(link) = self.links.lock().await.get_mut(&parms.lid.0) {
                     // try to lock and read
-                    let mut dev = if parms.flags.is_waitlock() {
-                        let mut fut = Box::pin(
-                            timeout(
+                    let dev = if parms.flags.is_waitlock() {
+                        select! {
+                            d = timeout(
                                 Duration::from_millis(parms.lock_timeout as u64),
                                 link.handle.async_lock(),
-                            )
-                            .fuse(),
-                        );
-                        let mut abort = link.abort.next();
-
-                        select! {
-                            l = fut => {
-                                l.map_or(Err(xdr::DeviceErrorCode::DeviceLockedByAnotherLink),
-                                    |f| f.map_err(|_| xdr::DeviceErrorCode::DeviceLockedByAnotherLink)
-                                )
-                            },
-                            a = abort => {
-                                Err(xdr::DeviceErrorCode::Abort)
-                            }
+                            ).fuse() => d.map_or(Err(SharedLockError::Timeout), |f| f),
+                            _ = link.abort.next() => Err(SharedLockError::Aborted)
                         }
                     } else {
-                        link.handle
-                            .try_lock()
-                            .map_err(|_| xdr::DeviceErrorCode::DeviceLockedByAnotherLink)
+                        link.handle.try_lock()
                     };
 
                     match dev {
                         Ok(mut d) => resp.stb = d.get_status(),
-                        Err(err) => resp.error = err,
+                        Err(SharedLockError::Aborted) => resp.error = xdr::DeviceErrorCode::Abort,
+                        Err(_) => resp.error = xdr::DeviceErrorCode::DeviceLockedByAnotherLink,
                     }
                 } else {
                     resp.error = xdr::DeviceErrorCode::InvalidLinkIdentifier;
@@ -367,16 +495,93 @@ where
             device_clear => todo!("device_clear"),
             device_remote => todo!("device_remote"),
             device_local => todo!("device_local"),
-            device_lock => todo!("device_lock"),
-            device_unlock => todo!("device_unlock"),
+            device_lock => {
+                // Read parameters
+                let mut parms = xdr::DeviceLockParms::default();
+                parms.read_xdr(args)?;
+
+                log::debug!(link=parms.lid.0,
+                    lock_timeout=parms.lock_timeout,
+                    flags=format!("{}", parms.flags); 
+                    "Lock");
+
+                let mut resp = xdr::DeviceError::default();
+
+                if let Some(link) = self.links.lock().await.get_mut(&parms.lid.0) {
+                    // try to lock and read
+                    let dev = if parms.flags.is_waitlock() {
+                        select! {
+                            d = timeout(
+                                Duration::from_millis(parms.lock_timeout as u64),
+                                link.handle.async_acquire_exclusive(),
+                            ).fuse() => d.map_or(Err(SharedLockError::Timeout), |f| f),
+                            _ = link.abort.next() => Err(SharedLockError::Aborted)
+                        }
+                    } else {
+                        link.handle.try_acquire_exclusive()
+                    };
+
+                    resp.error = match dev {
+                        Ok(()) => xdr::DeviceErrorCode::NoError,
+                        Err(SharedLockError::Aborted) => xdr::DeviceErrorCode::Abort,
+                        Err(_) => xdr::DeviceErrorCode::DeviceLockedByAnotherLink,
+                    }
+                } else {
+                    resp.error = xdr::DeviceErrorCode::InvalidLinkIdentifier;
+                }
+
+                log::debug!(link=parms.lid.0; "Lock {:?}", resp.error);
+
+                // Write response
+                resp.write_xdr(ret)?;
+                Ok(())
+            }
+            device_unlock => {
+                // Read parameters
+                let mut parms = xdr::DeviceLink::default();
+                parms.read_xdr(args)?;
+
+                log::debug!(link=parms.0; "Unlock");
+
+                let mut resp = xdr::DeviceError::default();
+
+                if let Some(link) = self.links.lock().await.get_mut(&parms.0) {
+                    resp.error = match link.handle.try_release() {
+                        Ok(_) => xdr::DeviceErrorCode::NoError,
+                        Err(_) => xdr::DeviceErrorCode::NoLockHeldByThisLink,
+                    }
+                } else {
+                    resp.error = xdr::DeviceErrorCode::InvalidLinkIdentifier;
+                }
+
+                // Write response
+                resp.write_xdr(ret)?;
+                Ok(())
+            }
             device_enable_srq => todo!("device_enable_srq"),
-            device_docmd => todo!("device_docmd"),
+            device_docmd => {
+                // Read parameters
+                let mut parms = xdr::DeviceDocmdParms::default();
+                parms.read_xdr(args)?;
+
+                let mut resp = xdr::DeviceDocmdResp::default();
+
+                log::debug!(link=parms.lid.0; "Docmd {}, data={:?}", parms.cmd, parms.data_in);
+
+                resp.error = xdr::DeviceErrorCode::OperationNotSupported;
+
+                // Write response
+                resp.write_xdr(ret)?;
+                Ok(())
+            }
             destroy_link => {
                 let mut inner = self.inner.lock().await;
 
                 // Read parameters
                 let mut parms = xdr::DeviceLink::default();
                 parms.read_xdr(args)?;
+
+                log::debug!(link=parms.0; "Destroy link");
 
                 let mut resp = xdr::DeviceError::default();
 
@@ -467,8 +672,6 @@ where
         match proc {
             0 => Ok(()),
             device_abort => {
-                let mut inner = self.inner.lock().await;
-
                 // Read parameters
                 let mut parms = xdr::DeviceLink::default();
                 parms.read_xdr(args)?;
@@ -476,13 +679,18 @@ where
                 let mut resp = xdr::DeviceError::default();
 
                 // TODO
-                if let Some(abort) = inner.links.get_mut(&parms.0) {
-                    let _ = abort.try_send(());
-                    
-                } else {
-                    resp.error = xdr::DeviceErrorCode::InvalidLinkIdentifier;
-                }
+                let sender = {
+                    let inner = self.inner.lock().await;
+                    inner.links.get(&parms.0).cloned()
+                };
 
+                resp.error = match sender {
+                    Some(mut abort) => {
+                        abort.try_send(());
+                        xdr::DeviceErrorCode::NoError
+                    }
+                    None => xdr::DeviceErrorCode::InvalidLinkIdentifier,
+                };
                 resp.write_xdr(ret)?;
                 Ok(())
             }

@@ -3,6 +3,7 @@
 # Testing
 pytest >= 7.1
 pytest-xprocess >= 0.18
+pytest-order >= 1.0.1
 
 # VISA framework
 pyvisa >= 1.11

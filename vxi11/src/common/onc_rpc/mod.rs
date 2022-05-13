@@ -110,10 +110,13 @@ pub(crate) trait RpcService {
 
         let stat = if let xdr::MsgType::Call(call) = msg.mtype {
             if call.rpc_vers != 2 {
+                log::debug!("Bad RPC version: {}", call.rpc_vers);
                 xdr::ReplyStat::rpc_vers_missmatch(2, 2)
             } else if call.cred.flavour != xdr::AuthFlavour::None {
+                log::debug!("Unknown Cred flavour: {:?}", call.cred.flavour);
                 xdr::ReplyStat::auth_error(AuthStat::RejectedCred)
             } else if call.verf.flavour != xdr::AuthFlavour::None {
+                log::debug!("Unknown Verf flavour: {:?}", call.verf.flavour);
                 xdr::ReplyStat::auth_error(AuthStat::RejectedVerf)
             } else {
                 // OK call

@@ -343,7 +343,7 @@ impl XdrEncode for AuthFlavour {
 #[derive(Debug, Default)]
 pub(crate) struct OpaqueAuth {
     pub flavour: AuthFlavour,
-    pub body: Vec<u8>,
+    pub body: Opaque,
 }
 
 impl XdrEncode for OpaqueAuth {

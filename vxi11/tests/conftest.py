@@ -14,7 +14,7 @@ def find_free_port():
 
 @pytest.fixture(scope='session', autouse=True)
 def resource_manager(request):
-    return ResourceManager()
+    return ResourceManager('@py')
 
 
 @pytest.fixture

@@ -2,6 +2,7 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::io;
 use std::str::from_utf8;
+use std::sync::Weak;
 use std::time::Duration;
 
 use async_std::future;
@@ -37,6 +38,7 @@ pub struct ServerConfig {
     pub preferred_mode: SessionMode,
     pub encryption_mandatory: bool,
     pub initial_encryption: bool,
+    pub max_num_sessions: usize,
 }
 
 impl Default for ServerConfig {
@@ -44,9 +46,10 @@ impl Default for ServerConfig {
         Self {
             vendor_id: 0xBEEF,
             max_message_size: 1024,
-            preferred_mode: SessionMode::Synchronized,
+            preferred_mode: SessionMode::Overlapped,
             encryption_mandatory: false,
             initial_encryption: false,
+            max_num_sessions: 64,
         }
     }
 }
@@ -67,9 +70,10 @@ where
         shared_lock: Arc<SpinMutex<SharedLock>>,
         device: Arc<Mutex<DEV>>,
     ) -> Arc<Self> {
+        let config = ServerConfig::default();
         Arc::new(Server {
-            inner: InnerServer::new(),
-            config: ServerConfig::default(),
+            inner: InnerServer::new(config.max_num_sessions),
+            config,
             shared_lock,
             device,
         })
@@ -97,162 +101,6 @@ where
         Ok(())
     }
 
-    async fn handle_async_message(
-        self: Arc<Self>,
-        session: &mut Session<DEV>,
-        msg: Message,
-        stream: &mut TcpStream,
-    ) -> Result<(), io::Error> {
-
-    }
-
-    async fn handle_async_message(
-        self: Arc<Self>,
-        session: &mut Session<DEV>,
-        msg: Message,
-        stream: &mut TcpStream,
-    ) -> Result<(), io::Error> {
-        match msg.message_type() {
-            MessageType::AsyncLock => {
-                if msg.control_code() == 0 {
-                    // Release
-                    let message_id = msg.message_parameter();
-                    log::debug!(session_id = session.id, message_id = message_id; "Release async lock");
-                    let control = match session.handle.try_release() {
-                        Ok(SharedLockMode::Exclusive) => 1,
-                        Ok(SharedLockMode::Shared) => 2,
-                        Err(_) => 3,
-                    };
-                    MessageType::AsyncLockResponse
-                        .message_params(control, 0)
-                        .no_payload()
-                        .write_to(stream)
-                        .await?;
-                } else {
-                    // Lock
-                    let timeout = msg.message_parameter();
-                    let lockstr = if let Ok(s) = std::str::from_utf8(msg.payload()) {
-                        s.trim_end_matches('\0')
-                    } else {
-                        log::error!(session_id = session.id, timeout=timeout; "Lockstr is not valid UTF8");
-                        Message::from(Error::Fatal(
-                            FatalErrorCode::UnidentifiedError,
-                            b"Lockstr is not valid UTF8",
-                        ))
-                        .write_to(stream)
-                        .await?;
-                        return Err(io::ErrorKind::Other.into());
-                    };
-                    log::debug!(session_id = session.id, timeout=timeout; "Async lock: '{}'", lockstr);
-
-                    // Try to acquire lock
-                    let res = if timeout == 0 {
-                        // Try to lock immediately
-                        if lockstr.is_empty() {
-                            session.handle.try_acquire_exclusive()
-                        } else {
-                            session.handle.try_acquire_shared(lockstr)
-                        }
-                    } else {
-                        // Try to lock until timed out
-                        if lockstr.is_empty() {
-                            future::timeout(
-                                Duration::from_millis(timeout as u64),
-                                session.handle.async_acquire_exclusive(),
-                            )
-                            .await
-                            .map_err(|_| SharedLockError::Timeout)
-                            .and_then(|res| res)
-                        } else {
-                            future::timeout(
-                                Duration::from_millis(timeout as u64),
-                                session.handle.async_acquire_shared(lockstr),
-                            )
-                            .await
-                            .map_err(|_| SharedLockError::Timeout)
-                            .and_then(|res| res)
-                        }
-                    };
-
-                    log::debug!(session_id = session.id; "Async lock: {:?}", res);
-
-                    let control = match res {
-                        Ok(_) => 1,
-                        Err(SharedLockError::AlreadyLocked) => 3,
-                        Err(_) => 0,
-                    };
-
-                    MessageType::AsyncLockResponse
-                        .message_params(control, 0)
-                        .no_payload()
-                        .write_to(stream)
-                        .await?;
-                }
-            }
-            MessageType::AsyncRemoteLocalControl => todo!(),
-            MessageType::AsyncInterrupted => todo!(),
-            MessageType::AsyncMaximumMessageSize => {
-                let size = NetworkEndian::read_u64(msg.payload().as_slice());
-                session.max_message_size = size;
-                log::debug!("Session {}, Max client message size = {}", session.id, size);
-                log::debug!(session_id = session.id; "Max client message size = {}", size);
-
-                let mut buf = [0u8; 8];
-
-                NetworkEndian::write_u64(&mut buf, self.config.max_message_size as u64);
-                MessageType::AsyncMaximumMessageSizeResponse
-                    .message_params(0, 0)
-                    .with_payload(buf.to_vec())
-                    .write_to(stream)
-                    .await?;
-            }
-            MessageType::AsyncDeviceClear => {
-                log::debug!(session_id = session.id; "Device clear");
-                let features = FeatureBitmap::new(
-                    self.config.preferred_mode == SessionMode::Overlapped,
-                    self.config.encryption_mandatory,
-                    self.config.initial_encryption,
-                );
-                MessageType::AsyncDeviceClearAcknowledge
-                    .message_params(features.0, 0)
-                    .no_payload()
-                    .write_to(stream)
-                    .await?;
-            }
-            MessageType::AsyncServiceRequest => todo!(),
-            MessageType::AsyncStatusQuery => todo!(),
-            MessageType::AsyncLockInfo => {
-                let shared_lock = self.shared_lock.lock();
-                log::debug!(session_id = session.id; "Lock info, exclusive={}, shared={}",
-                    shared_lock.exclusive_lock(),
-                    shared_lock.num_shared_locks()
-                );
-
-                MessageType::AsyncLockInfoResponse
-                    .message_params(
-                        shared_lock.exclusive_lock().into(),
-                        shared_lock.num_shared_locks(),
-                    )
-                    .no_payload()
-                    .write_to(stream)
-                    .await?;
-            }
-            MessageType::AsyncStartTLS => todo!(),
-            MessageType::AsyncEndTLS => todo!(),
-            _ => {
-                log::debug!(session_id = session.id; "Unexpected message type in asynchronous channel");
-                Message::from(Error::Fatal(
-                    FatalErrorCode::InvalidInitialization,
-                    b"Unexpected messagein asynchronous channel",
-                ))
-                .write_to(stream)
-                .await?;
-                return Err(io::ErrorKind::Other.into());
-            }
-        }
-        Ok(())
-    }
-
     /// The connection handling function.
     async fn handle_connection(self: Arc<Self>, mut stream: TcpStream) -> Result<(), io::Error> {
         let peer_addr = stream.peer_addr()?;
@@ -268,8 +116,8 @@ where
                 Ok(msg) => {
                     log::trace!("Received {:?}", msg);
                     // Handle messages
-                    match msg.message_type() {
-                        MessageType::VendorSpecific(code) => {
+                    match (msg.message_type(), &connection_state) {
+                        (MessageType::VendorSpecific(code), _) => {
                             log::warn!(
                                 "Unrecognized Vendor Defined Message ({}) during init",
                                 code
@@ -281,204 +129,159 @@ where
                             .write_to(&mut stream)
                             .await?;
                         }
-                        MessageType::FatalError => {
+                        (MessageType::FatalError, _) => {
                             log::error!(
                                 "Client fatal error: {}",
                                 from_utf8(msg.payload()).unwrap_or("<invalid utf8>")
                             );
                             //break; // Let client close connection
                         }
-                        MessageType::Error => {
+                        (MessageType::Error, _) => {
                             log::warn!(
                                 "Client error: {}",
                                 from_utf8(msg.payload()).unwrap_or("<invalid utf8>")
                             );
                         }
-                        others => match &connection_state {
-                            // Currently doing handshake
-                            ConnectionState::Handshake => match others {
-                                MessageType::Initialize => {
-                                    if !msg.payload().is_ascii() {
+                        (MessageType::Initialize, ConnectionState::Handshake) => {
+                            if !msg.payload().is_ascii() {
+                                Message::from(Error::Fatal(
+                                    FatalErrorCode::InvalidInitialization,
+                                    b"Invalid sub-adress",
+                                ))
+                                .write_to(&mut stream)
+                                .await?;
+                                break;
+                            }
+
+                            // Create new session
+                            let client_parameters = InitializeParameter(msg.message_parameter());
+
+                            // TODO: Accept other than hislip0
+                            if !msg.payload().eq_ignore_ascii_case(b"hislip0") {
+                                Message::from(Error::Fatal(
+                                    FatalErrorCode::InvalidInitialization,
+                                    b"Invalid sub adress",
+                                ))
+                                .write_to(&mut stream)
+                                .await?;
+                                break;
+                            }
+                            log::debug!(
+                                "Sync initialize, version={}, vendor={}",
+                                client_parameters.client_protocol(),
+                                client_parameters.client_vendorid()
+                            );
+
+                            let lowest_protocol =
+                                min(PROTOCOL_2_0, client_parameters.client_protocol());
+
+                            // Create new session
+                            let (session_id, session) = {
+                                let mut guard = self.inner.lock().await;
+                                let handle =
+                                    LockHandle::new(self.shared_lock.clone(), self.device.clone());
+                                match guard.new_session(self.config, lowest_protocol, handle) {
+                                    Ok(s) => s,
+                                    Err(_err) => {
                                         Message::from(Error::Fatal(
                                             FatalErrorCode::InvalidInitialization,
-                                            b"Invalid sub-adress",
+                                            b"Already initialized",
                                         ))
                                         .write_to(&mut stream)
                                         .await?;
                                         break;
                                     }
-
-                                    // Create new session
-                                    let client_parameters =
-                                        InitializeParameter(msg.message_parameter());
-
-                                    // TODO: Accept other than hislip0
-                                    if !msg.payload().eq_ignore_ascii_case(b"hislip0") {
-                                        Message::from(Error::Fatal(
-                                            FatalErrorCode::InvalidInitialization,
-                                            b"Invalid sub adress",
-                                        ))
-                                        .write_to(&mut stream)
-                                        .await?;
-                                        break;
-                                    }
-                                    log::debug!(
-                                        "Sync initialize, version={}, vendor={}",
-                                        client_parameters.client_protocol(),
-                                        client_parameters.client_vendorid()
-                                    );
-
-                                    let lowest_protocol =
-                                        min(PROTOCOL_2_0, client_parameters.client_protocol());
-
-                                    // Create new session
-                                    let (session_id, session) = {
-                                        let mut guard = self.inner.lock().await;
-                                        let handle = LockHandle::new(
-                                            self.shared_lock.clone(),
-                                            self.device.clone(),
-                                        );
-                                        match guard.new_session(lowest_protocol, handle) {
-                                            Ok(s) => s,
-                                            Err(_err) => {
-                                                Message::from(Error::Fatal(
-                                                    FatalErrorCode::InvalidInitialization,
-                                                    b"Already initialized",
-                                                ))
-                                                .write_to(&mut stream)
-                                                .await?;
-                                                break;
-                                            }
-                                        }
-                                    };
-                                    log::debug!("New session 0x{:04x}", session_id);
-
-                                    // Send response
-                                    let response_param = InitializeResponseParameter::new(
-                                        lowest_protocol,
-                                        session_id,
-                                    );
-                                    let control = InitializeResponseControl::new(
-                                        self.config.preferred_mode == SessionMode::Overlapped,
-                                        self.config.encryption_mandatory,
-                                        self.config.initial_encryption,
-                                    );
-
-                                    // Connection is a synchronous channel
-                                    connection_state = ConnectionState::Synchronous(session);
-
-                                    MessageType::InitializeResponse
-                                        .message_params(control.0, response_param.0)
-                                        .no_payload()
-                                        .write_to(&mut stream)
-                                        .await?;
                                 }
-                                MessageType::AsyncInitialize => {
-                                    // Connect to existing session
-                                    let session_id = (msg.message_parameter() & 0x0000FFFF) as u16;
-                                    let session = {
-                                        let guard = self.inner.lock().await;
-                                        if let Some(s) = guard.sessions.get(&session_id).cloned() {
-                                            s
-                                        } else {
-                                            Message::from(Error::Fatal(
-                                                FatalErrorCode::InvalidInitialization,
-                                                b"Invalid session id",
-                                            ))
-                                            .write_to(&mut stream)
-                                            .await?;
-                                            break;
-                                        }
-                                    };
-                                    let mut session_guard = session.lock().await;
+                            };
+                            log::debug!("New session 0x{:04x}", session_id);
 
-                                    if session_guard.async_connected {
-                                        log::warn!(
-                                            "Async session 0x{:04x} already initialized",
-                                            session_id
-                                        );
-                                        Message::from(Error::Fatal(
-                                            FatalErrorCode::InvalidInitialization,
-                                            b"Async already initialized",
-                                        ))
-                                        .write_to(&mut stream)
-                                        .await?;
-                                        break;
-                                    }
+                            // Send response
+                            let response_param =
+                                InitializeResponseParameter::new(lowest_protocol, session_id);
+                            let control = InitializeResponseControl::new(
+                                self.config.preferred_mode == SessionMode::Overlapped,
+                                self.config.encryption_mandatory,
+                                self.config.initial_encryption,
+                            );
 
-                                    log::debug!("AsyncInitialize session=0x{:04x}", session_id);
+                            // Connection is a synchronous channel
+                            connection_state = ConnectionState::Synchronous(session);
 
-                                    let parameter = AsyncInitializeResponseParameter::new(
-                                        self.config.vendor_id,
-                                    );
-                                    let control = AsyncInitializeResponseControl::new(
-                                        self.config.initial_encryption,
-                                    );
-
-                                    MessageType::AsyncInitializeResponse
-                                        .message_params(control.0, parameter.0)
-                                        .no_payload()
-                                        .write_to(&mut stream)
-                                        .await?;
-
-                                    session_guard.async_connected = true;
-                                    connection_state =
-                                        ConnectionState::Asynchronous(session.clone());
-                                }
-                                _ => {
-                                    log::error!("Unexpected message type during handshake");
+                            MessageType::InitializeResponse
+                                .message_params(control.0, response_param.0)
+                                .no_payload()
+                                .write_to(&mut stream)
+                                .await?;
+                        }
+                        (MessageType::AsyncInitialize, ConnectionState::Handshake) => {
+                            // Connect to existing session
+                            let session_id = (msg.message_parameter() & 0x0000FFFF) as u16;
+                            let session = {
+                                let mut guard = self.inner.lock().await;
+                                if let Some(s) = guard.get_session(session_id) {
+                                    s
+                                } else {
                                     Message::from(Error::Fatal(
                                         FatalErrorCode::InvalidInitialization,
-                                        b"Unexpected message",
+                                        b"Invalid session id",
                                     ))
                                     .write_to(&mut stream)
                                     .await?;
                                     break;
                                 }
-                            },
+                            };
+                            let mut session_guard = session.lock().await;
 
-                            ConnectionState::Asynchronous(s) => {
-                                let mut session = s.lock().await;
-                                if let Err(err) = self
-                                    .clone()
-                                    .handle_async_message(&mut session, msg, &mut stream)
-                                    .await
-                                {
-                                    // Close session
-                                    let mut inner = self.inner.lock().await;
-                                    session.close();
-                                    inner.sessions.remove(&session.id);
-                                    return Err(err);
-                                }
+                            // Check if async channel has alreasy been initialized for this session
+                            if session_guard.async_connected {
+                                log::warn!(
+                                    "Async session 0x{:04x} already initialized",
+                                    session_id
+                                );
+                                Message::from(Error::Fatal(
+                                    FatalErrorCode::InvalidInitialization,
+                                    b"Async already initialized",
+                                ))
+                                .write_to(&mut stream)
+                                .await?;
+                                break;
                             }
-                            ConnectionState::Synchronous(s) => {
-                                let mut session = s.lock().await;
-                                
+                            session_guard.async_connected = true;
+                            drop(session_guard);
 
-                                let session = s.lock().await;
-                                if !session.async_connected {
-                                    Message::from(Error::Fatal(
-                                        FatalErrorCode::AttemptUseWithoutBothChannels,
-                                        b"Attempted to use without both channels",
-                                    ))
-                                    .write_to(&mut stream)
-                                    .await?;
-                                    break;
-                                }
+                            log::debug!("AsyncInitialize session=0x{:04x}", session_id);
 
-                                if let Err(err) = self
-                                    .clone()
-                                    .handle_async_message(&mut session, msg, &mut stream)
-                                    .await
-                                {
-                                    // Close session
-                                    let mut inner = self.inner.lock().await;
-                                    session.close();
-                                    inner.sessions.remove(&session.id);
-                                    return Err(err);
-                                }
-                            }
-                        },
+                            MessageType::AsyncInitializeResponse
+                                .message_params(
+                                    AsyncInitializeResponseControl::new(
+                                        self.config.initial_encryption,
+                                    )
+                                    .0,
+                                    AsyncInitializeResponseParameter::new(self.config.vendor_id).0,
+                                )
+                                .no_payload()
+                                .write_to(&mut stream)
+                                .await?;
+
+                            connection_state = ConnectionState::Asynchronous(session.clone());
+                        }
+                        (msg, ConnectionState::Handshake) => {
+                            log::warn!("Unexpected message {:?} during handshake", msg);
+                            Message::from(Error::Fatal(
+                                FatalErrorCode::InvalidInitialization,
+                                b"Unexpected message during handshake",
+                            ))
+                            .write_to(&mut stream)
+                            .await?;
+                        }
+                        (_msg, ConnectionState::Asynchronous(s)) => {
+                            let mut session = s.lock().await;
+                            session.handle_async_message(msg, &mut stream).await?;
+                        }
+                        (_msg, ConnectionState::Synchronous(s)) => {
+                            let mut session = s.lock().await;
+                            session.handle_sync_message(msg, &mut stream).await?;
+                        }
                     }
                 }
                 Err(err) => {
@@ -505,24 +308,26 @@ enum ConnectionState<DEV> {
 struct InnerServer<DEV> {
     session_id: u16,
     sessions: HashMap<u16, Weak<Mutex<Session<DEV>>>>,
+    max_num_sessions: usize,
 }
 
 impl<DEV> InnerServer<DEV> {
-    fn new() -> Arc<Mutex<Self>> {
+    fn new(max_num_sessions: usize) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(InnerServer {
             session_id: 0,
             sessions: Default::default(),
+            max_num_sessions,
         }))
     }
 
     /// Get next available session id
     fn new_session_id(&mut self) -> Result<u16, Error> {
         let origin = self.session_id;
-        self.session_id.wrapping_add(2);
+        self.session_id = self.session_id.wrapping_add(2);
 
         // Check if session id already exists (wrapped around)
         while self.sessions.contains_key(&self.session_id) {
-            self.session_id.wrapping_add(2);
+            self.session_id = self.session_id.wrapping_add(2);
             // Back at beginning, no more ids...
             if self.session_id == origin {
                 return Err(Error::Fatal(
@@ -538,25 +343,36 @@ impl<DEV> InnerServer<DEV> {
 
     fn new_session(
         &mut self,
+        config: ServerConfig,
         protocol: Protocol,
         handle: LockHandle<DEV>,
     ) -> Result<(u16, Arc<Mutex<Session<DEV>>>), Error> {
+        self.gc_sessions();
+        if self.sessions.len() >= self.max_num_sessions {
+            return Err(Error::Fatal(
+                FatalErrorCode::MaximumClientsExceeded,
+                b"Out of session ids",
+            ));
+        }
+
         let session_id = self.new_session_id()?;
-        let session = Arc::new(Mutex::new(Session::new(session_id, protocol, handle)));
+        let session = Arc::new(Mutex::new(Session::new(
+            config, session_id, protocol, handle,
+        )));
         // Store a weak pointer so that the session gets dropped when both sync and async channels are dropped
-        self.sessions.insert(session_id, Arc::downgrade(session.clone()));
+        self.sessions.insert(session_id, Arc::downgrade(&session));
         Ok((session_id, session))
     }
 
     /// Get a session
     /// Note: Returns a strong reference which will keep any locks assosciated with session active until dropped
-    fn get_session(&mut self, session_id: u16) -> Option<Arc<Mutex<Session>>> {
-        let session = self.sessions.get(session_id)?;
+    fn get_session(&mut self, session_id: u16) -> Option<Arc<Mutex<Session<DEV>>>> {
+        let session = self.sessions.get(&session_id)?;
         session.upgrade()
     }
 
     /// Remove any stale session id
-    fn gc_sessions(&mut self){
+    fn gc_sessions(&mut self) {
         self.sessions.retain(|_, v| v.strong_count() != 0)
     }
 }

@@ -26,7 +26,7 @@ struct Args {
 
 #[async_std::main]
 async fn main() -> io::Result<()> {
-    env_logger::init();
+    femme::start();
     let args = Args::parse();
 
     println!("Running server ...");

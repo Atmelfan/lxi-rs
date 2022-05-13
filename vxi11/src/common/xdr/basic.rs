@@ -13,7 +13,7 @@
 //! | float            | f32       |
 //! | double           | f64       |
 //! | opaque[n]        | [u8; N]   |
-//! | opaque<>         | Vec<u8>   |
+//! | opaque<>         | Opaque    |
 //! | string<>         | String    |
 //! | T ident[n]       | [T; N]    |
 //! | T ident<n>       | Vec<T>    |
@@ -459,53 +459,80 @@ mod test_xdr_double {
 // Nobody uses this
 
 // 4.9 Fixed-Length Opaque Data
-// impl<const N: usize> XdrDecode for [u8; N] {
-//     fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()> where RD: Read {
-//         reader.read_exact(self)?;
-//         read_padding!(reader, N);
-//         Ok(())
-//     }
-// }
+#[derive(Debug, Clone)]
+pub(crate) struct FixedOpaque<const N: usize>(pub(crate) [u8; N]);
 
-// impl<const N: usize> XdrEncode for [u8; N] {
-//     fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()> where WR: Write {
-//         writer.write_all(self)?;
-//         write_padding!(writer, N);
-//         Ok(())
-//     }
-// }
+impl<const N: usize> Default for FixedOpaque<N> {
+    fn default() -> Self {
+        Self([0; N])
+    }
+}
+
+macro_rules! fixed_opaque {
+    () => {
+        FixedOpaque([])
+    };
+    ($elem:expr; $n:expr) => (
+        FixedOpaque([$elem; $n])
+    );
+    ($($x:expr),+ $(,)?) => (
+        FixedOpaque([$($x),+])
+    );
+}
+
+impl<const N: usize> XdrDecode for FixedOpaque<N> {
+    fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()>
+    where
+        RD: Read,
+    {
+        reader.read_exact(&mut self.0[..])?;
+        read_padding!(reader, N);
+        Ok(())
+    }
+}
+
+impl<const N: usize> XdrEncode for FixedOpaque<N> {
+    fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()>
+    where
+        WR: Write,
+    {
+        writer.write_all(&self.0[..])?;
+        write_padding!(writer, N);
+        Ok(())
+    }
+}
 
 #[cfg(test)]
 mod test_xdr_opaque {
     use std::io::Cursor;
 
-    use super::{XdrDecode, XdrEncode};
+    use super::{FixedOpaque, XdrDecode, XdrEncode};
 
     #[test]
     fn decode() {
         let mut cursor = Cursor::new(b"\x01\x02\x00\x00");
-        let mut i = [0u8; 2];
+        let mut i = fixed_opaque![0u8; 2];
         i.read_xdr(&mut cursor).unwrap();
 
-        assert_eq!(i, [1u8, 2u8]);
+        assert_eq!(i.0, [1u8, 2u8]);
 
         let mut cursor = Cursor::new(b"\x01\x02\x03\x04");
-        let mut i = [0u8; 4];
+        let mut i = fixed_opaque![0u8; 4];
         i.read_xdr(&mut cursor).unwrap();
 
-        assert_eq!(i, [1u8, 2u8, 3u8, 4u8])
+        assert_eq!(i.0, [1u8, 2u8, 3u8, 4u8])
     }
 
     #[test]
     fn encode() {
         let mut cursor = Cursor::new(Vec::new());
-        let i = [1u8, 2u8];
+        let i = fixed_opaque![1u8, 2u8];
         i.write_xdr(&mut cursor).unwrap();
 
         assert_eq!(cursor.get_ref()[..], b"\x01\x02\x00\x00"[..]);
 
         let mut cursor = Cursor::new(Vec::new());
-        let i = [1u8, 2u8, 3u8, 4u8];
+        let i = fixed_opaque![1u8, 2u8, 3u8, 4u8];
         i.write_xdr(&mut cursor).unwrap();
 
         assert_eq!(cursor.get_ref()[..], b"\x01\x02\x03\x04"[..])
@@ -513,50 +540,89 @@ mod test_xdr_opaque {
 }
 
 // 4.10 Variable-Length Opaque Data
-// impl XdrDecode for Vec<u8> {
-//     fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()> where RD: Read {
-//         let len = reader.read_u32::<NetworkEndian>()? as usize;
-//         *self = vec![0; len];
-//         reader.read_exact(self)?;
-//         read_padding!(reader, len);
-//         Ok(())
-//     }
-// }
 
-// impl XdrEncode for Vec<u8> {
-//     fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()> where WR: Write {
-//         writer.write_u32::<NetworkEndian>(self.len() as u32)?;
-//         writer.write_all(self)?;
-//         write_padding!(writer, self.len());
-//         Ok(())
-//     }
-// }
+#[derive(Debug, Default, Clone)]
+pub(crate) struct Opaque(pub(crate) Vec<u8>);
+
+impl std::ops::Deref for Opaque {
+    type Target = Vec<u8>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Opaque {
+    pub(crate) fn new() -> Self {
+        Opaque(Vec::new())
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+macro_rules! opaque {
+    () => {
+        Opaque(vec![])
+    };
+    ($elem:expr; $n:expr) => (
+        Opaque(vec![$elem; $n])
+    );
+    ($($x:expr),+ $(,)?) => (
+        Opaque(vec![$($x),+])
+    );
+}
+
+impl XdrDecode for Opaque {
+    fn read_xdr<RD>(&mut self, reader: &mut RD) -> Result<()>
+    where
+        RD: Read,
+    {
+        let len = reader.read_u32::<NetworkEndian>()? as usize;
+        reader.take(len as u64).read_to_end(&mut self.0)?;
+        read_padding!(reader, len);
+        Ok(())
+    }
+}
+
+impl XdrEncode for Opaque {
+    fn write_xdr<WR>(&self, writer: &mut WR) -> Result<()>
+    where
+        WR: Write,
+    {
+        writer.write_u32::<NetworkEndian>(self.0.len() as u32)?;
+        writer.write_all(&self.0)?;
+        write_padding!(writer, self.0.len());
+        Ok(())
+    }
+}
 
 #[cfg(test)]
 mod test_xdr_variable_opaque {
     use std::io::Cursor;
 
-    use super::{XdrDecode, XdrEncode};
+    use super::{Opaque, XdrDecode, XdrEncode};
 
     #[test]
     fn decode() {
         let mut cursor = Cursor::new(b"\x00\x00\x00\x02\x01\x02\x00\x00");
-        let mut i: Vec<u8> = Vec::new();
+        let mut i = Opaque::new();
         i.read_xdr(&mut cursor).unwrap();
 
-        assert_eq!(i, vec![1u8, 2u8]);
+        assert_eq!(i.0, vec![1u8, 2u8]);
 
         let mut cursor = Cursor::new(b"\x00\x00\x00\x04\x01\x02\x03\x04");
-        let mut i: Vec<u8> = Vec::new();
+        let mut i = Opaque::new();
         i.read_xdr(&mut cursor).unwrap();
 
-        assert_eq!(i, [1u8, 2u8, 3u8, 4u8])
+        assert_eq!(i.0, [1u8, 2u8, 3u8, 4u8])
     }
 
     #[test]
     fn encode() {
         let mut cursor = Cursor::new(Vec::new());
-        let i = vec![1u8, 2u8];
+        let i = opaque![1u8, 2u8];
         i.write_xdr(&mut cursor).unwrap();
 
         assert_eq!(
@@ -565,7 +631,7 @@ mod test_xdr_variable_opaque {
         );
 
         let mut cursor = Cursor::new(Vec::new());
-        let i = vec![1u8, 2u8, 3u8, 4u8];
+        let i = opaque![1u8, 2u8, 3u8, 4u8];
         i.write_xdr(&mut cursor).unwrap();
 
         assert_eq!(

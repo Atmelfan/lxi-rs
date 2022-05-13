@@ -29,7 +29,7 @@ struct Args {
 
 #[async_std::main]
 async fn main() -> io::Result<()> {
-    env_logger::init();
+    femme::with_level(log::LevelFilter::Debug);
     let args = Args::parse();
 
     let device = EchoDevice::new_arc();
@@ -44,7 +44,8 @@ async fn main() -> io::Result<()> {
         .build(shared, device);
 
     if args.register {
-        let mut portmap = PortMapperClient::connect_tcp((Ipv4Addr::LOCALHOST, PORTMAPPER_PORT)).await?;
+        let mut portmap =
+            PortMapperClient::connect_tcp((Ipv4Addr::LOCALHOST, PORTMAPPER_PORT)).await?;
 
         // Register core service
         let core_set = portmap
