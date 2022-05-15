@@ -12,9 +12,9 @@ use crate::{
         onc_rpc::prelude::*,
         portmapper::{xdr::Mapping, PORTMAPPER_PORT, PORTMAPPER_PROT_TCP},
         vxi11::{
-            create_link, device_intr_srq,
             xdr::{CreateLinkParms, CreateLinkResp, DeviceErrorCode, DeviceLink, DeviceSrqParms},
-            DEVICE_ASYNC, DEVICE_CORE, DEVICE_CORE_VERSION, DEVICE_INTR, DEVICE_INTR_VERSION,
+            CREATE_LINK, DEVICE_ASYNC, DEVICE_CORE, DEVICE_CORE_VERSION, DEVICE_INTR,
+            DEVICE_INTR_SRQ, DEVICE_INTR_VERSION,
         },
         xdr::prelude::*,
     },
@@ -83,7 +83,7 @@ impl Vxi11CoreClient {
             lock_timeout,
             device,
         };
-        let link_resp: CreateLinkResp = core_client.call(create_link, link_parms).await?;
+        let link_resp: CreateLinkResp = core_client.call(CREATE_LINK, link_parms).await?;
         if link_resp.error == DeviceErrorCode::NoError {
             Ok(Self {
                 lid: link_resp.lid,
@@ -137,7 +137,7 @@ impl RpcService for Vxi11IntrServer {
                 high: DEVICE_INTR_VERSION,
             }));
         }
-        if proc == device_intr_srq {
+        if proc == DEVICE_INTR_SRQ {
             let mut parms = DeviceSrqParms::default();
             parms.read_xdr(args)?;
             // TODO

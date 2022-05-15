@@ -2,7 +2,10 @@ use std::{io, net::Ipv4Addr};
 
 use async_std::net::{TcpListener, TcpStream};
 use futures::try_join;
-use lxi_device::{lock::SharedLock, util::{EchoDevice, SimpleDevice}};
+use lxi_device::{
+    lock::SharedLock,
+    util::{EchoDevice, SimpleDevice},
+};
 use vxi11::{
     client::portmapper::prelude::*,
     server::{portmapper::prelude::*, vxi11::prelude::*},

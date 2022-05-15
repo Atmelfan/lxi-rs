@@ -30,7 +30,7 @@ use crate::{
     common::{
         onc_rpc::prelude::*,
         portmapper::{xdr::Mapping, PORTMAPPER_PROT_TCP},
-        vxi11::*,
+        vxi11::{xdr::DeviceSrqParms, *},
     },
 };
 
@@ -222,6 +222,13 @@ struct VxiSrqClient {
 }
 
 impl VxiSrqClient {
+    async fn device_intr_srq(&mut self, handle: Vec<u8>) -> Result<(), RpcError> {
+        let args = DeviceSrqParms::new(Opaque(handle));
+        self.client.call_no_reply(DEVICE_INTR_SRQ, args).await
+    }
+}
+
+impl VxiSrqClient {
     async fn new(
         host_addr: u32,
         host_port: u16,
@@ -312,7 +319,7 @@ where
 
         match proc {
             0 => Ok(()),
-            create_link => {
+            CREATE_LINK => {
                 let mut parms = xdr::CreateLinkParms::default();
                 parms.read_xdr(args)?;
 
@@ -339,7 +346,9 @@ where
                         .await
                         .map_or(Err(SharedLockError::Timeout), |f| f);
                         match res {
-                            Ok(()) => log::debug!(peer=format!("{}", self.peer), link=lid; "Exclusive lock acquired"),
+                            Ok(()) => {
+                                log::debug!(peer=format!("{}", self.peer), link=lid; "Exclusive lock acquired")
+                            }
                             Err(err) => resp.error = err.into(),
                         }
                     }
@@ -353,7 +362,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            device_write => {
+            DEVICE_WRITE => {
                 // Read parameters
                 let mut parms = xdr::DeviceWriteParms::default();
                 parms.read_xdr(args)?;
@@ -402,7 +411,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            device_read => {
+            DEVICE_READ => {
                 // Read parameters
                 let mut parms = xdr::DeviceReadParms::default();
                 parms.read_xdr(args)?;
@@ -428,7 +437,7 @@ where
 
                                 // Take whatever is first terminator, or end
                                 let to_take = pos.map_or(parms.request_size as usize, |x| {
-                                    min(link.out_buf.len(), x+1)
+                                    min(link.out_buf.len(), x + 1)
                                 });
                                 // Returning because of term_char
                                 if matches!(pos, Some(c) if c == to_take) {
@@ -464,7 +473,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            device_readstb => {
+            DEVICE_READSTB => {
                 // Read parameters
                 let mut parms = xdr::DeviceGenericParms::default();
                 parms.read_xdr(args)?;
@@ -506,7 +515,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            device_trigger => {
+            DEVICE_TRIGGER => {
                 // Read parameters
                 let mut parms = xdr::DeviceGenericParms::default();
                 parms.read_xdr(args)?;
@@ -536,7 +545,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            device_clear => {
+            DEVICE_CLEAR => {
                 // Read parameters
                 let mut parms = xdr::DeviceGenericParms::default();
                 parms.read_xdr(args)?;
@@ -551,6 +560,8 @@ where
 
                 resp.error = match get_link!(self.links, &parms.lid.0) {
                     Some(link) => {
+                        link.clear();
+
                         let dev =
                             lock_device!(link.handle, parms.flags, parms.lock_timeout, link.abort);
 
@@ -566,7 +577,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            device_local | device_remote => {
+            DEVICE_LOCAL | DEVICE_REMOTE => {
                 // Read parameters
                 let mut parms = xdr::DeviceGenericParms::default();
                 parms.read_xdr(args)?;
@@ -575,7 +586,7 @@ where
                     lock_timeout=parms.lock_timeout,
                     io_timeout=parms.io_timeout,
                     flags=format!("{}", parms.flags); 
-                    "Local {}", proc == device_remote);
+                    "Local {}", proc == DEVICE_REMOTE);
 
                 let mut resp = xdr::DeviceError::default();
 
@@ -585,7 +596,7 @@ where
                             lock_device!(link.handle, parms.flags, parms.lock_timeout, link.abort);
 
                         match dev {
-                            Ok(mut d) => d.set_remote(proc == device_remote).into(),
+                            Ok(mut d) => d.set_remote(proc == DEVICE_REMOTE).into(),
                             Err(err) => err.into(),
                         }
                     }
@@ -596,7 +607,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            device_lock => {
+            DEVICE_LOCK => {
                 // Read parameters
                 let mut parms = xdr::DeviceLockParms::default();
                 parms.read_xdr(args)?;
@@ -627,7 +638,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            device_unlock => {
+            DEVICE_UNLOCK => {
                 // Read parameters
                 let mut parms = xdr::DeviceLink::default();
                 parms.read_xdr(args)?;
@@ -648,7 +659,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            device_enable_srq => {
+            DEVICE_ENABLE_SRQ => {
                 // Read parameters
                 let mut parms = xdr::DeviceEnableSrqParms::default();
                 parms.read_xdr(args)?;
@@ -678,7 +689,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            device_docmd => {
+            DEVICE_DOCMD => {
                 // Read parameters
                 let mut parms = xdr::DeviceDocmdParms::default();
                 parms.read_xdr(args)?;
@@ -693,7 +704,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            destroy_link => {
+            DESTROY_LINK => {
                 // Read parameters
                 let mut parms = xdr::DeviceLink::default();
                 parms.read_xdr(args)?;
@@ -716,7 +727,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            create_intr_chan => {
+            CREATE_INTR_CHAN => {
                 // Read parameters
                 let mut parms = xdr::DeviceRemoteFunc::default();
                 parms.read_xdr(args)?;
@@ -752,7 +763,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            destroy_intr_chan => {
+            DESTROY_INTR_CHAN => {
                 // Read parameters
                 ().read_xdr(args)?;
 
@@ -844,7 +855,7 @@ where
 
         match proc {
             0 => Ok(()),
-            device_abort => {
+            DEVICE_ABORT => {
                 // Read parameters
                 let mut parms = xdr::DeviceLink::default();
                 parms.read_xdr(args)?;

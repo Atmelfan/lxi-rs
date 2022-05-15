@@ -47,26 +47,26 @@ pub trait Device {
 // Blanket proxy implementation for boxed devices
 impl<DEV: Device + ?Sized> Device for Box<DEV> {
     fn execute(&mut self, cmd: &Vec<u8>) -> Vec<u8> {
-        self.execute(cmd)
+        (**self).execute(cmd)
     }
 
     fn get_status(&mut self) -> Result<u8, DeviceError> {
-        self.get_status()
+        (**self).get_status()
     }
 
     fn trigger(&mut self) -> Result<(), DeviceError> {
-        self.trigger()
+        (**self).trigger()
     }
 
     fn clear(&mut self) -> Result<(), DeviceError> {
-        self.clear()
+        (**self).clear()
     }
 
     fn set_remote(&mut self, remote: bool) -> Result<(), DeviceError> {
-        self.set_remote(remote)
+        (**self).set_remote(remote)
     }
 
     fn set_local_lockout(&mut self, enable: bool) {
-        self.set_local_lockout(enable)
+        (**self).set_local_lockout(enable)
     }
 }
