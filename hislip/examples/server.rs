@@ -19,7 +19,7 @@ struct Args {
 
 #[async_std::main]
 async fn main() -> Result<(), io::Error> {
-    env_logger::init();
+    femme::with_level(log::LevelFilter::Debug);
     let args = Args::parse();
 
     let device = EchoDevice::new_arc();

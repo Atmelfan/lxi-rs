@@ -2,7 +2,7 @@ use std::io::{Read, Result, Write};
 
 use crate::common::xdr::prelude::*;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum DeviceAddrFamily {
     Tcp,
     Udp,
@@ -21,8 +21,8 @@ impl XdrEncode for DeviceAddrFamily {
         WR: Write,
     {
         writer.write_u32::<NetworkEndian>(match self {
-            DeviceAddrFamily::Tcp => 1,
-            DeviceAddrFamily::Udp => 2,
+            DeviceAddrFamily::Tcp => 0,
+            DeviceAddrFamily::Udp => 1,
             _ => panic!(),
         })
     }
@@ -35,8 +35,8 @@ impl XdrDecode for DeviceAddrFamily {
     {
         let discriminant = reader.read_u32::<NetworkEndian>()?;
         *self = match discriminant {
-            1 => DeviceAddrFamily::Tcp,
-            2 => DeviceAddrFamily::Udp,
+            0 => DeviceAddrFamily::Tcp,
+            1 => DeviceAddrFamily::Udp,
             _ => DeviceAddrFamily::_Invalid,
         };
         Ok(())

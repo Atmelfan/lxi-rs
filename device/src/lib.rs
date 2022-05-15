@@ -1,7 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
-use alloc::{vec::Vec, box::Box};
+use alloc::{boxed::Box, vec::Vec};
 
 pub mod frontpanel;
 pub mod lock;
@@ -21,6 +21,8 @@ pub trait Device {
 
     /// Return a current device status (STB) byte
     /// Some flags (such as MAV) will be ignored.
+    /// 
+    /// Note: This should not reset any flags like a *STB? call would do.
     fn get_status(&mut self) -> Result<u8, DeviceError>;
 
     /// Send a trigger signal to device
@@ -34,10 +36,7 @@ pub trait Device {
     /// When in remote, frontpanel or any other local controls (except for 'local' button if any)
     /// should be ignored.
     /// If the device does not support a remote mode, it should return Err(())
-    fn set_remote(&mut self, _remote: bool) -> Result<(), ()> {
-        // Do nothing
-        Err(())
-    }
+    fn set_remote(&mut self, _remote: bool) -> Result<(), DeviceError>;
 
     /// Enable/disable lockout for 'local' button
     fn set_local_lockout(&mut self, _enable: bool) {
@@ -46,17 +45,28 @@ pub trait Device {
 }
 
 // Blanket proxy implementation for boxed devices
-impl<DEV: Device + ?Size> Device for Box<DEV> {
+impl<DEV: Device + ?Sized> Device for Box<DEV> {
+    fn execute(&mut self, cmd: &Vec<u8>) -> Vec<u8> {
+        self.execute(cmd)
+    }
 
-    fn execute(&mut self, cmd: &Vec<u8>) -> Vec<u8> { self.execute(cmd) }
+    fn get_status(&mut self) -> Result<u8, DeviceError> {
+        self.get_status()
+    }
 
-    fn get_status(&mut self) -> Result<u8, DeviceError> { self.get_status() }
+    fn trigger(&mut self) -> Result<(), DeviceError> {
+        self.trigger()
+    }
 
-    fn trigger(&mut self) -> Result<(), DeviceError> { self.trigger() }
+    fn clear(&mut self) -> Result<(), DeviceError> {
+        self.clear()
+    }
 
-    fn clear(&mut self) -> Result<(), DeviceError> { self.clear() }
+    fn set_remote(&mut self, remote: bool) -> Result<(), DeviceError> {
+        self.set_remote(remote)
+    }
 
-    fn set_remote(&mut self, remote: bool) -> Result<(), ()> { self.set_remote(remote) }
-
-    fn set_local_lockout(&mut self, enable: bool) { self.set_local_lockout(enable) }
+    fn set_local_lockout(&mut self, enable: bool) {
+        self.set_local_lockout(enable)
+    }
 }

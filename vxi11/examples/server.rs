@@ -2,7 +2,7 @@ use std::{io, net::Ipv4Addr};
 
 use async_std::net::{TcpListener, TcpStream};
 use futures::try_join;
-use lxi_device::{lock::SharedLock, util::EchoDevice};
+use lxi_device::{lock::SharedLock, util::{EchoDevice, SimpleDevice}};
 use vxi11::{
     client::portmapper::prelude::*,
     server::{portmapper::prelude::*, vxi11::prelude::*},
@@ -32,7 +32,7 @@ async fn main() -> io::Result<()> {
     femme::with_level(log::LevelFilter::Debug);
     let args = Args::parse();
 
-    let device = EchoDevice::new_arc();
+    let device = SimpleDevice::new_arc();
     let shared = SharedLock::new();
 
     let core_listener = TcpListener::bind(args.core_addr).await?;

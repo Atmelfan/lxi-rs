@@ -249,7 +249,7 @@ where
                             session_guard.async_connected = true;
                             drop(session_guard);
 
-                            log::debug!("AsyncInitialize session=0x{:04x}", session_id);
+                            log::debug!(session_id=session_id; "Async initialize");
 
                             MessageType::AsyncInitializeResponse
                                 .message_params(

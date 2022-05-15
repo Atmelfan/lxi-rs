@@ -173,7 +173,7 @@ impl<DEV> Session<DEV> {
                         }
                     };
 
-                    log::debug!(session_id = self.id; "Async lock: {:?}", res);
+                    //log::debug!(session_id = self.id; "Async lock: {:?}", res);
 
                     let control = match res {
                         Ok(_) => 1,
@@ -193,7 +193,6 @@ impl<DEV> Session<DEV> {
             MessageType::AsyncMaximumMessageSize => {
                 let size = NetworkEndian::read_u64(msg.payload().as_slice());
                 self.max_message_size = size;
-                log::debug!("Session {}, Max client message size = {}", self.id, size);
                 log::debug!(session_id = self.id; "Max client message size = {}", size);
 
                 let mut buf = [0u8; 8];
