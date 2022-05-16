@@ -10,7 +10,6 @@ license = "GPL-3.0-or-later"
 [dependencies]
 async-std = {version = "1.11", features = ["attributes"]}
 futures = "0.3"
-async-tls = "0.11"
 byteorder = "1.3"
 bitfield = "0.13"
 
@@ -23,3 +22,14 @@ path = "../device"
 [dev-dependencies]
 femme = "2.2"
 clap = { version = "3.1.12", features = ["derive"] }
+
+[dependencies.async-tls]
+version = "0.11"
+optional = true
+
+[dependencies.rustls]
+version  = "0.19"
+optional = true
+
+[features]
+tls = ["async-tls", "rustls"]

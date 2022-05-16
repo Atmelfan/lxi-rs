@@ -21,22 +21,29 @@ def resource_manager(request):
 
 @pytest.fixture
 def hislip_example(xprocess, request):
-    port = find_free_port()
+    debug = os.environ.get('HISLIP_DEBUG')
+    if debug is not None:
+        addr, port = debug.split(':')
 
-    class Starter(ProcessStarter):
-        # startup pattern
-        pattern = "Running server"
+        yield f'TCPIP::{addr}::hislip0,{port}::INSTR'
+    else:
+        addr = "127.0.0.1"
+        port = find_free_port()
 
-        # Cargo might print a lot before starting the program
-        max_read_lines = 500
+        class Starter(ProcessStarter):
+            # startup pattern
+            pattern = "Running server"
 
-        # command to start process
-        args = ['cargo', 'run', '--manifest-path', request.fspath.dirname+'/../Cargo.toml', '--example', 'server', '--', '--port', str(port)]
+            # Cargo might print a lot before starting the program
+            max_read_lines = 500
 
-    # ensure process is running and return its logfile
-    logfile = xprocess.ensure("hislip_example", Starter)
+            # command to start process
+            args = ['cargo', 'run', '--manifest-path', request.fspath.dirname+'/../Cargo.toml', '--example', 'server', '--', '--port', str(port)]
 
-    yield port
+        # ensure process is running and return its logfile
+        logfile = xprocess.ensure("hislip_example", Starter)
 
-    # clean up whole process tree afterwards
-    xprocess.getinfo("hislip_example").terminate()
+        yield f'TCPIP::{addr}::hislip0,{port}::INSTR'
+
+        # clean up whole process tree afterwards
+        xprocess.getinfo("hislip_example").terminate()

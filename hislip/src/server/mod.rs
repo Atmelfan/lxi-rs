@@ -20,12 +20,16 @@ use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::common::messages::{
     AsyncInitializeResponseControl, AsyncInitializeResponseParameter, FeatureBitmap,
     InitializeParameter, InitializeResponseControl, InitializeResponseParameter, Message,
-    MessageType, RmtDeliveredControl, Header,
+    MessageType, RmtDeliveredControl,
 };
 use crate::common::Protocol;
 use crate::server::session::{Session, SessionMode};
 use crate::PROTOCOL_2_0;
 use crate::server::stream::HislipStream;
+
+#[cfg(feature = "tls")]
+use async_tls::TlsAcceptor;
+
 
 pub mod session;
 mod stream;
@@ -81,28 +85,26 @@ where
 
     /// Start accepting connections from addr
     ///
-    pub async fn accept(self: Arc<Self>, addr: impl ToSocketAddrs) -> Result<(), io::Error> {
+    pub async fn accept(self: Arc<Self>, addr: impl ToSocketAddrs, #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>) -> Result<(), io::Error> {
         let listener = TcpListener::bind(addr).await?;
         let mut incoming = listener.incoming();
         while let Some(stream) = incoming.next().await {
             let stream = stream?;
             let peer = stream.peer_addr()?;
+            #[cfg(feature = "tls")] 
+            let acceptor = acceptor.clone();
 
             let s = self.clone();
             task::spawn(async move {
-                let res = s.handle_connection(stream).await;
-                if let Err(err) = res {
-                    log::error!("{peer} disconnected: {err}")
-                } else {
-                    log::info!("{peer} disconnected")
-                }
+                let res = s.handle_connection(stream, #[cfg(feature = "tls")] acceptor).await;
+                log::debug!("{peer} disconnected: {res:?}")
             });
         }
         Ok(())
     }
 
     /// The connection handling function.
-    async fn handle_connection(self: Arc<Self>, stream: TcpStream) -> Result<(), io::Error> {
+    async fn handle_connection(self: Arc<Self>, stream: TcpStream, #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>) -> Result<(), io::Error> {
         let peer = stream.peer_addr()?;
         log::info!("{} connected", peer);
 
@@ -115,7 +117,7 @@ where
                     log::trace!("Received {:?}", msg);
                     // Handle messages
                     match msg {
-                        Message { header: Header { message_type: MessageType::VendorSpecific(code), ..}, ..} => {
+                        Message {message_type: MessageType::VendorSpecific(code), ..} => {
                             log::warn!(peer=format!("{}", peer);
                                 "Unrecognized Vendor Defined Message ({}) during init",
                                 code
@@ -127,20 +129,20 @@ where
                             .write_to(&mut stream)
                             .await?;
                         }
-                        Message { header: Header { message_type: MessageType::FatalError, control_code, ..}, payload} => {
+                        Message { message_type: MessageType::FatalError, control_code, payload, ..} => {
                             log::error!(peer=format!("{}", peer);
                                 "Client fatal error {:?}: {}", FatalErrorCode::from_error_code(control_code),
                                 from_utf8(&payload).unwrap_or("<invalid utf8>")
                             );
                             //break; // Let client close connection
                         }
-                        Message { header: Header { message_type: MessageType::Error, control_code, ..}, payload}  => {
+                        Message {message_type: MessageType::Error, control_code, payload, ..}  => {
                             log::warn!(peer=format!("{}", peer);
                                 "Client error {:?}: {}", NonFatalErrorCode::from_error_code(control_code),
                                 from_utf8(&payload).unwrap_or("<invalid utf8>")
                             );
                         }
-                        Message { header: Header { message_type: MessageType::Initialize, message_parameter, ..}, payload}  => {
+                        Message { message_type: MessageType::Initialize, message_parameter, payload, ..}  => {
                             // Create new session
                             let client_parameters = InitializeParameter(message_parameter);
 
@@ -198,9 +200,9 @@ where
                                 .write_to(&mut stream)
                                 .await?;
                             
-                            break Session::handle_sync_session(session, &mut stream, peer, self.config).await?;                            
+                            break Session::handle_sync_session(session, &mut stream, peer, self.config, #[cfg(feature = "tls")] acceptor).await?;                            
                         }
-                        Message { header: Header { message_type: MessageType::AsyncInitialize, message_parameter, ..}, ..} => {
+                        Message { message_type: MessageType::AsyncInitialize, message_parameter, ..} => {
                             // Connect to existing session
                             let session_id = (message_parameter & 0x0000FFFF) as u16;
                             let session = {
@@ -251,7 +253,7 @@ where
                                 .write_to(&mut stream)
                                 .await?;
 
-                            break Session::handle_async_session(session, &mut stream, peer, self.config).await?;
+                            break Session::handle_async_session(session, &mut stream, peer, self.config, #[cfg(feature = "tls")] acceptor).await?;
                         }
                         msg => {
                             log::warn!(peer=format!("{}", peer); "Unexpected message {:?} during initialization", msg);

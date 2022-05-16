@@ -1,6 +1,6 @@
 use core::option::Option;
 use core::result::Result;
-use std::io;
+use std::{io, fmt::Display};
 
 use bitfield::bitfield;
 
@@ -61,7 +61,7 @@ impl Message {
     {
         let mut buf = [0u8; Message::MESSAGE_HEADER_SIZE];
         reader.read_exact(&mut buf).await?;
-        let prolog = &x[0..2];
+        let prolog = &buf[0..2];
         if prolog != b"HS" {
             return Ok(Err(Error::Fatal(
                 FatalErrorCode::PoorlyFormattedMessageHeader,
@@ -70,7 +70,7 @@ impl Message {
         }
 
         let control_code = buf[3];
-        let len = BigEndian::read_u64(&x[8..16]);
+        let len = BigEndian::read_u64(&buf[8..16]);
         let message_parameter = BigEndian::read_u32(&buf[4..8]);
         if len > maxlen {
             Ok(Err(Error::NonFatal(
@@ -80,7 +80,7 @@ impl Message {
         } else {
             let mut payload = Vec::with_capacity(len as usize);
             reader.take(len).read_to_end(&mut payload).await?;
-            match MessageType::from_message_type(x[2]).ok_or(Error::NonFatal(
+            match MessageType::from_message_type(buf[2]).ok_or(Error::NonFatal(
                 NonFatalErrorCode::UnrecognizedMessageType,
                 b"Unrecognized message type",
             )) {
@@ -89,7 +89,8 @@ impl Message {
                     control_code,
                     message_parameter, 
                     payload 
-                }))
+                })),
+                Err(err) => Ok(Err(err))
             }
             
         }
@@ -99,13 +100,13 @@ impl Message {
     where
         WR: AsyncWrite + Unpin,
     {
-        let mut buf = [0u8; Header::MESSAGE_HEADER_SIZE];
+        let mut buf = [0u8; Message::MESSAGE_HEADER_SIZE];
         buf[0] = b'H';
         buf[1] = b'S';
         buf[2] = self.message_type.get_message_type();
         buf[3] = self.control_code;
-        NetworkEndian::write_u32(&mut x[4..8], self.message_parameter);
-        NetworkEndian::write_u64(&mut x[8..16], self.payload.len() as u64);
+        NetworkEndian::write_u32(&mut buf[4..8], self.message_parameter);
+        NetworkEndian::write_u64(&mut buf[8..16], self.payload.len() as u64);
         writer.write_all(&buf).await?;
         writer.write_all(self.payload.as_slice()).await?;
         Ok(())
@@ -265,22 +266,20 @@ impl MessageType {
         }
     }
 
-    pub(crate) fn message(self) -> Header {
+    pub(crate) fn message(self) -> Message {
         Message {
             message_type: self,
             control_code: 0,
             message_parameter: 0,
-            len: 0,
             payload: Vec::new(),
         }
     }
 
-    pub(crate) fn message_params(self, control_code: u8, message_parameter: u32) -> Header {
+    pub(crate) fn message_params(self, control_code: u8, message_parameter: u32) -> Message {
         Message {
             message_type: self,
             control_code,
             message_parameter,
-            len: 0,
             payload: Vec::new(),
         }
     }
@@ -351,6 +350,8 @@ impl AsyncInitializeResponseParameter {
     }
 }
 
+
+
 bitfield! {
     pub struct AsyncInitializeResponseControl(u8);
     impl Debug;
@@ -383,6 +384,12 @@ impl RmtDeliveredControl {
     }
 }
 
+impl Display for RmtDeliveredControl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "rmt: {}", self.rmt_delivered())
+    }
+}
+
 bitfield! {
     pub struct FeatureBitmap(u8);
     impl Debug;
@@ -399,5 +406,11 @@ impl FeatureBitmap {
         s.set_encryption(encryption);
         s.set_initial_encryption(initial_encryption);
         s
+    }
+}
+
+impl Display for FeatureBitmap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "overlapped: {}, encryption: {}, initial_encryption: {}", self.overlapped(), self.encryption(), self.initial_encryption())
     }
 }

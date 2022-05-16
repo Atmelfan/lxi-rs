@@ -1,8 +1,10 @@
 use std::{pin::Pin, sync::Arc};
 
 use async_std::{io, net::TcpStream};
-use async_tls::{server::TlsStream, TlsAcceptor};
 use futures::{AsyncRead, AsyncWrite};
+
+#[cfg(feature = "tls")] 
+use async_tls::{server::TlsStream, TlsAcceptor};
 
 
 pub(crate) const HISLIP_TLS_BUSY: u8 = 0;
@@ -20,8 +22,8 @@ pub(crate) enum HislipStream<'a> {
 }
 
 impl<'a> HislipStream<'a> {
+    #[cfg(feature = "tls")] 
     pub async fn start_tls(&mut self, acceptor: Arc<TlsAcceptor>) -> io::Result<()> {
-        #[cfg(feature = "tls")]
         match self {
             HislipStream::Open(stream) => {
                 let e = acceptor
@@ -32,11 +34,9 @@ impl<'a> HislipStream<'a> {
             },
             HislipStream::Encrypted(_) => Ok(()),
         }
-
-        #[cfg(not(feature = "tls"))]
-        Err(io::ErrorKind::Other.into())
     }
 
+    #[cfg(feature = "tls")] 
     pub async fn end_tls(&mut self) -> io::Result<()> {
         Err(io::ErrorKind::Other.into())
     }

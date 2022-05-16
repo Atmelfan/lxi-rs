@@ -1,5 +1,4 @@
 use alloc::{
-    string::{String, ToString},
     sync::Arc,
     vec::Vec,
 };
@@ -35,7 +34,7 @@ pub enum SharedLockMode {
 }
 
 pub struct SharedLock {
-    shared_lock: Option<String>,
+    shared_lock: Option<Vec<u8>>,
     num_shared_locks: u32,
     exclusive_lock: bool,
     event: Vec<Sender<()>>,
@@ -136,7 +135,7 @@ impl<DEV> LockHandle<DEV> {
         }
     }
 
-    pub fn try_acquire(&mut self, lockstr: &str) -> Result<(), SharedLockError> {
+    pub fn try_acquire(&mut self, lockstr: &[u8]) -> Result<(), SharedLockError> {
         if lockstr.is_empty() {
             self.try_acquire_exclusive()
         } else {
@@ -144,7 +143,7 @@ impl<DEV> LockHandle<DEV> {
         }
     }
 
-    pub async fn async_acquire(&mut self, lockstr: &str) -> Result<(), SharedLockError> {
+    pub async fn async_acquire(&mut self, lockstr: &[u8]) -> Result<(), SharedLockError> {
         if lockstr.is_empty() {
             self.async_acquire_exclusive().await
         } else {
@@ -218,7 +217,7 @@ impl<DEV> LockHandle<DEV> {
         }
     }
 
-    pub fn try_acquire_shared(&mut self, lockstr: &str) -> Result<(), SharedLockError> {
+    pub fn try_acquire_shared(&mut self, lockstr: &[u8]) -> Result<(), SharedLockError> {
         if self.has_shared {
             return Err(SharedLockError::AlreadyLocked);
         }
@@ -228,7 +227,7 @@ impl<DEV> LockHandle<DEV> {
         match (shared.exclusive_lock, &shared.shared_lock) {
             // Current state: Unlocked
             (false, None) => {
-                shared.shared_lock = Some(lockstr.to_string());
+                shared.shared_lock = Some(lockstr.to_vec());
                 shared.num_shared_locks = 1;
                 self.has_shared = true;
 
@@ -260,7 +259,7 @@ impl<DEV> LockHandle<DEV> {
         }
     }
 
-    pub async fn async_acquire_shared(&mut self, lockstr: &str) -> Result<(), SharedLockError> {
+    pub async fn async_acquire_shared(&mut self, lockstr: &[u8]) -> Result<(), SharedLockError> {
         let mut listener = None;
 
         loop {
@@ -431,11 +430,11 @@ mod tests {
         let handle3 = LockHandle::new(shared.clone(), device.clone());
 
         // Multiple handles can acquire a shared lock "foo"
-        assert!(handle1.try_acquire_shared("foo").is_ok());
-        assert!(handle2.try_acquire_shared("foo").is_ok());
+        assert!(handle1.try_acquire_shared(b"foo").is_ok());
+        assert!(handle2.try_acquire_shared(b"foo").is_ok());
 
         // Cannot acquire a shared lock "bar" because "foo" is locked
-        assert!(handle2.try_acquire_shared("bar").is_err());
+        assert!(handle2.try_acquire_shared(b"bar").is_err());
 
         // Only "foo" handles may lock
         assert!(handle1.can_lock().is_ok());
@@ -452,8 +451,8 @@ mod tests {
         let mut handle2 = LockHandle::new(shared.clone(), device.clone());
 
         // Multiple handles can acquire a shared lock "foo"
-        assert!(handle1.try_acquire_shared("foo").is_ok());
-        assert!(handle2.try_acquire_shared("foo").is_ok());
+        assert!(handle1.try_acquire_shared(b"foo").is_ok());
+        assert!(handle2.try_acquire_shared(b"foo").is_ok());
 
         // Both "foo" handles may lock
         assert!(handle1.can_lock().is_ok());

@@ -3,23 +3,27 @@ use std::net::SocketAddr;
 use std::str::from_utf8;
 use std::time::Duration;
 
+use async_std::channel::{Receiver, Sender};
 use async_std::future;
 use async_std::net::TcpStream;
 use async_std::sync::Arc;
 use byteorder::{ByteOrder, NetworkEndian};
 use futures::channel::mpsc;
 use futures::lock::Mutex;
-use futures::StreamExt;
+use futures::{StreamExt, select, FutureExt};
 use lxi_device::lock::{LockHandle, SharedLockError, SharedLockMode};
 use lxi_device::Device;
 
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
-use crate::common::messages::{FeatureBitmap, Header, Message, MessageType};
+use crate::common::messages::{FeatureBitmap, Message, MessageType, RmtDeliveredControl};
 use crate::common::Protocol;
 use crate::PROTOCOL_2_0;
 
 use super::stream::{HislipStream, HISLIP_TLS_BUSY, HISLIP_TLS_ERROR, HISLIP_TLS_SUCCESS};
 use super::ServerConfig;
+
+#[cfg(feature = "tls")]
+use async_tls::TlsAcceptor;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SessionMode {
@@ -27,10 +31,16 @@ pub enum SessionMode {
     Overlapped,
 }
 
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub(crate) enum SessionState {
     Normal,
+    Clear,
     EncryptionStart,
     AuthenticationStart,
+}
+
+pub(crate) enum SyncEvent {
+
 }
 
 pub(crate) struct Session<DEV>
@@ -58,19 +68,10 @@ where
     pub(crate) out_buf: Vec<u8>,
     message_id: u32,
 
+    state: SessionState,
+
     //
     enable_remote: bool,
-}
-
-type Sender<T> = mpsc::UnboundedSender<T>;
-type Receiver<T> = mpsc::UnboundedReceiver<T>;
-
-pub enum Event {
-    Shutdown,
-    ///
-    ClearDevice,
-    ///
-    Data(Vec<u8>),
 }
 
 impl<DEV> Session<DEV>
@@ -96,30 +97,15 @@ where
             out_buf: Vec::new(),
             enable_remote: true,
             message_id: 0xffff_ff00,
+            state: SessionState::Normal
         }
     }
 
     pub(crate) fn close(&mut self) {
+        log::debug!(session_id=self.id; "Closing session");
         // Release any lock this session might be holding
         // Should be called anyways by LockHandle::drop() but done here to be obvious
         self.handle.force_release();
-    }
-
-    pub(crate) async fn session_async_writer_loop(
-        mut messages: Receiver<Event>,
-        _stream: Arc<TcpStream>,
-    ) -> Result<(), Error> {
-        let mut data: Vec<u8> = Vec::new();
-        while let Some(event) = messages.next().await {
-            match event {
-                Event::Shutdown => {}
-                Event::ClearDevice => {}
-                Event::Data(output) => {
-                    data = output;
-                }
-            }
-        }
-        Ok(())
     }
 
     pub(crate) async fn handle_sync_session(
@@ -127,13 +113,16 @@ where
         stream: &mut HislipStream<'_>,
         peer: SocketAddr,
         config: ServerConfig,
+        #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>
     ) -> Result<(), io::Error> {
         loop {
             match Message::read_from(stream, config.max_message_size).await? {
+                // Valid message
                 Ok(msg) => {
                     let mut session = session.lock().await;
-                    session.handle_sync_message(msg, stream, peer).await?;
+                    session.handle_sync_message(msg, stream, peer, #[cfg(feature = "tls")] acceptor.clone()).await?;
                 }
+                // Invalid message
                 Err(err) => {
                     Message::from(err).write_to(stream).await?;
                     if err.is_fatal() {
@@ -149,6 +138,7 @@ where
         msg: Message,
         stream: &mut HislipStream<'_>,
         peer: SocketAddr,
+        #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>
     ) -> Result<(), io::Error> {
         match msg {
             Message {
@@ -195,6 +185,11 @@ where
                 payload,
                 ..
             } => {
+                if self.state == SessionState::Clear {
+                    // Ignore data when clearing
+                    return Ok(())
+                }
+
                 let mut dev = self.handle.async_lock().await.unwrap();
 
                 //
@@ -212,6 +207,11 @@ where
                 payload,
                 ..
             } => {
+                if self.state == SessionState::Clear {
+                    // Ignore data when clearing
+                    return Ok(())
+                }
+
                 let mut dev = self.handle.async_lock().await.unwrap();
 
                 //
@@ -245,18 +245,59 @@ where
             }
             Message {
                 message_type: MessageType::Trigger,
-                message_parameter,
+                message_parameter: message_id,
                 control_code,
                 ..
             } => {
+                if self.state == SessionState::Clear {
+                    // Ignore data when clearing
+                    return Ok(())
+                }
+
+                let control = RmtDeliveredControl(control_code);
+                log::debug!(session_id = self.id, message_id=message_id; "Trigger, {}", control);
+
+
                 let mut dev = self.handle.async_lock().await.unwrap();
+
                 if self.enable_remote {
                     dev.set_remote(true);
                 }
                 let _ = dev.trigger();
+            },
+            Message {
+                message_type: MessageType::DeviceClearComplete,
+                control_code,
+                ..
+            } => {
+                if self.state != SessionState::Clear {
+                    // No clear has been commanded
+                    Message::from(Error::NonFatal(
+                        NonFatalErrorCode::UnidentifiedError,
+                        b"Unexpected device clear complete",
+                    ))
+                    .write_to(stream)
+                    .await?;
+                } else {
+                    let feature_request = FeatureBitmap(control_code);
+                    log::debug!(session_id = self.id; "Device clear complete, {}", feature_request);
+    
+                    // Renegotiate
+                    self.mode = if feature_request.overlapped() {
+                        SessionMode::Overlapped
+                    } else {
+                        SessionMode::Synchronized
+                    };
+                    let feature_setting = FeatureBitmap::new(feature_request.overlapped(), self.config.encryption_mandatory, self.config.initial_encryption);
+                    MessageType::DeviceClearAcknowledge
+                            .message_params(feature_setting.0, self.message_id)
+                            .no_payload()
+                            .write_to(stream)
+                            .await?;
+                }
             }
-            _ => {
-                log::debug!(session_id = self.id; "Unexpected message type in synchronous channel");
+            msg => {
+                log::debug!(session_id = self.id; "Unexpected message type in synchronous channel: {:?}", msg);
                 Message::from(Error::Fatal(
                     FatalErrorCode::UnidentifiedError,
                     b"Unexpected message in synchronous channel",
@@ -274,12 +315,13 @@ where
         stream: &mut HislipStream<'_>,
         peer: SocketAddr,
         config: ServerConfig,
+        #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>
     ) -> Result<(), io::Error> {
         loop {
             match Message::read_from(stream, config.max_message_size).await? {
                 Ok(msg) => {
                     let mut session = session.lock().await;
-                    session.handle_async_message(msg, stream, peer).await?;
+                    session.handle_async_message(msg, stream, peer, #[cfg(feature = "tls")] acceptor.clone()).await?;
                 }
                 Err(err) => {
                     Message::from(err).write_to(stream).await?;
@@ -296,14 +338,11 @@ where
         msg: Message,
         stream: &mut HislipStream<'_>,
         peer: SocketAddr,
+        #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>
     ) -> Result<(), io::Error> {
         match msg {
             Message {
-                header:
-                    Header {
-                        message_type: MessageType::VendorSpecific(code),
-                        ..
-                    },
+                message_type: MessageType::VendorSpecific(code),
                 ..
             } => {
                 log::warn!(peer=format!("{}", peer);
@@ -318,13 +357,10 @@ where
                 .await?;
             }
             Message {
-                header:
-                    Header {
-                        message_type: MessageType::FatalError,
-                        control_code,
-                        ..
-                    },
+                message_type: MessageType::FatalError,
+                control_code,
                 payload,
+                ..
             } => {
                 log::error!(peer=format!("{}", peer);
                     "Client fatal error {:?}: {}", FatalErrorCode::from_error_code(control_code),
@@ -333,13 +369,10 @@ where
                 //break; // Let client close connection
             }
             Message {
-                header:
-                    Header {
-                        message_type: MessageType::Error,
-                        control_code,
-                        ..
-                    },
+                message_type: MessageType::Error,
+                control_code,
                 payload,
+                ..
             } => {
                 log::warn!(peer=format!("{}", peer);
                     "Client error {:?}: {}", NonFatalErrorCode::from_error_code(control_code),
@@ -347,14 +380,10 @@ where
                 );
             }
             Message {
-                header:
-                    Header {
-                        message_type: MessageType::AsyncLock,
-                        message_parameter,
-                        control_code,
-                        ..
-                    },
-                ..
+                message_type: MessageType::AsyncLock,
+                message_parameter,
+                control_code,
+                payload: lockstr
             } => {
                 if control_code == 0 {
                     // Release
@@ -373,29 +402,27 @@ where
                 } else {
                     // Lock
                     let timeout = message_parameter;
-                    let lockstr = if let Ok(s) = std::str::from_utf8(msg.payload()) {
-                        s.trim_end_matches('\0')
-                    } else {
-                        log::error!(session_id = self.id, timeout=timeout; "Lockstr is not valid UTF8");
+                    if !lockstr.is_ascii() {
+                        log::error!(session_id = self.id, timeout=timeout; "Lockstr is not valid ASCII");
                         Message::from(Error::Fatal(
                             FatalErrorCode::UnidentifiedError,
-                            b"Lockstr is not valid UTF8",
+                            b"Lockstr is not valid ASCII",
                         ))
                         .write_to(stream)
                         .await?;
                         return Err(io::ErrorKind::Other.into());
                     };
-                    log::debug!(session_id = self.id, timeout=timeout; "Async lock: '{}'", lockstr);
+                    log::debug!(session_id = self.id, timeout=timeout; "Async lock: {:?}", lockstr);
 
                     // Try to acquire lock
                     let res = if timeout == 0 {
                         // Try to lock immediately
-                        self.handle.try_acquire(lockstr)
+                        self.handle.try_acquire(&lockstr[..])
                     } else {
                         // Try to lock until timed out
                         future::timeout(
                             Duration::from_millis(timeout as u64),
-                            self.handle.async_acquire(lockstr),
+                            self.handle.async_acquire(&lockstr[..]),
                         )
                         .await
                         .map_err(|_| SharedLockError::Timeout)
@@ -418,13 +445,9 @@ where
                 }
             }
             Message {
-                header:
-                    Header {
-                        message_type: MessageType::AsyncRemoteLocalControl,
-                        control_code: request,
-                        message_parameter: message_id,
-                        ..
-                    },
+                message_type: MessageType::AsyncRemoteLocalControl,
+                control_code: request,
+                message_parameter: message_id,
                 ..
             } => {
                 log::debug!(session_id=self.id, message_id=message_id; "Remote/local request = {}", request);
@@ -487,12 +510,9 @@ where
                 }
             }
             Message {
-                header:
-                    Header {
-                        message_type: MessageType::AsyncMaximumMessageSize,
-                        ..
-                    },
+                message_type: MessageType::AsyncMaximumMessageSize,
                 payload,
+                ..
             } => {
                 if payload.len() < 8 {
                     return Err(io::ErrorKind::UnexpectedEof.into());
@@ -511,11 +531,7 @@ where
                     .await?;
             }
             Message {
-                header:
-                    Header {
-                        message_type: MessageType::AsyncDeviceClear,
-                        ..
-                    },
+                message_type: MessageType::AsyncDeviceClear,
                 ..
             } => {
                 let mut dev = self.handle.async_lock().await.unwrap();
@@ -525,7 +541,12 @@ where
                 if self.enable_remote {
                     dev.set_remote(true);
                 }
-                //TODO
+
+                // TODO: this should abort any in-progress operations
+                if let Ok(mut dev) = self.handle.try_lock() {
+                    let _ = dev.clear();
+                }
+                self.state = SessionState::Clear;
                 self.in_buf.clear();
                 self.out_buf.clear();
                 self.message_id = 0xffff_ff00;
@@ -542,13 +563,9 @@ where
                     .await?;
             }
             Message {
-                header:
-                    Header {
-                        message_type: MessageType::AsyncStatusQuery,
-                        control_code,
-                        message_parameter: message_id,
-                        ..
-                    },
+                message_type: MessageType::AsyncStatusQuery,
+                control_code,
+                message_parameter: message_id,
                 ..
             } => {
                 let stb = {
@@ -569,11 +586,7 @@ where
                     .await?;
             }
             Message {
-                header:
-                    Header {
-                        message_type: MessageType::AsyncLockInfo,
-                        ..
-                    },
+                message_type: MessageType::AsyncLockInfo,
                 ..
             } => {
                 let (exclusive, num_shared) = self.handle.lock_info();
@@ -587,12 +600,8 @@ where
                     .await?;
             }
             Message {
-                header:
-                    Header {
-                        message_type: MessageType::AsyncStartTLS,
-                        message_parameter,
-                        ..
-                    },
+                message_type: MessageType::AsyncStartTLS,
+                message_parameter,
                 ..
             } => {
                 // Only supported >= 2.0
@@ -609,11 +618,8 @@ where
 
                 #[cfg(feature = "tls")]
                 let control_code = if self.in_buf.is_empty() {
-                    match stream.start_tls(self.config.acceptor).await {
-                        Ok(encrypted) => {
-                            *stream = encrypted;
-                            HISLIP_TLS_SUCCESS
-                        }
+                    match stream.start_tls(acceptor).await {
+                        Ok(_) => HISLIP_TLS_SUCCESS,
                         Err(_) => HISLIP_TLS_ERROR,
                     }
                 } else {
@@ -630,11 +636,7 @@ where
                     .await?;
             }
             Message {
-                header:
-                    Header {
-                        message_type: MessageType::AsyncEndTLS,
-                        ..
-                    },
+                message_type: MessageType::AsyncEndTLS,
                 ..
             } => {
                 // Only supported >= 2.0

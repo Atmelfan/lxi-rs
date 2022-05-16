@@ -1,3 +1,4 @@
+from time import time
 import pytest
 import pyvisa
 import pyvisa.util
@@ -5,8 +6,15 @@ import pyvisa.util
 #if "ivi" not in pyvisa.util.get_system_details():
 #    pytest.skip("Cannot test HiSLIP without NI-VISA installed", allow_module_level=True)
 
+@pytest.mark.order(0)
+def test_connect(hislip_example, resource_manager):
+    inst = resource_manager.open_resource(hislip_example)
+
+    inst.close()
+
+@pytest.mark.order(1)
 def test_hislip_idn(hislip_example, resource_manager):
-    inst = resource_manager.open_resource(f'TCPIP::127.0.0.1::hislip0,{hislip_example}::INSTR')
+    inst = resource_manager.open_resource(hislip_example)
     inst.read_termination = '\n'
     inst.write_termination = '\n'
 
@@ -15,8 +23,25 @@ def test_hislip_idn(hislip_example, resource_manager):
 
     inst.close()
 
+@pytest.mark.order(2)
+def test_clear(hislip_example, resource_manager: pyvisa.ResourceManager):
+    inst = resource_manager.open_resource(hislip_example)
+
+    inst.clear()
+
+    inst.close()
+
+@pytest.mark.order(3)
+def test_trigger(hislip_example, resource_manager: pyvisa.ResourceManager):
+    inst = resource_manager.open_resource(hislip_example)
+
+    inst.assert_trigger()
+
+    inst.close()
+
+@pytest.mark.order(4)
 def test_hislip_exclusive_lock(hislip_example, resource_manager: pyvisa.ResourceManager):
-    inst = resource_manager.open_resource(f'TCPIP::127.0.0.1::hislip0,{hislip_example}::INSTR')
+    inst = resource_manager.open_resource(hislip_example)
 
     # Lock and unlock
     inst.lock_excl(25.0)
@@ -24,16 +49,19 @@ def test_hislip_exclusive_lock(hislip_example, resource_manager: pyvisa.Resource
 
     inst.close()
 
+@pytest.mark.order(5)
 def test_hislip_shared_lock(hislip_example, resource_manager: pyvisa.ResourceManager):
-    inst1 = resource_manager.open_resource(f'TCPIP::127.0.0.1::hislip0,{hislip_example}::INSTR')
-    inst2 = resource_manager.open_resource(f'TCPIP::127.0.0.1::hislip0,{hislip_example}::INSTR')
-    inst3 = resource_manager.open_resource(f'TCPIP::127.0.0.1::hislip0,{hislip_example}::INSTR')
+    inst1 = resource_manager.open_resource(hislip_example)
+    inst2 = resource_manager.open_resource(hislip_example)
+    inst3 = resource_manager.open_resource(hislip_example)
 
     # Lock
-    inst1.lock(25.0, requested_key="foo")
-    inst2.lock(25.0, requested_key="foo")
+    inst1.lock(requested_key="foo")
+    inst2.lock(requested_key="foo")
+    t1 = time()
     with pytest.raises(pyvisa.VisaIOError) as excinfo:
-        inst3.lock(25.0, requested_key="bar")
+        inst3.lock(1000, requested_key="bar")
+    dt = time() - t1
 
     inst1.unlock()
     inst2.unlock()
