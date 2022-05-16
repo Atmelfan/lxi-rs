@@ -223,6 +223,7 @@ where
                 self.in_buf.extend_from_slice(&payload);
                 log::trace!(peer=format!("{}", peer), message_id=message_id; "DataEnd {:?}", payload);
                 let out = dev.execute(&self.in_buf);
+                self.in_buf.clear();
 
                 // Send back any output data
                 if !out.is_empty() {
@@ -282,6 +283,7 @@ where
                     let feature_request = FeatureBitmap(control_code);
                     log::debug!(session_id = self.id; "Device clear complete, {}", feature_request);
     
+                    self.state = SessionState::Normal;
                     // Renegotiate
                     self.mode = if feature_request.overlapped() {
                         SessionMode::Overlapped
