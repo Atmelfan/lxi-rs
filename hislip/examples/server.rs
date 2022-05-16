@@ -1,5 +1,5 @@
 use async_std::io;
-use lxi_device::{lock::SharedLock, util::EchoDevice};
+use lxi_device::{lock::SharedLock, util::{EchoDevice, SimpleDevice}};
 use lxi_hislip::server::Server;
 pub use lxi_hislip::{PROTOCOL_2_0, STANDARD_PORT};
 
@@ -22,7 +22,7 @@ async fn main() -> Result<(), io::Error> {
     femme::with_level(log::LevelFilter::Debug);
     let args = Args::parse();
 
-    let device = EchoDevice::new_arc();
+    let device = SimpleDevice::new_arc();
     let shared_lock = SharedLock::new();
 
     let server = Server::new(0x1234, shared_lock, device).accept((&args.ip[..], args.port));

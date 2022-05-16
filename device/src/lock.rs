@@ -5,10 +5,10 @@ use alloc::{
 };
 use futures::{
     channel::oneshot::{channel, Receiver, Sender},
-    lock::{Mutex, MutexGuard},
 };
 
 pub use spin::Mutex as SpinMutex;
+pub use futures::lock::{Mutex, MutexGuard};
 
 #[derive(Debug)]
 pub enum SharedLockError {
@@ -133,6 +133,22 @@ impl<DEV> LockHandle<DEV> {
             } else {
                 Ok(())
             }
+        }
+    }
+
+    pub fn try_acquire(&mut self, lockstr: &str) -> Result<(), SharedLockError> {
+        if lockstr.is_empty() {
+            self.try_acquire_exclusive()
+        } else {
+            self.try_acquire_shared(lockstr)
+        }
+    }
+
+    pub async fn async_acquire(&mut self, lockstr: &str) -> Result<(), SharedLockError> {
+        if lockstr.is_empty() {
+            self.async_acquire_exclusive().await
+        } else {
+            self.async_acquire_shared(lockstr).await
         }
     }
 

@@ -12,11 +12,11 @@ use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use super::Protocol;
 
 #[derive(Debug, Copy, Clone)]
-pub struct Header {
-    pub message_type: MessageType,
-    pub control_code: u8,
-    pub message_parameter: u32,
-    pub len: u64,
+pub(crate) struct Header {
+    pub(crate)  message_type: MessageType,
+    pub(crate)  control_code: u8,
+    pub(crate)  message_parameter: u32,
+    pub(crate)  len: u64,
 }
 
 impl Header {
@@ -80,8 +80,8 @@ impl Header {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Message {
-    header: Header,
-    payload: Vec<u8>,
+    pub(crate) header: Header,
+    pub(crate) payload: Vec<u8>,
 }
 
 impl Message {
@@ -292,7 +292,7 @@ impl MessageType {
         }
     }
 
-    pub fn message(self) -> Header {
+    pub(crate) fn message(self) -> Header {
         Header {
             message_type: self,
             control_code: 0,
@@ -301,7 +301,7 @@ impl MessageType {
         }
     }
 
-    pub fn message_params(self, control_code: u8, message_parameter: u32) -> Header {
+    pub(crate) fn message_params(self, control_code: u8, message_parameter: u32) -> Header {
         Header {
             message_type: self,
             control_code,

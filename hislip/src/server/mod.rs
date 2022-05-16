@@ -12,16 +12,15 @@ use async_std::{
     task,
 };
 use byteorder::{ByteOrder, NetworkEndian};
-use futures::lock::Mutex;
 use futures::StreamExt;
-use lxi_device::lock::{LockHandle, SharedLock, SharedLockError, SharedLockMode, SpinMutex};
+use lxi_device::lock::{LockHandle, SharedLock, Mutex, SpinMutex};
 use lxi_device::Device;
 
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::common::messages::{
     AsyncInitializeResponseControl, AsyncInitializeResponseParameter, FeatureBitmap,
     InitializeParameter, InitializeResponseControl, InitializeResponseParameter, Message,
-    MessageType, RmtDeliveredControl,
+    MessageType, RmtDeliveredControl, Header,
 };
 use crate::common::Protocol;
 use crate::server::session::{Session, SessionMode};
@@ -54,7 +53,7 @@ impl Default for ServerConfig {
     }
 }
 
-pub struct Server<DEV> {
+pub struct Server<DEV> where DEV: Device {
     inner: Arc<Mutex<InnerServer<DEV>>>,
     shared_lock: Arc<SpinMutex<SharedLock>>,
     device: Arc<Mutex<DEV>>,
@@ -103,12 +102,8 @@ where
 
     /// The connection handling function.
     async fn handle_connection(self: Arc<Self>, mut stream: TcpStream) -> Result<(), io::Error> {
-        let peer_addr = stream.peer_addr()?;
-        log::info!("{} connected", peer_addr);
-
-        let mut connection_state = ConnectionState::Handshake;
-
-        let mut message_id: u32 = 0xffff_ff00;
+        let peer = stream.peer_addr()?;
+        log::info!("{} connected", peer);
 
         // Start reading packets from stream
         loop {
@@ -116,9 +111,9 @@ where
                 Ok(msg) => {
                     log::trace!("Received {:?}", msg);
                     // Handle messages
-                    match (msg.message_type(), &connection_state) {
-                        (MessageType::VendorSpecific(code), _) => {
-                            log::warn!(
+                    match msg {
+                        Message { header: Header { message_type: MessageType::VendorSpecific(code), ..}, ..} => {
+                            log::warn!(peer=format!("{}", peer);
                                 "Unrecognized Vendor Defined Message ({}) during init",
                                 code
                             );
@@ -129,35 +124,25 @@ where
                             .write_to(&mut stream)
                             .await?;
                         }
-                        (MessageType::FatalError, _) => {
-                            log::error!(
-                                "Client fatal error: {}",
-                                from_utf8(msg.payload()).unwrap_or("<invalid utf8>")
+                        Message { header: Header { message_type: MessageType::FatalError, control_code, ..}, payload} => {
+                            log::error!(peer=format!("{}", peer);
+                                "Client fatal error {:?}: {}", FatalErrorCode::from_error_code(control_code),
+                                from_utf8(&payload).unwrap_or("<invalid utf8>")
                             );
                             //break; // Let client close connection
                         }
-                        (MessageType::Error, _) => {
-                            log::warn!(
-                                "Client error: {}",
-                                from_utf8(msg.payload()).unwrap_or("<invalid utf8>")
+                        Message { header: Header { message_type: MessageType::Error, control_code, ..}, payload}  => {
+                            log::warn!(peer=format!("{}", peer);
+                                "Client error {:?}: {}", NonFatalErrorCode::from_error_code(control_code),
+                                from_utf8(&payload).unwrap_or("<invalid utf8>")
                             );
                         }
-                        (MessageType::Initialize, ConnectionState::Handshake) => {
-                            if !msg.payload().is_ascii() {
-                                Message::from(Error::Fatal(
-                                    FatalErrorCode::InvalidInitialization,
-                                    b"Invalid sub-adress",
-                                ))
-                                .write_to(&mut stream)
-                                .await?;
-                                break;
-                            }
-
+                        Message { header: Header { message_type: MessageType::Initialize, message_parameter, ..}, payload}  => {
                             // Create new session
-                            let client_parameters = InitializeParameter(msg.message_parameter());
+                            let client_parameters = InitializeParameter(message_parameter);
 
                             // TODO: Accept other than hislip0
-                            if !msg.payload().eq_ignore_ascii_case(b"hislip0") {
+                            if !payload.eq_ignore_ascii_case(b"hislip0") {
                                 Message::from(Error::Fatal(
                                     FatalErrorCode::InvalidInitialization,
                                     b"Invalid sub adress",
@@ -166,7 +151,7 @@ where
                                 .await?;
                                 break;
                             }
-                            log::debug!(
+                            log::debug!(peer=format!("{}", peer);
                                 "Sync initialize, version={}, vendor={}",
                                 client_parameters.client_protocol(),
                                 client_parameters.client_vendorid()
@@ -193,7 +178,7 @@ where
                                     }
                                 }
                             };
-                            log::debug!("New session 0x{:04x}", session_id);
+                            log::debug!(peer=format!("{}", peer); "New session 0x{:04x}", session_id);
 
                             // Send response
                             let response_param =
@@ -204,18 +189,17 @@ where
                                 self.config.initial_encryption,
                             );
 
-                            // Connection is a synchronous channel
-                            connection_state = ConnectionState::Synchronous(session);
-
                             MessageType::InitializeResponse
                                 .message_params(control.0, response_param.0)
                                 .no_payload()
                                 .write_to(&mut stream)
                                 .await?;
+                            
+                            break Session::handle_sync_session(session, &mut stream, peer, self.config).await?;                            
                         }
-                        (MessageType::AsyncInitialize, ConnectionState::Handshake) => {
+                        Message { header: Header { message_type: MessageType::AsyncInitialize, message_parameter, ..}, ..} => {
                             // Connect to existing session
-                            let session_id = (msg.message_parameter() & 0x0000FFFF) as u16;
+                            let session_id = (message_parameter & 0x0000FFFF) as u16;
                             let session = {
                                 let mut guard = self.inner.lock().await;
                                 if let Some(s) = guard.get_session(session_id) {
@@ -230,11 +214,12 @@ where
                                     break;
                                 }
                             };
-                            let mut session_guard = session.lock().await;
+                            let s = session.clone();
+                            let mut session_guard = s.lock().await;
 
                             // Check if async channel has alreasy been initialized for this session
                             if session_guard.async_connected {
-                                log::warn!(
+                                log::warn!(peer=format!("{}", peer);
                                     "Async session 0x{:04x} already initialized",
                                     session_id
                                 );
@@ -249,7 +234,7 @@ where
                             session_guard.async_connected = true;
                             drop(session_guard);
 
-                            log::debug!(session_id=session_id; "Async initialize");
+                            log::debug!(peer=format!("{}", peer), session_id=session_id; "Async initialize");
 
                             MessageType::AsyncInitializeResponse
                                 .message_params(
@@ -263,24 +248,16 @@ where
                                 .write_to(&mut stream)
                                 .await?;
 
-                            connection_state = ConnectionState::Asynchronous(session.clone());
+                            break Session::handle_async_session(session, &mut stream, peer, self.config).await?;
                         }
-                        (msg, ConnectionState::Handshake) => {
-                            log::warn!("Unexpected message {:?} during handshake", msg);
+                        msg => {
+                            log::warn!(peer=format!("{}", peer); "Unexpected message {:?} during initialization", msg);
                             Message::from(Error::Fatal(
                                 FatalErrorCode::InvalidInitialization,
-                                b"Unexpected message during handshake",
+                                b"Unexpected message during initialization",
                             ))
                             .write_to(&mut stream)
                             .await?;
-                        }
-                        (_msg, ConnectionState::Asynchronous(s)) => {
-                            let mut session = s.lock().await;
-                            session.handle_async_message(msg, &mut stream).await?;
-                        }
-                        (_msg, ConnectionState::Synchronous(s)) => {
-                            let mut session = s.lock().await;
-                            session.handle_sync_message(msg, &mut stream).await?;
                         }
                     }
                 }
@@ -295,23 +272,18 @@ where
 
         // Close connection
         drop(stream);
-        log::info!("{} disconnected", peer_addr);
+        log::info!("{} disconnected", peer);
         Ok(())
     }
 }
 
-enum ConnectionState<DEV> {
-    Handshake,
-    Synchronous(Arc<Mutex<Session<DEV>>>),
-    Asynchronous(Arc<Mutex<Session<DEV>>>),
-}
-struct InnerServer<DEV> {
+struct InnerServer<DEV> where DEV: Device {
     session_id: u16,
     sessions: HashMap<u16, Weak<Mutex<Session<DEV>>>>,
     max_num_sessions: usize,
 }
 
-impl<DEV> InnerServer<DEV> {
+impl<DEV> InnerServer<DEV> where DEV: Device {
     fn new(max_num_sessions: usize) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(InnerServer {
             session_id: 0,
