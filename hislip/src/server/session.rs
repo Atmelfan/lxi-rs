@@ -86,7 +86,7 @@ where
         Self {
             config,
             protocol,
-            mode: SessionMode::Synchronized,
+            mode: SessionMode::Overlapped,
             id: session_id,
             max_message_size: 256,
             async_connected: false,
