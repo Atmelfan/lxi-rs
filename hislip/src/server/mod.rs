@@ -25,6 +25,7 @@ use crate::common::messages::{
 use crate::common::Protocol;
 use crate::server::session::{Session, SessionMode};
 use crate::PROTOCOL_2_0;
+use crate::server::stream::HislipStream;
 
 pub mod session;
 mod stream;
@@ -101,9 +102,11 @@ where
     }
 
     /// The connection handling function.
-    async fn handle_connection(self: Arc<Self>, mut stream: TcpStream) -> Result<(), io::Error> {
+    async fn handle_connection(self: Arc<Self>, stream: TcpStream) -> Result<(), io::Error> {
         let peer = stream.peer_addr()?;
         log::info!("{} connected", peer);
+
+        let mut stream = HislipStream::Open(&stream);
 
         // Start reading packets from stream
         loop {

@@ -4,28 +4,45 @@ use async_std::{io, net::TcpStream};
 use async_tls::{server::TlsStream, TlsAcceptor};
 use futures::{AsyncRead, AsyncWrite};
 
-pub(crate) enum HislipStream {
-    Open(TcpStream),
-    Encrypted(TlsStream<TcpStream>),
+
+pub(crate) const HISLIP_TLS_BUSY: u8 = 0;
+pub(crate) const HISLIP_TLS_SUCCESS: u8 = 1;
+pub(crate) const HISLIP_TLS_ERROR: u8 = 3;
+
+
+pub(crate) enum HislipStream<'a> {
+    /// Unencrypted stream
+    Open(&'a TcpStream),
+
+    /// TLS encrypted stream
+    #[cfg(feature = "tls")] 
+    Encrypted(TlsStream<&'a TcpStream>),
 }
 
-impl HislipStream {
-    pub async fn start_tls(self, acceptor: Arc<TlsAcceptor>) -> io::Result<Self> {
+impl<'a> HislipStream<'a> {
+    pub async fn start_tls(&mut self, acceptor: Arc<TlsAcceptor>) -> io::Result<()> {
+        #[cfg(feature = "tls")]
         match self {
-            HislipStream::Open(stream) => acceptor
-                .accept(stream)
-                .await
-                .map(|stream| Self::Encrypted(stream)),
-            HislipStream::Encrypted(_) => Ok(self),
+            HislipStream::Open(stream) => {
+                let e = acceptor
+                    .accept(*stream)
+                    .await?;
+                *self = HislipStream::Encrypted(e);
+                Ok(())
+            },
+            HislipStream::Encrypted(_) => Ok(()),
         }
+
+        #[cfg(not(feature = "tls"))]
+        Err(io::ErrorKind::Other.into())
     }
 
-    pub async fn end_tls(mut self) -> io::Result<Self> {
-        todo!()
+    pub async fn end_tls(&mut self) -> io::Result<()> {
+        Err(io::ErrorKind::Other.into())
     }
 }
 
-impl AsyncRead for HislipStream {
+impl<'a> AsyncRead for HislipStream<'a> {
     fn poll_read(
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -33,12 +50,13 @@ impl AsyncRead for HislipStream {
     ) -> std::task::Poll<io::Result<usize>> {
         match self.get_mut() {
             HislipStream::Open(stream) => Pin::new(stream).poll_read(cx, buf),
+            #[cfg(feature = "tls")]
             HislipStream::Encrypted(stream) => Pin::new(stream).poll_read(cx, buf),
         }
     }
 }
 
-impl AsyncWrite for HislipStream {
+impl<'a> AsyncWrite for HislipStream<'a> {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -46,6 +64,7 @@ impl AsyncWrite for HislipStream {
     ) -> std::task::Poll<io::Result<usize>> {
         match self.get_mut() {
             HislipStream::Open(stream) => Pin::new(stream).poll_write(cx, buf),
+            #[cfg(feature = "tls")]
             HislipStream::Encrypted(stream) => Pin::new(stream).poll_write(cx, buf),
         }
     }
@@ -56,6 +75,7 @@ impl AsyncWrite for HislipStream {
     ) -> std::task::Poll<io::Result<()>> {
         match self.get_mut() {
             HislipStream::Open(stream) => Pin::new(stream).poll_flush(cx),
+            #[cfg(feature = "tls")]
             HislipStream::Encrypted(stream) => Pin::new(stream).poll_flush(cx),
         }
     }
@@ -66,6 +86,7 @@ impl AsyncWrite for HislipStream {
     ) -> std::task::Poll<io::Result<()>> {
         match self.get_mut() {
             HislipStream::Open(stream) => Pin::new(stream).poll_close(cx),
+            #[cfg(feature = "tls")]
             HislipStream::Encrypted(stream) => Pin::new(stream).poll_close(cx),
         }
     }

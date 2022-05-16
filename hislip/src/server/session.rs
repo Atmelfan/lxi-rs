@@ -16,7 +16,9 @@ use lxi_device::Device;
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::common::messages::{FeatureBitmap, Header, Message, MessageType};
 use crate::common::Protocol;
+use crate::PROTOCOL_2_0;
 
+use super::stream::{HislipStream, HISLIP_TLS_BUSY, HISLIP_TLS_ERROR, HISLIP_TLS_SUCCESS};
 use super::ServerConfig;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -54,6 +56,7 @@ where
     // Input/Output buffer
     pub(crate) in_buf: Vec<u8>,
     pub(crate) out_buf: Vec<u8>,
+    message_id: u32,
 
     //
     enable_remote: bool,
@@ -92,6 +95,7 @@ where
             in_buf: Vec::new(),
             out_buf: Vec::new(),
             enable_remote: true,
+            message_id: 0xffff_ff00,
         }
     }
 
@@ -120,7 +124,7 @@ where
 
     pub(crate) async fn handle_sync_session(
         session: Arc<Mutex<Self>>,
-        stream: &mut TcpStream,
+        stream: &mut HislipStream<'_>,
         peer: SocketAddr,
         config: ServerConfig,
     ) -> Result<(), io::Error> {
@@ -143,7 +147,7 @@ where
     pub(crate) async fn handle_sync_message(
         self: &mut Self,
         msg: Message,
-        stream: &mut TcpStream,
+        stream: &mut HislipStream<'_>,
         peer: SocketAddr,
     ) -> Result<(), io::Error> {
         match msg {
@@ -241,16 +245,18 @@ where
                     let mut iter = out.chunks_exact(self.max_message_size as usize);
                     while let Some(chunk) = iter.next() {
                         MessageType::Data
-                            .message_params(0, 0)
+                            .message_params(0, self.message_id)
                             .with_payload(chunk.to_vec())
                             .write_to(stream)
                             .await?;
+                        self.message_id = self.message_id.wrapping_add(2);
                     }
                     MessageType::DataEnd
-                        .message_params(0, 0)
+                        .message_params(0, self.message_id)
                         .with_payload(iter.remainder().to_vec())
                         .write_to(stream)
                         .await?;
+                    self.message_id = self.message_id.wrapping_add(2);
                 }
             }
             Message {
@@ -285,7 +291,7 @@ where
 
     pub(crate) async fn handle_async_session(
         session: Arc<Mutex<Self>>,
-        stream: &mut TcpStream,
+        stream: &mut HislipStream<'_>,
         peer: SocketAddr,
         config: ServerConfig,
     ) -> Result<(), io::Error> {
@@ -308,7 +314,7 @@ where
     pub(crate) async fn handle_async_message(
         self: &mut Self,
         msg: Message,
-        stream: &mut TcpStream,
+        stream: &mut HislipStream<'_>,
         peer: SocketAddr,
     ) -> Result<(), io::Error> {
         match msg {
@@ -443,30 +449,32 @@ where
             } => {
                 log::debug!(session_id=self.id, message_id=message_id; "Remote/local request = {}", request);
                 let mut dev = self.handle.async_lock().await.unwrap();
-                match request {
+                let res = match request {
                     0 | 2 => {
-                        dev.set_remote(false);
                         dev.set_local_lockout(false);
                         self.enable_remote = false;
+                        dev.set_remote(false)
                     }
                     1 => {
                         self.enable_remote = true;
+                        Ok(())
                     }
                     3 => {
-                        dev.set_remote(true);
                         self.enable_remote = true;
+                        dev.set_remote(false)
                     }
                     4 => {
-                        dev.set_remote(true);
                         dev.set_local_lockout(true);
+                        dev.set_remote(true)
                     }
                     5 => {
-                        dev.set_remote(true);
                         dev.set_local_lockout(true);
                         self.enable_remote = true;
+                        dev.set_remote(true)
                     }
                     6 => {
                         self.enable_remote = false;
+                        Ok(())
                     }
                     _ => {
                         Message::from(Error::NonFatal(
@@ -477,12 +485,26 @@ where
                         .await?;
                         return Ok(());
                     }
+                };
+                match res {
+                    Ok(_) => {
+                        MessageType::AsyncRemoteLocalResponse
+                            .message_params(0, 0)
+                            .no_payload()
+                            .write_to(stream)
+                            .await?
+                    }
+                    Err(err) => {
+                        log::error!(session_id=self.id, message_id=message_id; "Failed to remote/local: {:?}", err);
+                        Message::from(Error::NonFatal(
+                            NonFatalErrorCode::UnidentifiedError,
+                            b"Internal error",
+                        ))
+                        .write_to(stream)
+                        .await?;
+                        return Ok(());
+                    }
                 }
-                MessageType::AsyncRemoteLocalResponse
-                    .message_params(0, 0)
-                    .no_payload()
-                    .write_to(stream)
-                    .await?;
             }
             Message {
                 header:
@@ -524,6 +546,9 @@ where
                     dev.set_remote(true);
                 }
                 //TODO
+                self.in_buf.clear();
+                self.out_buf.clear();
+                self.message_id = 0xffff_ff00;
 
                 let features = FeatureBitmap::new(
                     self.config.preferred_mode == SessionMode::Overlapped,
@@ -589,7 +614,41 @@ where
                         ..
                     },
                 ..
-            } => todo!(),
+            } => {
+                // Only supported >= 2.0
+                if self.protocol < PROTOCOL_2_0 {
+                    log::debug!(session_id = self.id; "Unexpected message type in asynchronous channel");
+                    Message::from(Error::NonFatal(
+                        NonFatalErrorCode::UnrecognizedMessageType,
+                        b"Unexpected message in asynchronous channel",
+                    ))
+                    .write_to(stream)
+                    .await?;
+                    return Ok(());
+                }
+
+                #[cfg(feature = "tls")]
+                let control_code = if self.in_buf.is_empty() {
+                    match stream.start_tls(self.config.acceptor).await {
+                        Ok(encrypted) => {
+                            *stream = encrypted;
+                            HISLIP_TLS_SUCCESS
+                        }
+                        Err(_) => HISLIP_TLS_ERROR,
+                    }
+                } else {
+                    HISLIP_TLS_BUSY
+                };
+
+                #[cfg(not(feature = "tls"))]
+                let control_code = HISLIP_TLS_ERROR;
+
+                MessageType::AsyncStartTLSResponse
+                    .message_params(control_code, 0)
+                    .no_payload()
+                    .write_to(stream)
+                    .await?;
+            }
             Message {
                 header:
                     Header {
@@ -597,7 +656,40 @@ where
                         ..
                     },
                 ..
-            } => todo!(),
+            } => {
+                // Only supported >= 2.0
+                if self.protocol < PROTOCOL_2_0 {
+                    log::debug!(session_id = self.id; "Unexpected message type in asynchronous channel");
+                    Message::from(Error::NonFatal(
+                        NonFatalErrorCode::UnrecognizedMessageType,
+                        b"Unexpected message in asynchronous channel",
+                    ))
+                    .write_to(stream)
+                    .await?;
+                    return Ok(());
+                }
+
+                #[cfg(feature = "tls")]
+                let control_code = if self.config.encryption_mandatory {
+                    HISLIP_TLS_ERROR
+                } else if !self.in_buf.is_empty() {
+                    HISLIP_TLS_BUSY
+                } else {
+                    match stream.end_tls().await {
+                        Ok(_) => HISLIP_TLS_SUCCESS,
+                        Err(_) => HISLIP_TLS_ERROR,
+                    }
+                };
+
+                #[cfg(not(feature = "tls"))]
+                let control_code = HISLIP_TLS_ERROR;
+
+                MessageType::AsyncEndTLSResponse
+                    .message_params(control_code, 0)
+                    .no_payload()
+                    .write_to(stream)
+                    .await?;
+            }
             _ => {
                 log::debug!(session_id = self.id; "Unexpected message type in asynchronous channel");
                 Message::from(Error::Fatal(
