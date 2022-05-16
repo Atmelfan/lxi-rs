@@ -152,11 +152,7 @@ where
     ) -> Result<(), io::Error> {
         match msg {
             Message {
-                header:
-                    Header {
-                        message_type: MessageType::VendorSpecific(code),
-                        ..
-                    },
+                message_type: MessageType::VendorSpecific(code),
                 ..
             } => {
                 log::warn!(peer=format!("{}", peer);
@@ -171,13 +167,10 @@ where
                 .await?;
             }
             Message {
-                header:
-                    Header {
-                        message_type: MessageType::FatalError,
-                        control_code,
-                        ..
-                    },
+                message_type: MessageType::FatalError,
+                control_code,
                 payload,
+                ..
             } => {
                 log::error!(peer=format!("{}", peer);
                     "Client fatal error {:?}: {}", FatalErrorCode::from_error_code(control_code),
@@ -186,13 +179,10 @@ where
                 //break; // Let client close connection
             }
             Message {
-                header:
-                    Header {
-                        message_type: MessageType::Error,
-                        control_code,
-                        ..
-                    },
+                message_type: MessageType::Error,
+                control_code,
                 payload,
+                ..
             } => {
                 log::warn!(peer=format!("{}", peer);
                     "Client error {:?}: {}", NonFatalErrorCode::from_error_code(control_code),
@@ -200,13 +190,10 @@ where
                 );
             }
             Message {
-                header:
-                    Header {
-                        message_type: MessageType::Data,
-                        message_parameter: message_id,
-                        ..
-                    },
+                message_type: MessageType::Data,
+                message_parameter: message_id,
                 payload,
+                ..
             } => {
                 let mut dev = self.handle.async_lock().await.unwrap();
 
@@ -220,13 +207,10 @@ where
                 log::trace!(peer=format!("{}", peer), message_id=message_id; "Data {:?}", payload);
             }
             Message {
-                header:
-                    Header {
-                        message_type: MessageType::DataEnd,
-                        message_parameter: message_id,
-                        ..
-                    },
+                message_type: MessageType::DataEnd,
+                message_parameter: message_id,
                 payload,
+                ..
             } => {
                 let mut dev = self.handle.async_lock().await.unwrap();
 
@@ -260,13 +244,9 @@ where
                 }
             }
             Message {
-                header:
-                    Header {
-                        message_type: MessageType::Trigger,
-                        message_parameter,
-                        control_code,
-                        ..
-                    },
+                message_type: MessageType::Trigger,
+                message_parameter,
+                control_code,
                 ..
             } => {
                 let mut dev = self.handle.async_lock().await.unwrap();
