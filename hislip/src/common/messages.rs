@@ -11,90 +11,41 @@ use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use super::Protocol;
 
-#[derive(Debug, Copy, Clone)]
-pub(crate) struct Header {
-    pub(crate)  message_type: MessageType,
-    pub(crate)  control_code: u8,
-    pub(crate)  message_parameter: u32,
-    pub(crate)  len: u64,
-}
-
-impl Header {
-    pub const MESSAGE_HEADER_SIZE: usize = 16;
-
-    pub fn from_buffer(x: &[u8]) -> Result<Header, Error> {
-        if x.len() != Self::MESSAGE_HEADER_SIZE {
-            Err(Error::Fatal(
-                FatalErrorCode::PoorlyFormattedMessageHeader,
-                b"Header too short",
-            ))
-        } else {
-            let prolog = x.get(0..2).unwrap();
-            if prolog != b"HS" {
-                return Err(Error::Fatal(
-                    FatalErrorCode::PoorlyFormattedMessageHeader,
-                    b"Invalid prologue",
-                ));
-            }
-
-            let len = BigEndian::read_u64(&x[8..16]);
-
-            Ok(Header {
-                message_type: MessageType::from_message_type(x[2]).ok_or(Error::NonFatal(
-                    NonFatalErrorCode::UnrecognizedMessageType,
-                    b"Unrecognized message type",
-                ))?,
-                control_code: x[3],
-                message_parameter: BigEndian::read_u32(&x[4..8]),
-                len,
-            })
-        }
-    }
-
-    pub fn pack_buffer(&self, x: &mut [u8]) {
-        assert!(x.len() >= Self::MESSAGE_HEADER_SIZE);
-        x[0] = b'H';
-        x[1] = b'S';
-        x[2] = self.message_type.get_message_type();
-        x[3] = self.control_code;
-        NetworkEndian::write_u32(&mut x[4..8], self.message_parameter);
-        NetworkEndian::write_u64(&mut x[8..16], self.len as u64);
-    }
-
-    pub(crate) fn with_payload(mut self, payload: Vec<u8>) -> Message {
-        self.len = payload.len() as u64;
-        Message {
-            header: self,
-            payload,
-        }
-    }
-
-    pub(crate) fn no_payload(mut self) -> Message {
-        self.len = 0;
-        Message {
-            header: self,
-            payload: Vec::new(),
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct Message {
-    pub(crate) header: Header,
+    pub(crate) message_type: MessageType,
+    pub(crate) control_code: u8,
+    pub(crate) message_parameter: u32,
     pub(crate) payload: Vec<u8>,
 }
 
 impl Message {
+    pub const MESSAGE_HEADER_SIZE: usize = 16;
+
+    pub(crate) fn with_payload(mut self, payload: Vec<u8>) -> Self {
+        Self {
+            payload,
+            ..self
+        }
+    }
+
+    pub(crate) fn no_payload(mut self) -> Message {
+        Self {
+            payload: Vec::new(),
+            ..self
+        }
+    }
+
     pub(crate) fn message_type(&self) -> MessageType {
-        self.header.message_type
+        self.message_type
     }
 
     pub(crate) fn message_parameter(&self) -> u32 {
-        self.header.message_parameter
+        self.message_parameter
     }
 
     pub(crate) fn control_code(&self) -> u8 {
-        self.header.control_code
+        self.control_code
     }
 
     pub fn payload(&self) -> &Vec<u8> {
@@ -108,22 +59,39 @@ impl Message {
     where
         RD: AsyncRead + Unpin,
     {
-        let mut buf = [0u8; Header::MESSAGE_HEADER_SIZE];
+        let mut buf = [0u8; Message::MESSAGE_HEADER_SIZE];
         reader.read_exact(&mut buf).await?;
-        match Header::from_buffer(&buf) {
-            Ok(header) => {
-                if header.len > maxlen {
-                    Ok(Err(Error::NonFatal(
-                        NonFatalErrorCode::MessageTooLarge,
-                        b"Message payload too large",
-                    )))
-                } else {
-                    let mut payload = Vec::with_capacity(header.len as usize);
-                    reader.take(header.len).read_to_end(&mut payload).await?;
-                    Ok(Ok(Message { header, payload }))
-                }
+        let prolog = &x[0..2];
+        if prolog != b"HS" {
+            return Ok(Err(Error::Fatal(
+                FatalErrorCode::PoorlyFormattedMessageHeader,
+                b"Invalid prologue",
+            )));
+        }
+
+        let control_code = buf[3];
+        let len = BigEndian::read_u64(&x[8..16]);
+        let message_parameter = BigEndian::read_u32(&buf[4..8]);
+        if len > maxlen {
+            Ok(Err(Error::NonFatal(
+                NonFatalErrorCode::MessageTooLarge,
+                b"Message payload too large",
+            )))
+        } else {
+            let mut payload = Vec::with_capacity(len as usize);
+            reader.take(len).read_to_end(&mut payload).await?;
+            match MessageType::from_message_type(x[2]).ok_or(Error::NonFatal(
+                NonFatalErrorCode::UnrecognizedMessageType,
+                b"Unrecognized message type",
+            )) {
+                Ok(message_type) => Ok(Ok(Message { 
+                    message_type,
+                    control_code,
+                    message_parameter, 
+                    payload 
+                }))
             }
-            Err(err) => Ok(Err(err)),
+            
         }
     }
 
@@ -132,7 +100,12 @@ impl Message {
         WR: AsyncWrite + Unpin,
     {
         let mut buf = [0u8; Header::MESSAGE_HEADER_SIZE];
-        self.header.pack_buffer(&mut buf);
+        buf[0] = b'H';
+        buf[1] = b'S';
+        buf[2] = self.message_type.get_message_type();
+        buf[3] = self.control_code;
+        NetworkEndian::write_u32(&mut x[4..8], self.message_parameter);
+        NetworkEndian::write_u64(&mut x[8..16], self.payload.len() as u64);
         writer.write_all(&buf).await?;
         writer.write_all(self.payload.as_slice()).await?;
         Ok(())
@@ -293,20 +266,22 @@ impl MessageType {
     }
 
     pub(crate) fn message(self) -> Header {
-        Header {
+        Message {
             message_type: self,
             control_code: 0,
             message_parameter: 0,
             len: 0,
+            payload: Vec::new(),
         }
     }
 
     pub(crate) fn message_params(self, control_code: u8, message_parameter: u32) -> Header {
-        Header {
+        Message {
             message_type: self,
             control_code,
             message_parameter,
             len: 0,
+            payload: Vec::new(),
         }
     }
 }
