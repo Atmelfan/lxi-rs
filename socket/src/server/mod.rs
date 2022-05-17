@@ -3,16 +3,12 @@ use std::time::Duration;
 
 use async_std::path::Path;
 use async_std::sync::Arc;
+use async_std::task;
 use futures::{lock::Mutex, AsyncRead, AsyncReadExt};
 use futures::{AsyncBufReadExt, AsyncWriteExt, StreamExt};
 
 use async_std::io::{self, BufReader, Read, Write};
 use async_std::net::{TcpListener, ToSocketAddrs};
-
-#[cfg(unix)]
-use async_std::os::unix::net::UnixListener;
-
-use async_std::task;
 
 use async_listen::ListenExt;
 
@@ -21,6 +17,14 @@ use lxi_device::{
     lock::{LockHandle, SharedLock},
     Device,
 };
+
+#[cfg(unix)]
+use async_std::os::unix::net::UnixListener;
+
+#[cfg(feature = "tls")]
+use async_tls::TlsAcceptor;
+
+
 
 pin_project_lite::pin_project! {
 struct ReadWhileUnlocked<'a, RD, DEV> {
@@ -50,7 +54,7 @@ where
 pub struct Server(ServerConfig);
 
 impl Server {
-    pub async fn serve<DEV>(
+    pub async fn accept<DEV>(
         self: Arc<Self>,
         addr: impl ToSocketAddrs,
         shared_lock: Arc<SpinMutex<SharedLock>>,
@@ -88,8 +92,50 @@ impl Server {
         Ok(())
     }
 
+    #[cfg(feature = "tls")]
+    pub async fn accept_tls<DEV>(
+        self: Arc<Self>,
+        addr: impl ToSocketAddrs,
+        shared_lock: Arc<SpinMutex<SharedLock>>,
+        device: Arc<Mutex<DEV>>,
+        acceptor: Arc<TlsAcceptor>
+    ) -> io::Result<()>
+    where
+        DEV: Device + Send + 'static,
+    {
+        let listener = TcpListener::bind(addr).await?;
+        let mut incoming = listener
+            .incoming()
+            .log_warnings(|warn| log::warn!("Listening error: {}", warn))
+            .handle_errors(Duration::from_millis(100))
+            .backpressure(self.0.limit);
+
+        while let Some((token, stream)) = incoming.next().await {
+            let s = self.clone();
+            let peer = stream.peer_addr()?;
+            log::error!("Accepted from: {}", peer);
+
+            let shared_lock = shared_lock.clone();
+            let device = device.clone();
+
+            let tls_stream = acceptor.accept(stream).await?;
+
+            task::spawn(async move {
+                let (reader, writer) = tls_stream.split();
+                if let Err(err) = s
+                    .process_client(reader, writer, shared_lock, device, peer)
+                    .await
+                {
+                    log::warn!("Error processing client: {}", err)
+                }
+                drop(token);
+            });
+        }
+        Ok(())
+    }
+
     #[cfg(unix)]
-    pub async fn serve_unix<DEV>(
+    pub async fn accept_unix<DEV>(
         self: Arc<Self>,
         path: impl AsRef<Path>,
         shared_lock: Arc<SpinMutex<SharedLock>>,

@@ -25,7 +25,7 @@ def socket_example(xprocess, request):
     # ensure process is running and return its logfile
     logfile = xprocess.ensure("socket_example", Starter)
 
-    yield port
+    yield f'TCPIP::localhost::{port}::SOCKET'
 
     # clean up whole process tree afterwards
     xprocess.getinfo("socket_example").terminate()

@@ -6,13 +6,11 @@ import pyvisa.util
 #if "ivi" not in pyvisa.util.get_system_details():
 #    pytest.skip("Cannot test HiSLIP without NI-VISA installed", allow_module_level=True)
 
-@pytest.mark.order(0)
 def test_connect(hislip_example, resource_manager):
     inst = resource_manager.open_resource(hislip_example)
 
     inst.close()
 
-@pytest.mark.order(1)
 def test_hislip_idn(hislip_example, resource_manager):
     inst = resource_manager.open_resource(hislip_example)
     inst.read_termination = '\n'
@@ -23,7 +21,6 @@ def test_hislip_idn(hislip_example, resource_manager):
 
     inst.close()
 
-@pytest.mark.order(2)
 def test_clear(hislip_example, resource_manager: pyvisa.ResourceManager):
     inst = resource_manager.open_resource(hislip_example)
 
@@ -31,7 +28,6 @@ def test_clear(hislip_example, resource_manager: pyvisa.ResourceManager):
 
     inst.close()
 
-@pytest.mark.order(3)
 def test_trigger(hislip_example, resource_manager: pyvisa.ResourceManager):
     inst = resource_manager.open_resource(hislip_example)
 
@@ -39,7 +35,6 @@ def test_trigger(hislip_example, resource_manager: pyvisa.ResourceManager):
 
     inst.close()
 
-@pytest.mark.order(4)
 def test_hislip_exclusive_lock(hislip_example, resource_manager: pyvisa.ResourceManager):
     inst = resource_manager.open_resource(hislip_example)
 
@@ -49,7 +44,6 @@ def test_hislip_exclusive_lock(hislip_example, resource_manager: pyvisa.Resource
 
     inst.close()
 
-@pytest.mark.order(5)
 def test_hislip_shared_lock(hislip_example, resource_manager: pyvisa.ResourceManager):
     inst1 = resource_manager.open_resource(hislip_example)
     inst2 = resource_manager.open_resource(hislip_example)

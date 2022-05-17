@@ -1,6 +1,6 @@
 use std::{io, net::Ipv4Addr};
 
-use vxi11::server::{portmapper::prelude::*, vxi11::prelude::*};
+use lxi_vxi11::server::{portmapper::prelude::*, vxi11::prelude::*};
 
 use clap::Parser;
 

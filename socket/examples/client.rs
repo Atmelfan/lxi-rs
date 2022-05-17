@@ -4,7 +4,7 @@ use async_std::prelude::*;
 use async_std::task;
 
 fn main() -> io::Result<()> {
-    env_logger::init();
+    femme::with_level(log::LevelFilter::Debug);
 
     task::block_on(async {
         let mut stream = TcpStream::connect("127.0.0.1:5025").await?;

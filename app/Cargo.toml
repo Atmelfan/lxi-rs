@@ -1,0 +1,32 @@
+[package]
+name = "sample"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-std = {version = "1.11", features = ["attributes"]}
+clap = { version = "3.1.12", features = ["derive"] }
+
+# Logging
+log = { version = "0.4.17", features = ["kv_unstable_std"] }
+femme = "2.2"
+
+# LXI libraries
+lxi-device = {path = "../device", version = "0.1.0"}
+lxi-socket = {path = "../socket", version = "0.1.0"}
+lxi-hislip = {path = "../hislip", version = "0.1.0"}
+lxi-vxi11 = {path = "../vxi11", version = "0.1.0"}
+
+[dependencies.async-tls]
+version = "0.11"
+optional = true
+
+[dependencies.rustls]
+version  = "0.19"
+optional = true
+
+[features]
+tls = ["lxi-hislip/tls", "lxi-socket/tls", "async-tls", "rustls"]

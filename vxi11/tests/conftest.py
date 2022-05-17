@@ -1,3 +1,5 @@
+import os
+from time import sleep
 import pytest
 from pyvisa import ResourceManager
 from xprocess import ProcessStarter
@@ -5,38 +7,33 @@ from xprocess import ProcessStarter
 import socket
 from contextlib import closing
 
-def find_free_port():
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-        s.bind(('', 0))
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        return s.getsockname()[1]
-
-
 @pytest.fixture(scope='session', autouse=True)
 def resource_manager(request):
-    return ResourceManager('@py')
+    return ResourceManager()
 
 
 @pytest.fixture
 def vxi11_example(xprocess, request):
-    port = find_free_port()
+    debug = os.environ.get('VXI11_TARGET')
+    if debug is not None:
+        yield debug
+    else:
+        class Starter(ProcessStarter):
+            # startup pattern
+            pattern = "Running server"
+            max_read_lines = 500
 
-    class Starter(ProcessStarter):
-        # startup pattern
-        pattern = "Running server"
-        max_read_lines = 500
-
-        # command to start process
-        args = ['cargo', 'run', '--manifest-path', request.fspath.dirname+'/../Cargo.toml', '--example', 'server']
+            # command to start process
+            args = ['cargo', 'run', '--manifest-path', request.fspath.dirname+'/../Cargo.toml', '--example', 'server', '--', '--register', 'localhost:4321', 'localhost:4322']
 
 
-    # ensure process is running and return its logfile
-    logfile = xprocess.ensure("vxi11_example", Starter)
+        # ensure process is running and return its logfile
+        logfile = xprocess.ensure("vxi11_example", Starter)
 
-    yield port
+        yield "TCPIP::localhost::inst0::INSTR"
 
-    # clean up whole process tree afterwards
-    xprocess.getinfo("vxi11_example").terminate()
+        # clean up whole process tree afterwards
+        xprocess.getinfo("vxi11_example").terminate()
 
 @pytest.fixture
 def portmap_example(xprocess, request):

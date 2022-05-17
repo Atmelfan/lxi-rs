@@ -6,7 +6,7 @@ use lxi_device::{
     lock::SharedLock,
     util::{EchoDevice, SimpleDevice},
 };
-use vxi11::{
+use lxi_vxi11::{
     client::portmapper::prelude::*,
     server::{portmapper::prelude::*, vxi11::prelude::*},
 };

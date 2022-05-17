@@ -5,6 +5,9 @@ authors = ["Gustav Palmqvist <gustavp@gpa-robotics.com>"]
 edition = "2021"
 license = "GPL-3.0-or-later"
 
+[package.metadata.release]
+pre-release-hook = ['potato']
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -19,17 +22,14 @@ log = { version = "0.4.17", features = ["kv_unstable_std"] }
 [dependencies.lxi-device]
 path = "../device"
 
-[dev-dependencies]
-femme = "2.2"
-clap = { version = "3.1.12", features = ["derive"] }
-
 [dependencies.async-tls]
 version = "0.11"
 optional = true
 
-[dependencies.rustls]
-version  = "0.19"
-optional = true
+[dev-dependencies]
+femme = "2.2"
+clap = { version = "3.1.12", features = ["derive"] }
+rustls = "0.19"
 
 [features]
-tls = ["async-tls", "rustls"]
+tls = ["async-tls"]

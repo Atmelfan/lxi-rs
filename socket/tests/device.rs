@@ -26,7 +26,6 @@ async fn run_echo_server(
 
 #[async_std::test]
 async fn echo() {
-    env_logger::init();
 
     let device = EchoDevice::new_arc();
     let shared_lock = SharedLock::new();

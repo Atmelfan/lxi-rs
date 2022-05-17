@@ -13,7 +13,7 @@ use async_std::{
 };
 use byteorder::{ByteOrder, NetworkEndian};
 use futures::StreamExt;
-use lxi_device::lock::{LockHandle, SharedLock, Mutex, SpinMutex};
+use lxi_device::lock::{LockHandle, Mutex, SharedLock, SpinMutex};
 use lxi_device::Device;
 
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
@@ -24,12 +24,11 @@ use crate::common::messages::{
 };
 use crate::common::Protocol;
 use crate::server::session::{Session, SessionMode};
-use crate::PROTOCOL_2_0;
 use crate::server::stream::HislipStream;
+use crate::PROTOCOL_2_0;
 
 #[cfg(feature = "tls")]
 use async_tls::TlsAcceptor;
-
 
 pub mod session;
 mod stream;
@@ -58,7 +57,10 @@ impl Default for ServerConfig {
     }
 }
 
-pub struct Server<DEV> where DEV: Device {
+pub struct Server<DEV>
+where
+    DEV: Device,
+{
     inner: Arc<Mutex<InnerServer<DEV>>>,
     shared_lock: Arc<SpinMutex<SharedLock>>,
     device: Arc<Mutex<DEV>>,
@@ -85,18 +87,28 @@ where
 
     /// Start accepting connections from addr
     ///
-    pub async fn accept(self: Arc<Self>, addr: impl ToSocketAddrs, #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>) -> Result<(), io::Error> {
+    pub async fn accept(
+        self: Arc<Self>,
+        addr: impl ToSocketAddrs,
+        #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>,
+    ) -> Result<(), io::Error> {
         let listener = TcpListener::bind(addr).await?;
         let mut incoming = listener.incoming();
         while let Some(stream) = incoming.next().await {
             let stream = stream?;
             let peer = stream.peer_addr()?;
-            #[cfg(feature = "tls")] 
+            #[cfg(feature = "tls")]
             let acceptor = acceptor.clone();
 
             let s = self.clone();
             task::spawn(async move {
-                let res = s.handle_connection(stream, #[cfg(feature = "tls")] acceptor).await;
+                let res = s
+                    .handle_connection(
+                        stream,
+                        #[cfg(feature = "tls")]
+                        acceptor,
+                    )
+                    .await;
                 log::debug!("{peer} disconnected: {res:?}")
             });
         }
@@ -104,7 +116,11 @@ where
     }
 
     /// The connection handling function.
-    async fn handle_connection(self: Arc<Self>, stream: TcpStream, #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>) -> Result<(), io::Error> {
+    async fn handle_connection(
+        self: Arc<Self>,
+        stream: TcpStream,
+        #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>,
+    ) -> Result<(), io::Error> {
         let peer = stream.peer_addr()?;
         log::info!("{} connected", peer);
 
@@ -117,7 +133,10 @@ where
                     log::trace!("Received {:?}", msg);
                     // Handle messages
                     match msg {
-                        Message {message_type: MessageType::VendorSpecific(code), ..} => {
+                        Message {
+                            message_type: MessageType::VendorSpecific(code),
+                            ..
+                        } => {
                             log::warn!(peer=format!("{}", peer);
                                 "Unrecognized Vendor Defined Message ({}) during init",
                                 code
@@ -129,20 +148,35 @@ where
                             .write_to(&mut stream)
                             .await?;
                         }
-                        Message { message_type: MessageType::FatalError, control_code, payload, ..} => {
+                        Message {
+                            message_type: MessageType::FatalError,
+                            control_code,
+                            payload,
+                            ..
+                        } => {
                             log::error!(peer=format!("{}", peer);
                                 "Client fatal error {:?}: {}", FatalErrorCode::from_error_code(control_code),
                                 from_utf8(&payload).unwrap_or("<invalid utf8>")
                             );
                             //break; // Let client close connection
                         }
-                        Message {message_type: MessageType::Error, control_code, payload, ..}  => {
+                        Message {
+                            message_type: MessageType::Error,
+                            control_code,
+                            payload,
+                            ..
+                        } => {
                             log::warn!(peer=format!("{}", peer);
                                 "Client error {:?}: {}", NonFatalErrorCode::from_error_code(control_code),
                                 from_utf8(&payload).unwrap_or("<invalid utf8>")
                             );
                         }
-                        Message { message_type: MessageType::Initialize, message_parameter, payload, ..}  => {
+                        Message {
+                            message_type: MessageType::Initialize,
+                            message_parameter,
+                            payload,
+                            ..
+                        } => {
                             // Create new session
                             let client_parameters = InitializeParameter(message_parameter);
 
@@ -199,10 +233,22 @@ where
                                 .no_payload()
                                 .write_to(&mut stream)
                                 .await?;
-                            
-                            break Session::handle_sync_session(session, &mut stream, peer, self.config, #[cfg(feature = "tls")] acceptor).await?;                            
+
+                            break Session::handle_sync_session(
+                                session,
+                                &mut stream,
+                                peer,
+                                self.config,
+                                #[cfg(feature = "tls")]
+                                acceptor,
+                            )
+                            .await?;
                         }
-                        Message { message_type: MessageType::AsyncInitialize, message_parameter, ..} => {
+                        Message {
+                            message_type: MessageType::AsyncInitialize,
+                            message_parameter,
+                            ..
+                        } => {
                             // Connect to existing session
                             let session_id = (message_parameter & 0x0000FFFF) as u16;
                             let session = {
@@ -237,23 +283,32 @@ where
                                 break;
                             }
                             session_guard.async_connected = true;
+                            let agreed_protocol = session_guard.protocol;
                             drop(session_guard);
 
                             log::debug!(peer=format!("{}", peer), session_id=session_id; "Async initialize");
 
+                            // Support secure connection if "tls" feature is enabled and the agreed upon protocol is >= 2.0.
+                            let secure_connection =
+                                if cfg!(feature = "tls") && agreed_protocol >= PROTOCOL_2_0 { true } else { false };
                             MessageType::AsyncInitializeResponse
                                 .message_params(
-                                    AsyncInitializeResponseControl::new(
-                                        self.config.initial_encryption,
-                                    )
-                                    .0,
+                                    AsyncInitializeResponseControl::new(secure_connection).0,
                                     AsyncInitializeResponseParameter::new(self.config.vendor_id).0,
                                 )
                                 .no_payload()
                                 .write_to(&mut stream)
                                 .await?;
 
-                            break Session::handle_async_session(session, &mut stream, peer, self.config, #[cfg(feature = "tls")] acceptor).await?;
+                            break Session::handle_async_session(
+                                session,
+                                &mut stream,
+                                peer,
+                                self.config,
+                                #[cfg(feature = "tls")]
+                                acceptor,
+                            )
+                            .await?;
                         }
                         msg => {
                             log::warn!(peer=format!("{}", peer); "Unexpected message {:?} during initialization", msg);
@@ -282,13 +337,19 @@ where
     }
 }
 
-struct InnerServer<DEV> where DEV: Device {
+struct InnerServer<DEV>
+where
+    DEV: Device,
+{
     session_id: u16,
     sessions: HashMap<u16, Weak<Mutex<Session<DEV>>>>,
     max_num_sessions: usize,
 }
 
-impl<DEV> InnerServer<DEV> where DEV: Device {
+impl<DEV> InnerServer<DEV>
+where
+    DEV: Device,
+{
     fn new(max_num_sessions: usize) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(InnerServer {
             session_id: 0,

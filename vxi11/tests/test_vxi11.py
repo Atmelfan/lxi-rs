@@ -3,14 +3,12 @@ import pytest
 import pyvisa
 from pyvisa.constants import AccessModes
 
-@pytest.mark.order(0)
-def test_create_link(resource_manager: pyvisa.ResourceManager):
-    inst = resource_manager.open_resource(f'TCPIP::127.0.0.1::inst0::INSTR')
+def test_create_link(vxi11_example, resource_manager: pyvisa.ResourceManager):
+    inst = resource_manager.open_resource(vxi11_example)
     inst.close()
 
-@pytest.mark.order(1)
-def test_query(resource_manager: pyvisa.ResourceManager):
-    inst = resource_manager.open_resource(f'TCPIP::127.0.0.1::inst0::INSTR')
+def test_query(vxi11_example, resource_manager: pyvisa.ResourceManager):
+    inst = resource_manager.open_resource(vxi11_example)
     inst.read_termination = '\n'
     inst.write_termination = '\n'
 
@@ -19,18 +17,16 @@ def test_query(resource_manager: pyvisa.ResourceManager):
 
     inst.close()
 
-@pytest.mark.order(2)
-def test_read_stb(resource_manager: pyvisa.ResourceManager):
-    inst = resource_manager.open_resource(f'TCPIP::127.0.0.1::inst0::INSTR')
+def test_read_stb(vxi11_example, resource_manager: pyvisa.ResourceManager):
+    inst = resource_manager.open_resource(vxi11_example)
 
     status = inst.read_stb()
     assert status == 0
 
     inst.close()
 
-@pytest.mark.order(3)
-def test_trigger(resource_manager: pyvisa.ResourceManager):
-    inst = resource_manager.open_resource(f'TCPIP::127.0.0.1::inst0::INSTR')
+def test_trigger(vxi11_example, resource_manager: pyvisa.ResourceManager):
+    inst = resource_manager.open_resource(vxi11_example)
 
     status = inst.read_stb()
     assert status == 0
@@ -45,10 +41,9 @@ def test_trigger(resource_manager: pyvisa.ResourceManager):
 
     inst.close()
 
-@pytest.mark.order(4)
-def test_lock(resource_manager: pyvisa.ResourceManager):
-    inst1 = resource_manager.open_resource(f'TCPIP::127.0.0.1::inst0::INSTR')
-    inst2 = resource_manager.open_resource(f'TCPIP::127.0.0.1::inst0::INSTR')
+def test_lock(vxi11_example, resource_manager: pyvisa.ResourceManager):
+    inst1 = resource_manager.open_resource(vxi11_example)
+    inst2 = resource_manager.open_resource(vxi11_example)
 
     # Two clients cannot lock at the same time
     inst1.lock_excl()

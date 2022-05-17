@@ -1,6 +1,6 @@
 use std::net::Ipv4Addr;
 
-use vxi11::client::portmapper::prelude::*;
+use lxi_vxi11::client::portmapper::prelude::*;
 
 #[async_std::test]
 async fn portmap_tcp_null() {

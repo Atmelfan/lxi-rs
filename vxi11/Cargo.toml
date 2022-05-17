@@ -1,5 +1,5 @@
 [package]
-name = "vxi11"
+name = "lxi-vxi11"
 version = "0.1.0"
 authors = ["Gustav Palmqvist <gustavp@gpa-robotics.com>"]
 edition = "2021"

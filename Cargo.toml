@@ -8,5 +8,9 @@ members = [
     "device",
     "hislip",
     "socket",
-    "vxi11"
+    "vxi11",
+    "app"
 ]
+
+[workspace.metadata.release]
+
