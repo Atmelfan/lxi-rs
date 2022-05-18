@@ -22,10 +22,9 @@ use crate::common::messages::{
     InitializeParameter, InitializeResponseControl, InitializeResponseParameter, Message,
     MessageType, RmtDeliveredControl,
 };
-use crate::common::Protocol;
-use crate::server::session::{Session, SessionMode};
+use crate::common::{Protocol, PROTOCOL_2_0, SUPPORTED_PROTOCOL};
+use crate::server::session::{Session, SessionMode, SessionState};
 use crate::server::stream::HislipStream;
-use crate::PROTOCOL_2_0;
 
 #[cfg(feature = "tls")]
 use async_tls::TlsAcceptor;
@@ -38,8 +37,11 @@ pub struct ServerConfig {
     pub vendor_id: u16,
     /// Maximum server message size
     pub max_message_size: u64,
-    pub preferred_mode: SessionMode,
-    pub encryption_mandatory: bool,
+    /// Prefer overlapped data
+    pub prefer_overlap: bool,
+    /// Mandatory encryption if true
+    pub encryption_mode: bool,
+    /// Require
     pub initial_encryption: bool,
     pub max_num_sessions: usize,
 }
@@ -49,8 +51,8 @@ impl Default for ServerConfig {
         Self {
             vendor_id: 0xBEEF,
             max_message_size: 1024,
-            preferred_mode: SessionMode::Overlapped,
-            encryption_mandatory: false,
+            prefer_overlap: true,
+            encryption_mode: false,
             initial_encryption: false,
             max_num_sessions: 64,
         }
@@ -71,11 +73,7 @@ impl<DEV> Server<DEV>
 where
     DEV: Device + Send + 'static,
 {
-    pub fn new(
-        _vendor_id: u16,
-        shared_lock: Arc<SpinMutex<SharedLock>>,
-        device: Arc<Mutex<DEV>>,
-    ) -> Arc<Self> {
+    pub fn new(shared_lock: Arc<SpinMutex<SharedLock>>, device: Arc<Mutex<DEV>>) -> Arc<Self> {
         let config = ServerConfig::default();
         Arc::new(Server {
             inner: InnerServer::new(config.max_num_sessions),
@@ -196,8 +194,21 @@ where
                                 client_parameters.client_vendorid()
                             );
 
+                            // Check if negotiated protocol is compatible with mandatory encryption
                             let lowest_protocol =
-                                min(PROTOCOL_2_0, client_parameters.client_protocol());
+                                min(SUPPORTED_PROTOCOL, client_parameters.client_protocol());
+                            if self.config.encryption_mode && lowest_protocol < PROTOCOL_2_0 {
+                                log::error!(peer=format!("{}", peer);
+                                    "Client does not support mandatory encryption"
+                                );
+                                Message::from(Error::Fatal(
+                                    FatalErrorCode::SecureConnectionFailed,
+                                    b"Secure connection failed",
+                                ))
+                                .write_to(&mut stream)
+                                .await?;
+                                break;
+                            }
 
                             // Create new session
                             let (session_id, session) = {
@@ -217,17 +228,24 @@ where
                                     }
                                 }
                             };
-                            log::debug!(peer=format!("{}", peer); "New session 0x{:04x}", session_id);
 
-                            // Send response
+                            // Negotiate encryption settings
+                            let encryption_mode =
+                                self.config.encryption_mode && lowest_protocol >= PROTOCOL_2_0;
+                            let initial_encryption =
+                                self.config.initial_encryption && lowest_protocol >= PROTOCOL_2_0;
+
                             let response_param =
                                 InitializeResponseParameter::new(lowest_protocol, session_id);
+
                             let control = InitializeResponseControl::new(
-                                self.config.preferred_mode == SessionMode::Overlapped,
-                                self.config.encryption_mandatory,
-                                self.config.initial_encryption,
+                                self.config.prefer_overlap,
+                                encryption_mode,
+                                initial_encryption,
                             );
 
+                            // Send response
+                            log::debug!(peer=format!("{}", peer); "New session 0x{:04x}", session_id);
                             MessageType::InitializeResponse
                                 .message_params(control.0, response_param.0)
                                 .no_payload()
@@ -269,7 +287,7 @@ where
                             let mut session_guard = s.lock().await;
 
                             // Check if async channel has alreasy been initialized for this session
-                            if session_guard.async_connected {
+                            if session_guard.state() != SessionState::Handshake {
                                 log::warn!(peer=format!("{}", peer);
                                     "Async session 0x{:04x} already initialized",
                                     session_id
@@ -282,15 +300,12 @@ where
                                 .await?;
                                 break;
                             }
-                            session_guard.async_connected = true;
-                            let agreed_protocol = session_guard.protocol;
-                            drop(session_guard);
-
                             log::debug!(peer=format!("{}", peer), session_id=session_id; "Async initialize");
 
                             // Support secure connection if "tls" feature is enabled and the agreed upon protocol is >= 2.0.
                             let secure_connection =
-                                if cfg!(feature = "tls") && agreed_protocol >= PROTOCOL_2_0 { true } else { false };
+                                cfg!(feature = "tls") && session_guard.protocol() >= PROTOCOL_2_0;
+
                             MessageType::AsyncInitializeResponse
                                 .message_params(
                                     AsyncInitializeResponseControl::new(secure_connection).0,
@@ -299,6 +314,17 @@ where
                                 .no_payload()
                                 .write_to(&mut stream)
                                 .await?;
+
+                            // Require encryption transaction if encryption is mandatory or initially required
+                            if cfg!(feature = "tls")
+                                && (self.config.initial_encryption || self.config.encryption_mode)
+                            {
+                                session_guard.set_state(SessionState::EncryptionStart)
+                            } else {
+                                session_guard.set_state(SessionState::Normal)
+                            }
+
+                            drop(session_guard);
 
                             break Session::handle_async_session(
                                 session,

@@ -1,7 +1,6 @@
 authors = ["Gustav Palmqvist <gustavp@gpa-robotics.com>"]
 license = "GPL-3.0-or-later"
 
-
 [workspace]
 members = [
     "client",
@@ -13,4 +12,4 @@ members = [
 ]
 
 [workspace.metadata.release]
-
+pre-relase-hook = ['pre-release-hook.sh']

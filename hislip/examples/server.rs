@@ -1,12 +1,16 @@
-use std::{path::{Path, PathBuf}, io::BufReader, fs::File, sync::Arc};
+use std::{
+    fs::File,
+    io::BufReader,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use async_std::io;
 use lxi_device::{
     lock::SharedLock,
-    util::{EchoDevice, SimpleDevice},
+    util::SimpleDevice,
 };
-use lxi_hislip::server::Server;
-pub use lxi_hislip::{PROTOCOL_2_0, STANDARD_PORT};
+use lxi_hislip::{server::Server, STANDARD_PORT};
 
 use clap::Parser;
 
@@ -47,7 +51,6 @@ struct Args {
 /// A TLS server needs a certificate and a fitting private key
 #[cfg(feature = "tls")]
 fn load_config(options: &Args) -> io::Result<ServerConfig> {
-
     /// Load the passed certificates file
     fn load_certs(path: &Path) -> io::Result<Vec<Certificate>> {
         certs(&mut BufReader::new(File::open(path)?))
@@ -81,12 +84,16 @@ async fn main() -> Result<(), io::Error> {
     let shared_lock = SharedLock::new();
 
     #[cfg(feature = "tls")]
-    let acceptor = { 
+    let acceptor = {
         let config = load_config(&args)?;
         Arc::new(TlsAcceptor::from(Arc::new(config)))
     };
 
-    let server = Server::new(0x1234, shared_lock, device).accept((&args.ip[..], args.port), #[cfg(feature = "tls")] acceptor);
+    let server = Server::new(shared_lock, device).accept(
+        (&args.ip[..], args.port),
+        #[cfg(feature = "tls")]
+        acceptor,
+    );
     println!("Running server on port {}:{}...", args.ip, args.port);
     server.await
 }

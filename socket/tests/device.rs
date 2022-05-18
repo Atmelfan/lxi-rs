@@ -6,7 +6,7 @@ use lxi_device::{
     lock::{SharedLock, SpinMutex},
     util::EchoDevice,
 };
-use lxi_socket::server::ServerConfig;
+use lxi_socket::server::socket::ServerConfig;
 
 async fn run_echo_server(
     stream: UnixStream,

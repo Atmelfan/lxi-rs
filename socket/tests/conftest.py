@@ -1,3 +1,4 @@
+import os
 import pytest
 from xprocess import ProcessStarter
 
@@ -19,8 +20,11 @@ def socket_example(xprocess, request):
         # startup pattern
         pattern = "Running server"
 
+        # Hide warnings
+        env = {'RUSTFLAGS': '-Awarnings', **os.environ}
+
         # command to start process
-        args = ['cargo', 'run', '--manifest-path', request.fspath.dirname+'/../Cargo.toml', '--example', 'server', '--', '--port', str(port)]
+        args = ['cargo', 'run', '-q', '--manifest-path', request.fspath.dirname+'/../Cargo.toml', '--example', 'server', '--', '--port', str(port)]
 
     # ensure process is running and return its logfile
     logfile = xprocess.ensure("socket_example", Starter)

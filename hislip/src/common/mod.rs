@@ -3,6 +3,11 @@ use bitfield::bitfield;
 pub mod errors;
 pub mod messages;
 
+pub const PROTOCOL_1_1: Protocol = Protocol(257);
+pub const PROTOCOL_2_0: Protocol = Protocol(512);
+
+pub const SUPPORTED_PROTOCOL: Protocol = PROTOCOL_2_0;
+
 bitfield! {
     #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone)]
     pub struct Protocol(u16);

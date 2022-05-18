@@ -21,10 +21,12 @@ def vxi11_example(xprocess, request):
         class Starter(ProcessStarter):
             # startup pattern
             pattern = "Running server"
-            max_read_lines = 500
+
+            # Hide warnings
+            env = {'RUSTFLAGS': '-Awarnings', **os.environ}
 
             # command to start process
-            args = ['cargo', 'run', '--manifest-path', request.fspath.dirname+'/../Cargo.toml', '--example', 'server', '--', '--register', 'localhost:4321', 'localhost:4322']
+            args = ['cargo', 'run', '-q', '--manifest-path', request.fspath.dirname+'/../Cargo.toml', '--example', 'server', '--', '--register', 'localhost:4321', 'localhost:4322']
 
 
         # ensure process is running and return its logfile

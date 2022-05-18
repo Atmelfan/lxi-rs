@@ -33,17 +33,18 @@ def hislip_example(xprocess, request):
         class Starter(ProcessStarter):
             # startup pattern
             pattern = "Running server"
-
-            # Cargo might print a lot before starting the program
-            max_read_lines = 500
+            
+            # Hide warnings
+            env = {'RUSTFLAGS': '-Awarnings', **os.environ}
 
             # command to start process
-            args = ['cargo', 'run', '--manifest-path', request.fspath.dirname+'/../Cargo.toml', '--example', 'server', '--', '--port', str(port)]
+            args = ['cargo', 'run', '-q', '--manifest-path', request.fspath.dirname+'/../Cargo.toml', '--example', 'server', '--', '--port', str(port)]
 
         # ensure process is running and return its logfile
-        logfile = xprocess.ensure("hislip_example", Starter)
+        name = request.function.__name__
+        logfile = xprocess.ensure(f"hislip_example-{name}", Starter)
 
         yield f'TCPIP::{addr}::hislip0,{port}::INSTR'
 
         # clean up whole process tree afterwards
-        xprocess.getinfo("hislip_example").terminate()
+        xprocess.getinfo(f"hislip_example-{name}").terminate()

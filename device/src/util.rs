@@ -51,11 +51,11 @@ impl Device for SimpleDevice {
     fn execute(&mut self, cmd: &Vec<u8>) -> Vec<u8> {
         log::info!(">>> {:?}", cmd);
         let r = match cmd.as_slice() {
-            x if x.eq_ignore_ascii_case(b"*IDN?\n") => {
-                b"Cyberdyne systems,T800 Model 101,A9012.C,V2.4\n".to_vec()
+            x if x.eq_ignore_ascii_case(b"*IDN?") || x.eq_ignore_ascii_case(b"*IDN?\n") => {
+                b"Cyberdyne systems,T800 Model 101,A9012.C,V2.4".to_vec()
             }
-            x if x.eq_ignore_ascii_case(b"EVENT\n") => b"".to_vec(),
-            x if x.eq_ignore_ascii_case(b"QUERY?\n") => b"RESPONSE\n".to_vec(),
+            x if x.eq_ignore_ascii_case(b"EVENT") || x.eq_ignore_ascii_case(b"EVENT\n") => b"".to_vec(),
+            x if x.eq_ignore_ascii_case(b"QUERY?") || x.eq_ignore_ascii_case(b"QUERY?\n") => b"RESPONSE".to_vec(),
             _ => cmd.clone(),
         };
         log::info!("<<< {:?}", r);

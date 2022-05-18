@@ -12,10 +12,16 @@ use lxi_device::{
     lock::SharedLock,
     util::{EchoDevice, SimpleDevice},
 };
-use lxi_hislip::server::Server as HislipServer;
-use lxi_hislip::{PROTOCOL_2_0, STANDARD_PORT};
 
-use lxi_socket::server::{Server as SocketServer, ServerConfig as SocketServerConfig};
+use lxi_hislip::{server::Server as HislipServer, STANDARD_PORT as HISLIP_STANDARD_PORT};
+
+use lxi_socket::{
+    server::{
+        socket::{Server as SocketServer, ServerConfig as SocketServerConfig},
+        telnet::{Server as TelnetServer, ServerConfig as TelnetServerConfig},
+    },
+    SOCKET_STANDARD_PORT, TELNET_STANDARD_PORT,
+};
 
 use clap::Parser;
 
@@ -93,10 +99,10 @@ async fn main() -> Result<(), io::Error> {
     let hislip_lock = shared_lock.clone();
     let hislip_device = device.clone();
     async_std::task::spawn(async move {
-        let server = HislipServer::new(0x1234, hislip_lock, hislip_device);
+        let server = HislipServer::new(hislip_lock, hislip_device);
         server
             .accept(
-                (&hislip_addr[..], STANDARD_PORT),
+                (&hislip_addr[..], HISLIP_STANDARD_PORT),
                 #[cfg(feature = "tls")]
                 acceptor,
             )
@@ -105,10 +111,31 @@ async fn main() -> Result<(), io::Error> {
 
     // Start socket server
     let socket_addr = args.ip.clone();
+    let socket_lock = shared_lock.clone();
+    let socket_device = device.clone();
     async_std::task::spawn(async move {
         let server = SocketServerConfig::default().read_buffer(16 * 1024).build();
         server
-            .accept((&socket_addr[..], STANDARD_PORT), shared_lock, device)
+            .accept(
+                (&socket_addr[..], SOCKET_STANDARD_PORT),
+                socket_lock,
+                socket_device,
+            )
+            .await
+    });
+
+    // Start telnet server
+    let telnet_addr = args.ip.clone();
+    let telnet_lock = shared_lock.clone();
+    let telnet_device = device.clone();
+    async_std::task::spawn(async move {
+        let server = TelnetServerConfig::default().read_buffer(16 * 1024).build();
+        server
+            .accept(
+                (&telnet_addr[..], TELNET_STANDARD_PORT),
+                telnet_lock,
+                telnet_device,
+            )
             .await
     });
 

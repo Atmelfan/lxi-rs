@@ -9,8 +9,8 @@ def test_create_link(vxi11_example, resource_manager: pyvisa.ResourceManager):
 
 def test_query(vxi11_example, resource_manager: pyvisa.ResourceManager):
     inst = resource_manager.open_resource(vxi11_example)
-    inst.read_termination = '\n'
-    inst.write_termination = '\n'
+    inst.read_termination = ''
+    inst.write_termination = ''
 
     resp = inst.query("*IDN?").strip()
     assert resp == "Cyberdyne systems,T800 Model 101,A9012.C,V2.4"

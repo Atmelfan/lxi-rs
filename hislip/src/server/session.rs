@@ -8,16 +8,14 @@ use async_std::future;
 use async_std::net::TcpStream;
 use async_std::sync::Arc;
 use byteorder::{ByteOrder, NetworkEndian};
-use futures::channel::mpsc;
 use futures::lock::Mutex;
-use futures::{StreamExt, select, FutureExt};
+use futures::{select, FutureExt, StreamExt};
 use lxi_device::lock::{LockHandle, SharedLockError, SharedLockMode};
 use lxi_device::Device;
 
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::common::messages::{FeatureBitmap, Message, MessageType, RmtDeliveredControl};
-use crate::common::Protocol;
-use crate::PROTOCOL_2_0;
+use crate::common::{Protocol, PROTOCOL_2_0};
 
 use super::stream::{HislipStream, HISLIP_TLS_BUSY, HISLIP_TLS_ERROR, HISLIP_TLS_SUCCESS};
 use super::ServerConfig;
@@ -33,14 +31,11 @@ pub enum SessionMode {
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub(crate) enum SessionState {
-    Normal,
-    Clear,
+    Handshake,
     EncryptionStart,
     AuthenticationStart,
-}
-
-pub(crate) enum SyncEvent {
-
+    Normal,
+    Clear,
 }
 
 pub(crate) struct Session<DEV>
@@ -49,7 +44,10 @@ where
 {
     config: ServerConfig,
     /// Negotiated rpc
-    pub(crate) protocol: Protocol,
+    protocol: Protocol,
+    /// Current tate of session
+    state: SessionState,
+
     /// Negotiated session mode
     pub(crate) mode: SessionMode,
     /// Session ID
@@ -67,8 +65,6 @@ where
     pub(crate) in_buf: Vec<u8>,
     pub(crate) out_buf: Vec<u8>,
     message_id: u32,
-
-    state: SessionState,
 
     //
     enable_remote: bool,
@@ -97,7 +93,7 @@ where
             out_buf: Vec::new(),
             enable_remote: true,
             message_id: 0xffff_ff00,
-            state: SessionState::Normal
+            state: SessionState::Handshake,
         }
     }
 
@@ -113,14 +109,22 @@ where
         stream: &mut HislipStream<'_>,
         peer: SocketAddr,
         config: ServerConfig,
-        #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>
+        #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>,
     ) -> Result<(), io::Error> {
         loop {
             match Message::read_from(stream, config.max_message_size).await? {
                 // Valid message
                 Ok(msg) => {
                     let mut session = session.lock().await;
-                    session.handle_sync_message(msg, stream, peer, #[cfg(feature = "tls")] acceptor.clone()).await?;
+                    session
+                        .handle_sync_message(
+                            msg,
+                            stream,
+                            peer,
+                            #[cfg(feature = "tls")]
+                            acceptor.clone(),
+                        )
+                        .await?;
                 }
                 // Invalid message
                 Err(err) => {
@@ -138,7 +142,7 @@ where
         msg: Message,
         stream: &mut HislipStream<'_>,
         peer: SocketAddr,
-        #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>
+        #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>,
     ) -> Result<(), io::Error> {
         match msg {
             Message {
@@ -187,7 +191,7 @@ where
             } => {
                 if self.state == SessionState::Clear {
                     // Ignore data when clearing
-                    return Ok(())
+                    return Ok(());
                 }
 
                 let mut dev = self.handle.async_lock().await.unwrap();
@@ -209,7 +213,7 @@ where
             } => {
                 if self.state == SessionState::Clear {
                     // Ignore data when clearing
-                    return Ok(())
+                    return Ok(());
                 }
 
                 let mut dev = self.handle.async_lock().await.unwrap();
@@ -252,12 +256,11 @@ where
             } => {
                 if self.state == SessionState::Clear {
                     // Ignore data when clearing
-                    return Ok(())
+                    return Ok(());
                 }
 
                 let control = RmtDeliveredControl(control_code);
                 log::debug!(session_id = self.id, message_id=message_id; "Trigger, {}", control);
-
 
                 let mut dev = self.handle.async_lock().await.unwrap();
 
@@ -265,7 +268,7 @@ where
                     dev.set_remote(true);
                 }
                 let _ = dev.trigger();
-            },
+            }
             Message {
                 message_type: MessageType::DeviceClearComplete,
                 control_code,
@@ -282,20 +285,27 @@ where
                 } else {
                     let feature_request = FeatureBitmap(control_code);
                     log::debug!(session_id = self.id; "Device clear complete, {}", feature_request);
-    
+
                     self.state = SessionState::Normal;
-                    // Renegotiate
+
+                    // Client might prefer overlapped/synch, fine.
                     self.mode = if feature_request.overlapped() {
                         SessionMode::Overlapped
                     } else {
                         SessionMode::Synchronized
                     };
-                    let feature_setting = FeatureBitmap::new(feature_request.overlapped(), self.config.encryption_mandatory, self.config.initial_encryption);
+
+                    // Agreed features
+                    let feature_setting = FeatureBitmap::new(
+                        feature_request.overlapped(),
+                        self.config.encryption_mode && self.protocol >= PROTOCOL_2_0,
+                        self.config.initial_encryption && self.protocol >= PROTOCOL_2_0,
+                    );
                     MessageType::DeviceClearAcknowledge
-                            .message_params(feature_setting.0, self.message_id)
-                            .no_payload()
-                            .write_to(stream)
-                            .await?;
+                        .message_params(feature_setting.0, self.message_id)
+                        .no_payload()
+                        .write_to(stream)
+                        .await?;
                 }
             }
             msg => {
@@ -317,13 +327,21 @@ where
         stream: &mut HislipStream<'_>,
         peer: SocketAddr,
         config: ServerConfig,
-        #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>
+        #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>,
     ) -> Result<(), io::Error> {
         loop {
             match Message::read_from(stream, config.max_message_size).await? {
                 Ok(msg) => {
                     let mut session = session.lock().await;
-                    session.handle_async_message(msg, stream, peer, #[cfg(feature = "tls")] acceptor.clone()).await?;
+                    session
+                        .handle_async_message(
+                            msg,
+                            stream,
+                            peer,
+                            #[cfg(feature = "tls")]
+                            acceptor.clone(),
+                        )
+                        .await?;
                 }
                 Err(err) => {
                     Message::from(err).write_to(stream).await?;
@@ -340,7 +358,7 @@ where
         msg: Message,
         stream: &mut HislipStream<'_>,
         peer: SocketAddr,
-        #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>
+        #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>,
     ) -> Result<(), io::Error> {
         match msg {
             Message {
@@ -385,7 +403,7 @@ where
                 message_type: MessageType::AsyncLock,
                 message_parameter,
                 control_code,
-                payload: lockstr
+                payload: lockstr,
             } => {
                 if control_code == 0 {
                     // Release
@@ -553,10 +571,11 @@ where
                 self.out_buf.clear();
                 self.message_id = 0xffff_ff00;
 
+                // Announce preferred features
                 let features = FeatureBitmap::new(
-                    self.config.preferred_mode == SessionMode::Overlapped,
-                    self.config.encryption_mandatory,
-                    self.config.initial_encryption,
+                    self.config.prefer_overlap,
+                    self.config.encryption_mode && self.protocol >= PROTOCOL_2_0,
+                    self.config.initial_encryption && self.protocol >= PROTOCOL_2_0,
                 );
                 MessageType::AsyncDeviceClearAcknowledge
                     .message_params(features.0, 0)
@@ -654,7 +673,7 @@ where
                 }
 
                 #[cfg(feature = "tls")]
-                let control_code = if self.config.encryption_mandatory {
+                let control_code = if self.config.encryption_mode {
                     HISLIP_TLS_ERROR
                 } else if !self.in_buf.is_empty() {
                     HISLIP_TLS_BUSY
@@ -686,6 +705,23 @@ where
             }
         }
         Ok(())
+    }
+
+    /// Get the session's state.
+    #[must_use]
+    pub(crate) fn state(&self) -> SessionState {
+        self.state
+    }
+
+    /// Get the session's protocol.
+    #[must_use]
+    pub(crate) fn protocol(&self) -> Protocol {
+        self.protocol
+    }
+
+    /// Set the session's state.
+    pub(crate) fn set_state(&mut self, state: SessionState) {
+        self.state = state;
     }
 }
 

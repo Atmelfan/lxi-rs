@@ -13,8 +13,8 @@ def test_connect(hislip_example, resource_manager):
 
 def test_hislip_idn(hislip_example, resource_manager):
     inst = resource_manager.open_resource(hislip_example)
-    inst.read_termination = '\n'
-    inst.write_termination = '\n'
+    inst.read_termination = ''
+    inst.write_termination = ''
 
     resp = inst.query("*IDN?")
     assert resp == "Cyberdyne systems,T800 Model 101,A9012.C,V2.4"

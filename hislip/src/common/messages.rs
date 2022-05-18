@@ -22,34 +22,18 @@ pub(crate) struct Message {
 impl Message {
     pub const MESSAGE_HEADER_SIZE: usize = 16;
 
-    pub(crate) fn with_payload(mut self, payload: Vec<u8>) -> Self {
+    pub(crate) fn with_payload(self, payload: Vec<u8>) -> Self {
         Self {
             payload,
             ..self
         }
     }
 
-    pub(crate) fn no_payload(mut self) -> Message {
+    pub(crate) fn no_payload(self) -> Message {
         Self {
             payload: Vec::new(),
             ..self
         }
-    }
-
-    pub(crate) fn message_type(&self) -> MessageType {
-        self.message_type
-    }
-
-    pub(crate) fn message_parameter(&self) -> u32 {
-        self.message_parameter
-    }
-
-    pub(crate) fn control_code(&self) -> u8 {
-        self.control_code
-    }
-
-    pub fn payload(&self) -> &Vec<u8> {
-        &self.payload
     }
 
     pub(crate) async fn read_from<RD>(
@@ -266,15 +250,6 @@ impl MessageType {
         }
     }
 
-    pub(crate) fn message(self) -> Message {
-        Message {
-            message_type: self,
-            control_code: 0,
-            message_parameter: 0,
-            payload: Vec::new(),
-        }
-    }
-
     pub(crate) fn message_params(self, control_code: u8, message_parameter: u32) -> Message {
         Message {
             message_type: self,
@@ -315,8 +290,8 @@ bitfield! {
     impl Debug;
     // The fields default to u16
     pub prefer_overlap, set_prefer_overlap : 0;
-    pub encryption_mandatory, set_encryption_mandatory : 1;
-    pub secure_connection, set_secure_connection : 2;
+    pub encryption_mode, set_encryption_mode : 1;
+    pub initial_encryption, set_initial_encryption : 2;
     pub u8, ivi_reserved, set_ivi_reserved : 5, 3;
     pub u8, vendor_specific, set_vendor_specific : 7, 6;
 }
@@ -324,13 +299,13 @@ bitfield! {
 impl InitializeResponseControl {
     pub(crate) fn new(
         prefer_overlap: bool,
-        encryption_mandatory: bool,
-        secure_connection: bool,
+        encryption_mode: bool,
+        initial_encryption: bool,
     ) -> Self {
         let mut x = InitializeResponseControl(0);
         x.set_prefer_overlap(prefer_overlap);
-        x.set_encryption_mandatory(encryption_mandatory);
-        x.set_secure_connection(secure_connection);
+        x.set_encryption_mode(encryption_mode);
+        x.set_initial_encryption(initial_encryption);
         x
     }
 }
