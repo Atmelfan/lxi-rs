@@ -3,9 +3,13 @@ use bitfield::bitfield;
 pub mod errors;
 pub mod messages;
 
-pub const PROTOCOL_1_1: Protocol = Protocol(257);
-pub const PROTOCOL_2_0: Protocol = Protocol(512);
-
+/// Protocol version 1.0
+pub const PROTOCOL_1_0: Protocol = Protocol(0x0100);
+/// Protocol version 1.1
+pub const PROTOCOL_1_1: Protocol = Protocol(0x0101);
+/// Protocol version 2.0
+pub const PROTOCOL_2_0: Protocol = Protocol(0x0200);
+/// Highest protocol supported by this crate (2.0)
 pub const SUPPORTED_PROTOCOL: Protocol = PROTOCOL_2_0;
 
 bitfield! {

@@ -16,6 +16,7 @@ use futures::StreamExt;
 use lxi_device::lock::{LockHandle, Mutex, SharedLock, SpinMutex};
 use lxi_device::Device;
 
+
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::common::messages::{
     AsyncInitializeResponseControl, AsyncInitializeResponseParameter, FeatureBitmap,
@@ -28,6 +29,12 @@ use crate::server::stream::HislipStream;
 
 #[cfg(feature = "tls")]
 use async_tls::TlsAcceptor;
+#[cfg(feature = "tls")]
+use sasl::{
+    secret,
+    server::Validator
+};
+
 
 pub mod session;
 mod stream;
@@ -89,6 +96,7 @@ where
         self: Arc<Self>,
         addr: impl ToSocketAddrs,
         #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>,
+        #[cfg(feature = "tls")] validator: impl Validator<secret::Plain> + Send + Sync + Clone + 'static,
     ) -> Result<(), io::Error> {
         let listener = TcpListener::bind(addr).await?;
         let mut incoming = listener.incoming();
@@ -97,14 +105,17 @@ where
             let peer = stream.peer_addr()?;
             #[cfg(feature = "tls")]
             let acceptor = acceptor.clone();
+            #[cfg(feature = "tls")]
+            let validator = validator.clone();
+
 
             let s = self.clone();
             task::spawn(async move {
                 let res = s
                     .handle_connection(
                         stream,
-                        #[cfg(feature = "tls")]
-                        acceptor,
+                        #[cfg(feature = "tls")] acceptor,
+                        #[cfg(feature = "tls")] validator,
                     )
                     .await;
                 log::debug!("{peer} disconnected: {res:?}")
@@ -118,6 +129,7 @@ where
         self: Arc<Self>,
         stream: TcpStream,
         #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>,
+        #[cfg(feature = "tls")] validator: impl Validator<secret::Plain> + Clone,
     ) -> Result<(), io::Error> {
         let peer = stream.peer_addr()?;
         log::info!("{} connected", peer);
@@ -257,8 +269,8 @@ where
                                 &mut stream,
                                 peer,
                                 self.config,
-                                #[cfg(feature = "tls")]
-                                acceptor,
+                                #[cfg(feature = "tls")] acceptor,
+                                #[cfg(feature = "tls")] validator,
                             )
                             .await?;
                         }
@@ -331,8 +343,8 @@ where
                                 &mut stream,
                                 peer,
                                 self.config,
-                                #[cfg(feature = "tls")]
-                                acceptor,
+                                #[cfg(feature = "tls")] acceptor,
+                                #[cfg(feature = "tls")] validator,
                             )
                             .await?;
                         }

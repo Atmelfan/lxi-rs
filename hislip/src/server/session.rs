@@ -22,6 +22,15 @@ use super::ServerConfig;
 
 #[cfg(feature = "tls")]
 use async_tls::TlsAcceptor;
+#[cfg(feature = "tls")]
+use sasl::{
+    secret,
+    server::{
+        Validator,
+        mechanisms::{Anonymous, Plain},
+        
+    }
+};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SessionMode {
@@ -36,6 +45,31 @@ pub(crate) enum SessionState {
     AuthenticationStart,
     Normal,
     Clear,
+}
+
+macro_rules! device_remote {
+    ($self:expr, $dev:expr) => {
+        if $self.enable_remote {
+            let _ = $dev.set_remote(true);
+        }
+    };
+}
+
+macro_rules! send_fatal {
+    ($stream:expr, $err:expr, $msg:literal) => {{
+        Message::from(Error::Fatal($err, $msg))
+            .write_to($stream)
+            .await?;
+        return Err(io::ErrorKind::Other.into());
+    }};
+}
+
+macro_rules! send_nonfatal {
+    ($stream:expr, $err:expr, $msg:literal) => {
+        Message::from(Error::NonFatal($err, $msg))
+            .write_to($stream)
+            .await?
+    };
 }
 
 pub(crate) struct Session<DEV>
@@ -55,16 +89,14 @@ where
     /// Client max message size
     pub(crate) max_message_size: u64,
 
-    // Internal statekeeping between async and sync channel
-    pub(crate) async_connected: bool,
-    pub(crate) async_encrypted: bool,
-
     pub(crate) handle: LockHandle<DEV>,
 
     // Input/Output buffer
     pub(crate) in_buf: Vec<u8>,
     pub(crate) out_buf: Vec<u8>,
-    message_id: u32,
+
+    sent_message_id: u32,
+    read_message_id: u32,
 
     //
     enable_remote: bool,
@@ -86,13 +118,13 @@ where
             mode: SessionMode::Overlapped,
             id: session_id,
             max_message_size: 256,
-            async_connected: false,
-            async_encrypted: false,
             handle,
             in_buf: Vec::new(),
             out_buf: Vec::new(),
             enable_remote: true,
-            message_id: 0xffff_ff00,
+            sent_message_id: 0xffff_ff00,
+            read_message_id: 0xffff_ff00,
+
             state: SessionState::Handshake,
         }
     }
@@ -110,6 +142,7 @@ where
         peer: SocketAddr,
         config: ServerConfig,
         #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>,
+        #[cfg(feature = "tls")] validator: impl Validator<secret::Plain> + Clone,
     ) -> Result<(), io::Error> {
         loop {
             match Message::read_from(stream, config.max_message_size).await? {
@@ -121,8 +154,8 @@ where
                             msg,
                             stream,
                             peer,
-                            #[cfg(feature = "tls")]
-                            acceptor.clone(),
+                            #[cfg(feature = "tls")] acceptor.clone(),
+                            #[cfg(feature = "tls")] validator.clone(),
                         )
                         .await?;
                 }
@@ -143,22 +176,22 @@ where
         stream: &mut HislipStream<'_>,
         peer: SocketAddr,
         #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>,
+        #[cfg(feature = "tls")] validator: impl Validator<secret::Plain>,
     ) -> Result<(), io::Error> {
         match msg {
             Message {
                 message_type: MessageType::VendorSpecific(code),
                 ..
             } => {
-                log::warn!(peer=format!("{}", peer);
+                log::warn!(session_id=self.id;
                     "Unrecognized Vendor Defined Message ({})",
                     code
                 );
-                Message::from(Error::NonFatal(
+                send_nonfatal!(
+                    stream,
                     NonFatalErrorCode::UnrecognizedVendorDefinedMessage,
-                    b"Unrecognized Vendor Defined Message",
-                ))
-                .write_to(stream)
-                .await?;
+                    b"Unrecognized Vendor Defined Message"
+                );
             }
             Message {
                 message_type: MessageType::FatalError,
@@ -166,11 +199,10 @@ where
                 payload,
                 ..
             } => {
-                log::error!(peer=format!("{}", peer);
+                log::error!(session_id=self.id;
                     "Client fatal error {:?}: {}", FatalErrorCode::from_error_code(control_code),
                     from_utf8(&payload).unwrap_or("<invalid utf8>")
                 );
-                //break; // Let client close connection
             }
             Message {
                 message_type: MessageType::Error,
@@ -178,74 +210,71 @@ where
                 payload,
                 ..
             } => {
-                log::warn!(peer=format!("{}", peer);
+                log::warn!(session_id=self.id;
                     "Client error {:?}: {}", NonFatalErrorCode::from_error_code(control_code),
                     from_utf8(&payload).unwrap_or("<invalid utf8>")
                 );
             }
             Message {
-                message_type: MessageType::Data,
+                message_type: typ @ MessageType::Data | typ @ MessageType::DataEnd,
                 message_parameter: message_id,
                 payload,
                 ..
             } => {
-                if self.state == SessionState::Clear {
-                    // Ignore data when clearing
-                    return Ok(());
-                }
+                self.read_message_id = message_id;
+                match self.state {
+                    // Put data in buffer and possibly execute
+                    SessionState::Normal => {
+                        let mut dev = self.handle.async_lock().await.unwrap();
+                        device_remote!(self, dev);
 
-                let mut dev = self.handle.async_lock().await.unwrap();
+                        // Save data in buffer
+                        self.in_buf.extend_from_slice(&payload);
+                        log::trace!(session_id=self.id, message_id=message_id; "Data {:?}", payload);
 
-                //
-                if self.enable_remote {
-                    dev.set_remote(true);
-                }
+                        // Execute if END is implied
+                        if typ == MessageType::DataEnd {
+                            let out = dev.execute(&self.in_buf);
+                            self.in_buf.clear();
 
-                //
-                self.in_buf.extend_from_slice(&payload);
-                log::trace!(peer=format!("{}", peer), message_id=message_id; "Data {:?}", payload);
-            }
-            Message {
-                message_type: MessageType::DataEnd,
-                message_parameter: message_id,
-                payload,
-                ..
-            } => {
-                if self.state == SessionState::Clear {
-                    // Ignore data when clearing
-                    return Ok(());
-                }
-
-                let mut dev = self.handle.async_lock().await.unwrap();
-
-                //
-                if self.enable_remote {
-                    dev.set_remote(true);
-                }
-
-                //
-                self.in_buf.extend_from_slice(&payload);
-                log::trace!(peer=format!("{}", peer), message_id=message_id; "DataEnd {:?}", payload);
-                let out = dev.execute(&self.in_buf);
-                self.in_buf.clear();
-
-                // Send back any output data
-                if !out.is_empty() {
-                    let mut iter = out.chunks_exact(self.max_message_size as usize);
-                    while let Some(chunk) = iter.next() {
-                        MessageType::Data
-                            .message_params(0, self.message_id)
-                            .with_payload(chunk.to_vec())
-                            .write_to(stream)
-                            .await?;
-                        self.message_id = self.message_id.wrapping_add(2);
+                            // Send back any output data
+                            if !out.is_empty() {
+                                let mut iter = out.chunks_exact(self.max_message_size as usize);
+                                while let Some(chunk) = iter.next() {
+                                    MessageType::Data
+                                        .message_params(0, self.sent_message_id)
+                                        .with_payload(chunk.to_vec())
+                                        .write_to(stream)
+                                        .await?;
+                                    self.sent_message_id = self.sent_message_id.wrapping_add(2);
+                                }
+                                MessageType::DataEnd
+                                    .message_params(0, self.sent_message_id)
+                                    .with_payload(iter.remainder().to_vec())
+                                    .write_to(stream)
+                                    .await?;
+                                self.sent_message_id = self.sent_message_id.wrapping_add(2);
+                            }
+                        }
                     }
-                    MessageType::DataEnd
-                        .message_params(0, self.message_id)
-                        .with_payload(iter.remainder().to_vec())
-                        .write_to(stream)
-                        .await?;
-                    self.message_id = self.message_id.wrapping_add(2);
+                    // Ignore message
+                    SessionState::Clear => return Ok(()),
+                    // Currently establishing secure connection
+                    SessionState::EncryptionStart | SessionState::AuthenticationStart => {
+                        send_fatal!(
+                            stream,
+                            FatalErrorCode::SecureConnectionFailed,
+                            b"Unexpected message during handshake"
+                        )
+                    }
+                    // Still handshaking
+                    SessionState::Handshake => {
+                        send_fatal!(
+                            stream,
+                            FatalErrorCode::AttemptUseWithoutBothChannels,
+                            b"Attempted to use without both channels"
+                        )
+                    }
                 }
             }
             Message {
@@ -254,69 +283,125 @@ where
                 control_code,
                 ..
             } => {
-                if self.state == SessionState::Clear {
-                    // Ignore data when clearing
-                    return Ok(());
+                self.read_message_id = message_id;
+                match self.state {
+                    // Put data in buffer and possibly execute
+                    SessionState::Normal => {
+                        let control = RmtDeliveredControl(control_code);
+                        log::debug!(session_id=self.id, message_id=message_id; "Trigger, {}", control);
+
+                        let mut dev = self.handle.async_lock().await.unwrap();
+                        device_remote!(self, dev);
+                        let _ = dev.trigger();
+                    }
+                    // Ignore message
+                    SessionState::Clear => return Ok(()),
+                    // Currently establishing secure connection
+                    SessionState::EncryptionStart | SessionState::AuthenticationStart => {
+                        send_fatal!(
+                            stream,
+                            FatalErrorCode::SecureConnectionFailed,
+                            b"Unexpected message during handshake"
+                        )
+                    }
+                    // Still handshaking
+                    SessionState::Handshake => {
+                        send_fatal!(
+                            stream,
+                            FatalErrorCode::AttemptUseWithoutBothChannels,
+                            b"Attempted to use without both channels"
+                        )
+                    }
                 }
-
-                let control = RmtDeliveredControl(control_code);
-                log::debug!(session_id = self.id, message_id=message_id; "Trigger, {}", control);
-
-                let mut dev = self.handle.async_lock().await.unwrap();
-
-                if self.enable_remote {
-                    dev.set_remote(true);
-                }
-                let _ = dev.trigger();
             }
             Message {
                 message_type: MessageType::DeviceClearComplete,
                 control_code,
                 ..
             } => {
-                if self.state != SessionState::Clear {
-                    // No clear has been commanded
-                    Message::from(Error::NonFatal(
-                        NonFatalErrorCode::UnidentifiedError,
-                        b"Unexpected device clear complete",
-                    ))
-                    .write_to(stream)
-                    .await?;
-                } else {
-                    let feature_request = FeatureBitmap(control_code);
-                    log::debug!(session_id = self.id; "Device clear complete, {}", feature_request);
+                match self.state {
+                    // Ignore message
+                    SessionState::Clear => {
+                        let feature_request = FeatureBitmap(control_code);
+                        log::debug!(session_id = self.id; "Device clear complete, {}", feature_request);
 
-                    self.state = SessionState::Normal;
+                        self.state = SessionState::Normal;
 
-                    // Client might prefer overlapped/synch, fine.
-                    self.mode = if feature_request.overlapped() {
-                        SessionMode::Overlapped
-                    } else {
-                        SessionMode::Synchronized
-                    };
+                        // Client might prefer overlapped/synch, fine.
+                        self.mode = if feature_request.overlapped() {
+                            SessionMode::Overlapped
+                        } else {
+                            SessionMode::Synchronized
+                        };
 
-                    // Agreed features
-                    let feature_setting = FeatureBitmap::new(
-                        feature_request.overlapped(),
-                        self.config.encryption_mode && self.protocol >= PROTOCOL_2_0,
-                        self.config.initial_encryption && self.protocol >= PROTOCOL_2_0,
-                    );
-                    MessageType::DeviceClearAcknowledge
-                        .message_params(feature_setting.0, self.message_id)
-                        .no_payload()
-                        .write_to(stream)
-                        .await?;
+                        // Agreed features
+                        let feature_setting = FeatureBitmap::new(
+                            feature_request.overlapped(),
+                            self.config.encryption_mode && self.protocol >= PROTOCOL_2_0,
+                            self.config.initial_encryption && self.protocol >= PROTOCOL_2_0,
+                        );
+                        MessageType::DeviceClearAcknowledge
+                            .message_params(feature_setting.0, self.sent_message_id)
+                            .no_payload()
+                            .write_to(stream)
+                            .await?;
+                    }
+                    // Currently establishing secure connection
+                    _ => {
+                        log::warn!(session_id = self.id; "Unexpected device clear complete");
+                        send_nonfatal!(
+                            stream,
+                            NonFatalErrorCode::UnidentifiedError,
+                            b"Unexpected device clear complete"
+                        )
+                    }
                 }
             }
+            Message {
+                message_type: MessageType::GetDescriptors,
+                ..
+            } => {
+                
+            }
+            Message {
+                message_type: MessageType::StartTLS,
+                ..
+            } => {
+                
+            }
+            Message {
+                message_type: MessageType::GetSaslMechanismList,
+                ..
+            } => {
+                
+                let mut supported = "PLAIN ANONYMOUS";
+                
+                MessageType::GetSaslMechanismListResponse
+                    .message_params(0, 0)
+                    .no_payload()
+                    .write_to(stream)
+                    .await?;
+
+            }
+            Message {
+                message_type: MessageType::AuthenticationStart,
+                ..
+            } => {
+                
+            }
+            Message {
+                message_type: MessageType::AuthenticationExchange,
+                ..
+            } => {
+                
+            }
             msg => {
-                log::debug!(session_id = self.id; "Unexpected message type in synchronous channel: {:?}", msg);
-                Message::from(Error::Fatal(
-                    FatalErrorCode::UnidentifiedError,
-                    b"Unexpected message in synchronous channel",
-                ))
-                .write_to(stream)
-                .await?;
-                return Err(io::ErrorKind::Other.into());
+                log::error!(session_id = self.id; "Unexpected message type in synchronous channel: {:?}", msg);
+                send_nonfatal!(
+                    stream,
+                    NonFatalErrorCode::UnidentifiedError,
+                    b"Unexpected message in synchronous channel"
+                );
             }
         }
         Ok(())
@@ -328,6 +413,7 @@ where
         peer: SocketAddr,
         config: ServerConfig,
         #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>,
+        #[cfg(feature = "tls")] validator: impl Validator<secret::Plain> + Clone,
     ) -> Result<(), io::Error> {
         loop {
             match Message::read_from(stream, config.max_message_size).await? {
@@ -338,8 +424,8 @@ where
                             msg,
                             stream,
                             peer,
-                            #[cfg(feature = "tls")]
-                            acceptor.clone(),
+                            #[cfg(feature = "tls")] acceptor.clone(),
+                            #[cfg(feature = "tls")] validator.clone(),
                         )
                         .await?;
                 }
@@ -359,6 +445,7 @@ where
         stream: &mut HislipStream<'_>,
         peer: SocketAddr,
         #[cfg(feature = "tls")] acceptor: Arc<TlsAcceptor>,
+        #[cfg(feature = "tls")] validator: impl Validator<secret::Plain>,
     ) -> Result<(), io::Error> {
         match msg {
             Message {
@@ -534,7 +621,13 @@ where
                 payload,
                 ..
             } => {
-                if payload.len() < 8 {
+                if payload.len() != 8 {
+                    Message::from(Error::NonFatal(
+                        NonFatalErrorCode::MessageTooLarge,
+                        b"Unexpected message in asynchronous channel",
+                    ))
+                    .write_to(stream)
+                    .await?;
                     return Err(io::ErrorKind::UnexpectedEof.into());
                 }
                 let size = NetworkEndian::read_u64(payload.as_slice());
@@ -569,7 +662,7 @@ where
                 self.state = SessionState::Clear;
                 self.in_buf.clear();
                 self.out_buf.clear();
-                self.message_id = 0xffff_ff00;
+                self.sent_message_id = 0xffff_ff00;
 
                 // Announce preferred features
                 let features = FeatureBitmap::new(
@@ -622,9 +715,26 @@ where
             }
             Message {
                 message_type: MessageType::AsyncStartTLS,
+                control_code,
                 message_parameter,
-                ..
+                payload,
             } => {
+                if payload.len() != 4 {
+                    Message::from(Error::NonFatal(
+                        NonFatalErrorCode::MessageTooLarge,
+                        b"Unexpected message in asynchronous channel",
+                    ))
+                    .write_to(stream)
+                    .await?;
+                    return Err(io::ErrorKind::UnexpectedEof.into());
+                }
+
+                let control = RmtDeliveredControl(control_code);
+                let message_id_sent = message_parameter;
+                let message_id_read = NetworkEndian::read_u32(&payload);
+
+                log::debug!(session_id=self.id, message_id_sent=message_id_sent, message_id_read=message_id_read; "Start async TLS");
+
                 // Only supported >= 2.0
                 if self.protocol < PROTOCOL_2_0 {
                     log::debug!(session_id = self.id; "Unexpected message type in asynchronous channel");
