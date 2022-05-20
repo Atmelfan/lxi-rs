@@ -7,13 +7,16 @@ use std::{
     sync::Arc,
 };
 
-use async_std::io;
+use async_std::{io, future};
 use lxi_device::{
-    lock::SharedLock,
+    lock::{Mutex, SharedLock},
     util::{EchoDevice, SimpleDevice},
 };
 
-use lxi_hislip::{server::Server as HislipServer, STANDARD_PORT as HISLIP_STANDARD_PORT};
+use lxi_hislip::{
+    server::{auth::AnonymousAuth, Server as HislipServer},
+    STANDARD_PORT as HISLIP_STANDARD_PORT,
+};
 
 use lxi_socket::{
     server::{
@@ -89,17 +92,22 @@ async fn main() -> Result<(), io::Error> {
     let shared_lock = SharedLock::new();
 
     #[cfg(feature = "tls")]
-    let acceptor = {
-        let config = load_config(&args)?;
-        Arc::new(TlsAcceptor::from(Arc::new(config)))
-    };
+    let config = load_config(&args)?;
 
     // Start HiSLIP server
     let hislip_addr = args.ip.clone();
     let hislip_lock = shared_lock.clone();
     let hislip_device = device.clone();
+    let authenticator = Arc::new(Mutex::new(AnonymousAuth));
+
+    #[cfg(feature = "tls")]
+    let hislip_tls_config = config.clone();
+
     async_std::task::spawn(async move {
-        let server = HislipServer::new(hislip_lock, hislip_device);
+        #[cfg(feature = "tls")]
+        let acceptor = TlsAcceptor::from(Arc::new(hislip_tls_config));
+
+        let server = HislipServer::new(hislip_lock, hislip_device, authenticator);
         server
             .accept(
                 (&hislip_addr[..], HISLIP_STANDARD_PORT),
@@ -124,11 +132,31 @@ async fn main() -> Result<(), io::Error> {
             .await
     });
 
+    #[cfg(feature = "tls")]
+    {
+        let acceptor = TlsAcceptor::from(Arc::new(config));
+        
+        let tls_socket_addr = args.ip.clone();
+        let tls_socket_lock = shared_lock.clone();
+        let tls_socket_device = device.clone();
+        async_std::task::spawn(async move {
+            let server = SocketServerConfig::default().read_buffer(16 * 1024).build();
+            server
+                .accept_tls(
+                    (&tls_socket_addr[..], SOCKET_STANDARD_PORT+1000),
+                    tls_socket_lock,
+                    tls_socket_device,
+                    acceptor
+                )
+                .await
+        });
+    }
+
     // Start telnet server
     let telnet_addr = args.ip.clone();
     let telnet_lock = shared_lock.clone();
     let telnet_device = device.clone();
-    async_std::task::spawn(async move {
+    let telnet = async_std::task::spawn(async move {
         let server = TelnetServerConfig::default().read_buffer(16 * 1024).build();
         server
             .accept(
@@ -139,5 +167,6 @@ async fn main() -> Result<(), io::Error> {
             .await
     });
 
-    Ok(())
+    telnet.await
+
 }

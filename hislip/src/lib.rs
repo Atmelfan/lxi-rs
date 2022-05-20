@@ -1,5 +1,3 @@
-use common::Protocol;
-
 pub mod common;
 pub mod server;
 

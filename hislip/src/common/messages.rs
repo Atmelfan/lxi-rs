@@ -11,6 +11,14 @@ use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use super::Protocol;
 
+pub(crate) mod prelude {
+    pub(crate) use super::{
+        AsyncInitializeResponseControl, AsyncInitializeResponseParameter, FeatureBitmap,
+        InitializeParameter, InitializeResponseControl, InitializeResponseParameter, Message,
+        MessageType, RmtDeliveredControl, RequestLockControl, ReleaseLockControl
+    };
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct Message {
     pub(crate) message_type: MessageType,
@@ -49,7 +57,7 @@ impl Message {
         if prolog != b"HS" {
             return Ok(Err(Error::Fatal(
                 FatalErrorCode::PoorlyFormattedMessageHeader,
-                b"Invalid prologue",
+                "Invalid prologue".to_string(),
             )));
         }
 
@@ -59,14 +67,14 @@ impl Message {
         if len > maxlen {
             Ok(Err(Error::NonFatal(
                 NonFatalErrorCode::MessageTooLarge,
-                b"Message payload too large",
+                "Message payload too large".to_string(),
             )))
         } else {
             let mut payload = Vec::with_capacity(len as usize);
             reader.take(len).read_to_end(&mut payload).await?;
             match MessageType::from_message_type(buf[2]).ok_or(Error::NonFatal(
                 NonFatalErrorCode::UnrecognizedMessageType,
-                b"Unrecognized message type",
+                "Unrecognized message type".to_string(),
             )) {
                 Ok(message_type) => Ok(Ok(Message { 
                     message_type,
@@ -102,13 +110,48 @@ impl From<Error> for Message {
         match err {
             Error::Fatal(code, msg) => MessageType::FatalError
                 .message_params(code.error_code(), 0)
-                .with_payload(msg.to_vec()),
+                .with_payload(msg.into_bytes()),
             Error::NonFatal(code, msg) => MessageType::Error
                 .message_params(code.error_code(), 0)
-                .with_payload(msg.to_vec()),
+                .with_payload(msg.into_bytes()),
         }
     }
 }
+
+macro_rules! send_fatal {
+    ($stream:expr, $err:expr, $($arg:tt)*) => {{
+        log::error!($($arg)*);
+        Message::from(Error::Fatal($err, format!($($arg)*)))
+            .write_to($stream)
+            .await?;
+        return Err(io::ErrorKind::Other.into());
+    }};
+    ($($key:ident=$value:expr),*; $stream:expr, $err:expr, $($arg:tt)*) => {{
+        log::error!($($key=$value),*; $($arg)*);
+        Message::from(Error::Fatal($err, format!($($arg)*)))
+            .write_to($stream)
+            .await?;
+        return Err(io::ErrorKind::Other.into());
+    }};
+}
+pub(crate) use send_fatal;
+
+macro_rules! send_nonfatal {
+    ($stream:expr, $err:expr, $($arg:tt)*) => {{
+        log::warn!($($arg)*);
+        Message::from(Error::NonFatal($err, format!($($arg)*)))
+            .write_to($stream)
+            .await?
+    }};
+    ($($key:ident=$value:expr),*; $stream:expr, $err:expr, $($arg:tt)*) => {{
+        log::warn!($($key=$value),*; $($arg)*);
+        Message::from(Error::NonFatal($err, format!($($arg)*)))
+            .write_to($stream)
+            .await?
+    }};
+}
+pub(crate) use send_nonfatal;
+
 
 /// Message Type Value Definitions
 ///
@@ -325,8 +368,6 @@ impl AsyncInitializeResponseParameter {
     }
 }
 
-
-
 bitfield! {
     pub struct AsyncInitializeResponseControl(u8);
     impl Debug;
@@ -375,7 +416,7 @@ bitfield! {
 }
 
 impl FeatureBitmap {
-    pub fn new(overlapped: bool, encryption: bool, initial_encryption: bool) -> Self {
+    pub(crate) fn new(overlapped: bool, encryption: bool, initial_encryption: bool) -> Self {
         let mut s = FeatureBitmap(0);
         s.set_overlapped(overlapped);
         s.set_encryption(encryption);
@@ -389,3 +430,22 @@ impl Display for FeatureBitmap {
         write!(f, "overlapped: {}, encryption: {}, initial_encryption: {}", self.overlapped(), self.encryption(), self.initial_encryption())
     }
 }
+
+#[derive(Debug, Clone, Copy)]
+pub(crate)enum RequestLockControl {
+    Failure = 0,
+    Success = 1,
+    Error = 2
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate)enum ReleaseLockControl {
+    SuccessExclusive = 1,
+    SuccessShared = 2,
+    Error = 3
+}
+
+const DISABLE_REMOTE: u8 = 0;
+const ENABLE_REMOTE: u8 = 0;
+
+

@@ -6,11 +6,12 @@ use std::{
 };
 
 use async_std::io;
+use futures::lock::Mutex;
 use lxi_device::{
     lock::SharedLock,
     util::SimpleDevice,
 };
-use lxi_hislip::{server::Server, STANDARD_PORT};
+use lxi_hislip::{server::{Server, auth::AnonymousAuth}, STANDARD_PORT};
 
 use clap::Parser;
 
@@ -86,10 +87,12 @@ async fn main() -> Result<(), io::Error> {
     #[cfg(feature = "tls")]
     let acceptor = {
         let config = load_config(&args)?;
-        Arc::new(TlsAcceptor::from(Arc::new(config)))
+        TlsAcceptor::from(Arc::new(config))
     };
 
-    let server = Server::new(shared_lock, device).accept(
+    let authenticator = Arc::new(Mutex::new(AnonymousAuth));
+
+    let server = Server::new(shared_lock, device, authenticator).accept(
         (&args.ip[..], args.port),
         #[cfg(feature = "tls")]
         acceptor,

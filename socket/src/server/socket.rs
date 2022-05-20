@@ -74,7 +74,7 @@ impl Server {
         addr: impl ToSocketAddrs,
         shared_lock: Arc<SpinMutex<SharedLock>>,
         device: Arc<Mutex<DEV>>,
-        acceptor: Arc<TlsAcceptor>
+        acceptor: TlsAcceptor
     ) -> io::Result<()>
     where
         DEV: Device + Send + 'static,

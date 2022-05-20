@@ -23,7 +23,7 @@ pub(crate) enum HislipStream<'a> {
 
 impl<'a> HislipStream<'a> {
     #[cfg(feature = "tls")] 
-    pub async fn start_tls(&mut self, acceptor: Arc<TlsAcceptor>) -> io::Result<()> {
+    pub async fn start_tls(&mut self, acceptor: TlsAcceptor) -> io::Result<()> {
         match self {
             HislipStream::Open(stream) => {
                 let e = acceptor

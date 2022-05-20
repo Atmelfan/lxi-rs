@@ -24,7 +24,8 @@ optional = true
 [dependencies.sasl]
 #version = "0.5"
 path = "../../sasl-rs"
-optional = true
+default-features = false
+features = ["anonymous"]
 
 [dev-dependencies]
 femme = "2.2"
@@ -32,4 +33,5 @@ clap = { version = "3.1.12", features = ["derive"] }
 rustls = "0.19"
 
 [features]
-tls = ["async-tls", "sasl"]
+tls = ["async-tls"]
+scram = ["sasl/scram"]

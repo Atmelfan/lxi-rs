@@ -1,20 +1,14 @@
 use std::fmt::{Display, Formatter};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub enum Error {
-    Fatal(FatalErrorCode, &'static [u8]),
-    NonFatal(NonFatalErrorCode, &'static [u8]),
+    Fatal(FatalErrorCode, String),
+    NonFatal(NonFatalErrorCode, String),
 }
 
 impl Error {
     pub fn is_fatal(&self) -> bool {
         matches!(self, Self::Fatal(..))
-    }
-}
-
-impl From<std::io::Error> for Error {
-    fn from(_: std::io::Error) -> Self {
-        Error::Fatal(FatalErrorCode::UnidentifiedError, b"IO Error")
     }
 }
 
