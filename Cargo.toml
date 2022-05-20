@@ -8,7 +8,8 @@ members = [
     "hislip",
     "socket",
     "vxi11",
-    "app"
+    "app",
+    "web"
 ]
 
 [workspace.metadata.release]
