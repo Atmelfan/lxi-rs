@@ -23,7 +23,9 @@ optional = true
 
 [dependencies.sasl]
 #version = "0.5"
-path = "../../sasl-rs"
+#path = "../../sasl-rs"
+git = "https://gitlab.com/Atmelfan/sasl-rs.git"
+branch = "fix-optional-features"
 default-features = false
 features = ["anonymous"]
 
