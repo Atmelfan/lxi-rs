@@ -1,13 +1,14 @@
 use async_sqlx_session::SqliteSessionStore;
-use lxi_web::{State, routes};
+use lxi_web::{routes, State};
 use sqlx::sqlite::SqlitePool;
-use std::{env, time::Duration};
+use std::{collections::BTreeMap, env, sync::Arc, time::Duration};
 use tide::{sessions::SessionMiddleware, Redirect};
 
+use handlebars::{Handlebars, HelperDef, RenderContext, Helper, Context, JsonRender, HelperResult, Output, RenderError};
 
 async fn db_connection() -> tide::Result<SqlitePool> {
     let database_url = env::var("DATABASE_URL")?;
-    Ok(SqlitePool::new(&database_url).await?)
+    Ok(SqlitePool::connect(&database_url).await?)
 }
 
 async fn build_session_middleware(
@@ -27,28 +28,22 @@ async fn build_session_middleware(
 async fn main() -> tide::Result<()> {
     tide::log::with_level(tide::log::LevelFilter::Info);
     let db = db_connection().await?;
-    let mut app = tide::with_state(State { db: db.clone() });
+
+    let state = State {
+        db: db.clone(),
+    };
+
+    let mut app = tide::with_state(state);
 
     app.with(build_session_middleware(db).await?);
 
-    app.at("/").get(Redirect::new("/welcome"));
+    app.at("/").get(Redirect::new("/welcome")); 
 
     app.at("/welcome").get(routes::welcome);
 
-    let mut articles = app.at("/articles");
-
-    articles
-        .post(routes::articles::create)
-        .get(routes::articles::index);
-
-    articles.at("/new").get(routes::articles::new);
-
-    articles
-        .at("/:article_id")
-        .get(routes::articles::show)
-        .delete(routes::articles::delete)
-        .put(routes::articles::update)
-        .post(routes::articles::update);
+    // Serve manual
+    app.at("/manual").get(Redirect::new("/manual/index.html"));
+    app.at("/manual/").serve_dir("examples/manual/book")?;
 
     app.listen("127.0.0.1:8000").await?;
     Ok(())

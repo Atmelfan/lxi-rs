@@ -49,7 +49,7 @@ impl PartialArticle {
 
 impl Article {
     pub fn all() -> QueryAs<'static, sqlx::Sqlite, Self, SqliteArguments<'static>> {
-        sqlx::query_as("SELECT * FROM users")
+        sqlx::query_as("SELECT * FROM articles")
     }
 
     pub fn last_id() -> QueryAs<'static, sqlx::Sqlite, (i64,), SqliteArguments<'static>>  {
@@ -57,11 +57,11 @@ impl Article {
     }
 
     pub fn find_by_id(id: i64) -> QueryAs<'static, sqlx::Sqlite, Self, SqliteArguments<'static>> {
-        sqlx::query_as("SELECT * FROM users WHERE id = ?").bind(id)
+        sqlx::query_as("SELECT * FROM articles WHERE id = ?").bind(id)
     }
 
     pub fn delete_by_id(id: i64) -> Query<'static, sqlx::Sqlite, SqliteArguments<'static>> {
-        sqlx::query("DELETE FROM users WHERE id = ?").bind(id)
+        sqlx::query("DELETE FROM articles WHERE id = ?").bind(id)
     }
 
     // pub fn update(&self, partial: PartialArticle) -> Query {

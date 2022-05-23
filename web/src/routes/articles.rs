@@ -28,12 +28,12 @@ pub async fn delete(request: crate::Request) -> tide::Result {
 pub async fn update(mut request: crate::Request) -> tide::Result {
     let article: PartialArticle = utils::deserialize_body(&mut request).await?;
     let article_id = request.param("article_id")?.parse()?;
-    let rows_updated = article
+    let done = article
         .update_by_id(article_id)
         .execute(&request.state().db)
         .await?;
 
-    if rows_updated == 1 {
+    if done.rows_affected() == 1 {
         Ok(tide::Redirect::new(format!("/articles/{}", article_id)).into())
     } else {
         Ok(ArticleForm::for_partial_article(&article).into())
@@ -44,9 +44,9 @@ pub async fn create(mut request: crate::Request) -> tide::Result {
     let db = &request.state().db;
     let mut tx = db.begin().await?;
     let article: PartialArticle = utils::deserialize_body(&mut request).await?;
-    let created = article.create().execute(&mut tx).await?;
+    let done = article.create().execute(&mut tx).await?;
 
-    if created == 1 {
+    if done.rows_affected() == 1 {
         let (last_id,) = Article::last_id().fetch_one(&mut tx).await?;
         tx.commit().await?;
 
