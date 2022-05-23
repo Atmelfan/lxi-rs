@@ -2,23 +2,23 @@ use serde::{Deserialize, Serialize};
 use sqlx::{database::HasArguments, query::{Query, QueryAs}, sqlite::SqliteArguments};
 
 #[derive(sqlx::FromRow, Debug, Deserialize, Serialize)]
-pub struct Article {
+pub struct User {
     pub id: i64,
-    pub text: String,
-    pub title: String,
+    pub name: String,
+    pub admin: bool,
     created: i32,
     updated: i32,
 }
 
-impl crate::utils::AsRoute for Article {
+impl crate::utils::AsRoute for User {
     fn as_route(&self) -> std::borrow::Cow<str> {
-        format!("/articles/{}", self.id).into()
+        format!("/user/{}", self.id).into()
     }
 }
 
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct PartialArticle {
-    pub text: Option<String>,
+    pub name: Option<String>,
     pub title: Option<String>,
 }
 
@@ -47,21 +47,17 @@ impl PartialArticle {
     }
 }
 
-impl Article {
+impl User {
     pub fn all() -> QueryAs<'static, sqlx::Sqlite, Self, SqliteArguments<'static>> {
-        sqlx::query_as("SELECT * FROM articles")
-    }
-
-    pub fn last_id() -> QueryAs<'static, sqlx::Sqlite, (i64,), SqliteArguments<'static>>  {
-        sqlx::query_as("SELECT last_insert_rowid()")
+        sqlx::query_as("SELECT * FROM users")
     }
 
     pub fn find_by_id(id: i64) -> QueryAs<'static, sqlx::Sqlite, Self, SqliteArguments<'static>> {
-        sqlx::query_as("SELECT * FROM articles WHERE id = ?").bind(id)
+        sqlx::query_as("SELECT * FROM users WHERE id = ?").bind(id)
     }
 
     pub fn delete_by_id(id: i64) -> Query<'static, sqlx::Sqlite, SqliteArguments<'static>> {
-        sqlx::query("DELETE FROM articles WHERE id = ?").bind(id)
+        sqlx::query("DELETE FROM users WHERE id = ?").bind(id)
     }
 
     // pub fn update(&self, partial: PartialArticle) -> Query {

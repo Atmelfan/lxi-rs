@@ -5,6 +5,7 @@ use std::{io, fmt::Display};
 use bitfield::bitfield;
 
 use byteorder::{BigEndian, ByteOrder, NetworkEndian};
+use lxi_device::lock::SharedLockError;
 
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -436,6 +437,15 @@ pub(crate)enum RequestLockControl {
     Failure = 0,
     Success = 1,
     Error = 2
+}
+
+impl From<SharedLockError> for RequestLockControl {
+    fn from(err: SharedLockError) -> Self {
+        match err {
+            SharedLockError::Timeout => RequestLockControl::Failure,
+            _ => RequestLockControl::Error,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
