@@ -13,6 +13,7 @@ use futures::lock::Mutex;
 use futures::{select, Future, FutureExt, StreamExt};
 use lxi_device::lock::{LockHandle, SharedLockError, SharedLockMode};
 use lxi_device::{Device, DeviceError};
+use sasl::server::Mechanism;
 
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::common::messages::{prelude::*, send_fatal, send_nonfatal};
@@ -46,6 +47,7 @@ pub(crate) enum SessionState {
     AuthenticationStart,
     Normal,
     Clear,
+    EncryptionStop,
 }
 
 macro_rules! device_remote {
@@ -67,13 +69,13 @@ where
     state: SessionState,
 
     /// Negotiated session mode
-    pub(crate) mode: SessionMode,
+    mode: SessionMode,
     /// Session ID
-    pub(crate) id: u16,
+    id: u16,
     /// Client max message size
-    pub(crate) max_message_size: u64,
+    max_message_size: u64,
 
-    pub(crate) handle: LockHandle<DEV>,
+    handle: LockHandle<DEV>,
 
     //
     enable_remote: bool,
@@ -86,9 +88,139 @@ where
     read_message_id: u32,
 }
 
-pub(crate) struct SyncSession<DEV>
+impl<DEV> Session<DEV>
 where
     DEV: Device,
+{
+    pub(crate) fn new(
+        config: ServerConfig,
+        session_id: u16,
+        protocol: Protocol,
+        handle: LockHandle<DEV>,
+    ) -> Self {
+        Self {
+            config,
+            protocol,
+            mode: SessionMode::Overlapped,
+            id: session_id,
+            max_message_size: 256,
+            handle,
+            in_buf: Vec::new(),
+            out_buf: Vec::new(),
+            enable_remote: true,
+            sent_message_id: 0xffff_ff00,
+            read_message_id: 0xffff_ff00,
+
+            state: SessionState::Handshake,
+        }
+    }
+
+    fn update_message_id(&mut self, message_id: u32) {
+        self.read_message_id = message_id;
+    }
+
+    /// Write data to device and execute if end is set.
+    async fn write_data(&mut self, data: &[u8], end: bool) -> Result<(), SharedLockError> {
+        let mut dev = self.handle.async_lock().await?;
+
+        // Set device into remote mode if enabled
+        if self.enable_remote {
+            let _ = dev.set_remote(true);
+        }
+
+        // Save data in buffer
+        self.in_buf.extend_from_slice(data);
+
+        // Execute if END is implied
+        if end {
+            let out = dev.execute(&self.in_buf);
+            self.in_buf.clear();
+            self.out_buf.extend_from_slice(&out);
+        }
+
+        Ok(())
+    }
+
+    /// Clear session (and device if available to session)
+    async fn clear(&mut self) {
+        if let Ok(mut dev) = self.handle.try_lock() {
+            // Set device into remote mode if enabled
+            if self.enable_remote {
+                let _ = dev.set_remote(true);
+            }
+
+            // Clear device
+            let _ = dev.clear();
+        }
+
+        // Clear session state
+        self.in_buf.clear();
+        self.out_buf.clear();
+        self.sent_message_id = 0xffff_ff00;
+        self.read_message_id = 0xffff_ff00;
+    }
+
+    async fn trigger(&mut self) -> Result<(), SharedLockError> {
+        let mut dev = self.handle.async_lock().await?;
+
+        // Set device into remote mode if enabled
+        if self.enable_remote {
+            let _ = dev.set_remote(true);
+        }
+
+        // Send trigger
+        let _ = dev.trigger();
+
+        Ok(())
+    }
+
+    pub(crate) fn close(&mut self) {
+        log::debug!(session_id=self.id; "Closing session");
+        // Release any lock this session might be holding
+        // Should be called anyways by LockHandle::drop() but done here to be obvious
+        self.handle.force_release();
+    }
+
+    /// Get the session's state.
+    #[must_use]
+    pub(crate) fn state(&self) -> SessionState {
+        self.state
+    }
+
+    #[must_use]
+    pub(crate) fn is_initialized(&self) -> bool {
+        // !matches!(self.state, SessionState::Handshake) // Just looks weird
+        match self.state {
+            SessionState::Handshake => false,
+            _ => false,
+        }
+    }
+
+    /// Get the session's protocol.
+    #[must_use]
+    pub(crate) fn protocol(&self) -> Protocol {
+        self.protocol
+    }
+
+    /// Set the session's state.
+    pub(crate) fn set_state(&mut self, state: SessionState) {
+        self.state = state;
+    }
+}
+
+impl<DEV> Drop for Session<DEV>
+where
+    DEV: Device,
+{
+    fn drop(&mut self) {
+        self.close()
+    }
+}
+
+pub(crate) struct SyncSession<DEV, A>
+where
+    DEV: Device,
+    A: Auth,
 {
     inner: Arc<Mutex<Session<DEV>>>,
     /// Session ID
@@ -100,40 +232,42 @@ where
 
     ///
     event: Receiver<()>,
+
+    authenticator: Arc<Mutex<A>>,
+    mechanism: Option<Box<dyn Mechanism + Send>>,
 }
 
-impl<DEV> SyncSession<DEV>
+impl<DEV, A> SyncSession<DEV, A>
 where
     DEV: Device,
+    A: Auth,
 {
     pub(crate) fn new(
         inner: Arc<Mutex<Session<DEV>>>,
         id: u16,
         config: ServerConfig,
         protocol: Protocol,
+        authenticator: Arc<Mutex<A>>,
     ) -> Self {
         Self {
             inner,
             id,
             config,
             protocol,
+            event: todo!(),
+            authenticator,
+            mechanism: None,
         }
     }
 
-    pub(crate) async fn handle_sync_session(
-        self,
-        stream: &mut HislipStream<'_>,
+    pub(crate) async fn handle_session(
+        mut self,
+        mut stream: HislipStream<'_>,
         peer: SocketAddr,
-        config: ServerConfig,
         #[cfg(feature = "tls")] acceptor: TlsAcceptor,
     ) -> Result<(), io::Error> {
-        let (sender, receiver) = channel::bounded::<u8>(1);
         loop {
-            if let Ok(l) = receiver.try_recv() {
-                // Send response to AsyncLock request
-            }
-
-            match Message::read_from(stream, config.max_message_size).await? {
+            match Message::read_from(&mut stream, self.config.max_message_size).await? {
                 // Valid message
                 Ok(msg) => {
                     match msg {
@@ -142,7 +276,7 @@ where
                             ..
                         } => {
                             send_nonfatal!(peer=peer.to_string(), session_id=self.id;
-                                stream, NonFatalErrorCode::UnrecognizedVendorDefinedMessage,
+                                &mut stream, NonFatalErrorCode::UnrecognizedVendorDefinedMessage,
                                 "Unrecognized Vendor Defined Message ({})", code
                             );
                         }
@@ -171,71 +305,43 @@ where
                         Message {
                             message_type: typ @ MessageType::Data | typ @ MessageType::DataEnd,
                             message_parameter: message_id,
-                            payload,
+                            payload: data,
                             ..
                         } => {
+                            let is_end = matches!(typ, MessageType::DataEnd);
+
                             let mut inner = self.inner.lock().await;
                             inner.read_message_id = message_id;
-                            match inner.state {
-                                // Put data in buffer and possibly execute
+                            match inner.state() {
+                                // Normal state
                                 SessionState::Normal => {
-                                    let mut dev = select! {
-                                        dev = inner.handle.async_lock().fuse() => dev,
+                                    if is_end {
+                                        log::debug!(peer=peer.to_string(), session_id=self.id, message_id=message_id; "Data END");
+                                    } else {
+                                        log::debug!(peer=peer.to_string(), session_id=self.id, message_id=message_id; "Data");
+                                    }
+
+                                    let res = select! {
+                                        res = inner.write_data(&data, is_end).fuse() => res,
                                         _ = self.event.recv().fuse() => {
+                                            inner.state = SessionState::Clear;
                                             Err(SharedLockError::Aborted)
                                         }
                                     };
-                                    if let Ok(dev) = dev {
-                                        device_remote!(self, dev);
+                                    log::trace!("Write")
 
-                                        // Save data in buffer
-                                        self.in_buf.extend_from_slice(&payload);
-                                        log::trace!(session_id=self.id, message_id=message_id; "Data {:?}", payload);
-
-                                        // Execute if END is implied
-                                        if typ == MessageType::DataEnd {
-                                            let out = dev.execute(&self.in_buf);
-                                            self.in_buf.clear();
-
-                                            // Send back any output data
-                                            if !out.is_empty() {
-                                                let mut iter = out
-                                                    .chunks_exact(inner.max_message_size as usize);
-                                                while let Some(chunk) = iter.next() {
-                                                    MessageType::Data
-                                                        .message_params(0, inner.sent_message_id)
-                                                        .with_payload(chunk.to_vec())
-                                                        .write_to(stream)
-                                                        .await?;
-                                                    inner.sent_message_id =
-                                                        inner.sent_message_id.wrapping_add(2);
-                                                }
-                                                MessageType::DataEnd
-                                                    .message_params(0, self.sent_message_id)
-                                                    .with_payload(iter.remainder().to_vec())
-                                                    .write_to(stream)
-                                                    .await?;
-                                                inner.sent_message_id =
-                                                    inner.sent_message_id.wrapping_add(2);
-                                            }
-                                        }
-                                    } else {
-                                        continue;
-                                    }
+                                    // Do not acknowledge
                                 }
-                                // Ignore message
-                                SessionState::Clear => return Ok(()),
-                                // Currently establishing secure connection
-                                SessionState::EncryptionStart
-                                | SessionState::AuthenticationStart => {
-                                    send_fatal!(peer=peer.to_string(), session_id=self.id;
-                                        stream,
-                                        FatalErrorCode::SecureConnectionFailed,
-                                        "Unexpected message during secure connection"
-                                    )
+                                // Clearing
+                                SessionState::Clear => {
+                                    log::debug!(peer=peer.to_string(), session_id=self.id; "Data ignored");
+                                    continue;
                                 }
-                                // Still handshaking
-                                SessionState::Handshake => {}
+                                // Handle other states
+                                SessionState::Handshake => todo!(),
+                                SessionState::EncryptionStart => todo!(),
+                                SessionState::AuthenticationStart => todo!(),
+                                SessionState::EncryptionStop => todo!(),
                             }
                         }
                         Message {
@@ -246,29 +352,22 @@ where
                         } => {
                             let mut inner = self.inner.lock().await;
                             inner.read_message_id = message_id;
-                            match inner.state {
-                                // Put data in buffer and possibly execute
+                            match inner.state() {
                                 SessionState::Normal => {
                                     let control = RmtDeliveredControl(control_code);
                                     log::debug!(session_id=self.id, message_id=message_id; "Trigger, {}", control);
 
-                                    let mut dev = self.handle.async_lock().await.unwrap();
-                                    device_remote!(self, dev);
-                                    let _ = dev.trigger();
+                                    inner.update_message_id(message_id);
+                                    inner.trigger().await;
                                 }
-                                // Ignore message
-                                SessionState::Clear => return Ok(()),
-                                // Currently establishing secure connection
-                                SessionState::EncryptionStart
-                                | SessionState::AuthenticationStart => {
-                                    send_fatal!(peer=peer.to_string(), session_id=self.id;
-                                        stream,
-                                        FatalErrorCode::SecureConnectionFailed,
-                                        "Unexpected message during handshake"
-                                    )
+                                SessionState::Clear => {
+                                    log::debug!(session_id=self.id, message_id=message_id; "Trigger ignored");
+                                    continue;
                                 }
-                                // Still handshaking
-                                SessionState::Handshake => {}
+                                SessionState::Handshake => todo!(),
+                                SessionState::EncryptionStart => todo!(),
+                                SessionState::AuthenticationStart => todo!(),
+                                SessionState::EncryptionStop => todo!(),
                             }
                         }
                         Message {
@@ -303,13 +402,13 @@ where
                                     MessageType::DeviceClearAcknowledge
                                         .message_params(feature_setting.0, inner.sent_message_id)
                                         .no_payload()
-                                        .write_to(stream)
+                                        .write_to(&mut stream)
                                         .await?;
                                 }
                                 // Currently doing something else
                                 _ => {
                                     send_nonfatal!(peer=peer.to_string(), session_id=self.id;
-                                        stream, NonFatalErrorCode::UnidentifiedError,
+                                        &mut stream, NonFatalErrorCode::UnidentifiedError,
                                         "Unexpected device clear complete"
                                     )
                                 }
@@ -321,31 +420,78 @@ where
                         } => {}
                         Message {
                             message_type: MessageType::StartTLS,
+
                             ..
-                        } => {}
+                        } => {
+                            let mut inner = self.inner.lock().await;
+
+                            log::debug!(peer=peer.to_string(), session_id=self.id; "Start sync TLS");
+
+                            #[cfg(feature = "tls")]
+                            match stream.start_tls(acceptor).await {
+                                Ok(_) => {
+                                    inner.set_state(SessionState::AuthenticationStart)
+                                }
+                                Err(_) => send_nonfatal!(
+                                    &mut stream,
+                                    NonFatalErrorCode::AuthenticationFailed,
+                                    "Failed to start encryption"
+                                ),
+                            }
+
+                            #[cfg(not(feature = "tls"))]
+                            send_nonfatal!(
+                                &mut stream,
+                                NonFatalErrorCode::AuthenticationFailed,
+                                "Secure connection not supported"
+                            )
+
+                        }
                         Message {
                             message_type: MessageType::GetSaslMechanismList,
                             ..
                         } => {
-                            let mut supported = "PLAIN ANONYMOUS";
+                            let auth = self.authenticator.lock().await;
+                            let supported = auth.list_mechanisms();
+                            let resp = supported.join(" ");
 
                             MessageType::GetSaslMechanismListResponse
                                 .message_params(0, 0)
-                                .no_payload()
-                                .write_to(stream)
+                                .with_payload(resp.into_bytes())
+                                .write_to(&mut stream)
                                 .await?;
                         }
                         Message {
                             message_type: MessageType::AuthenticationStart,
+                            payload: data,
                             ..
-                        } => {}
+                        } => {
+                            let auth = self.authenticator.lock().await;
+                            if let Ok(mechanism) = from_utf8(&data) {
+                                if let Ok(m) = auth.start_exchange(mechanism) {
+                                    self.mechanism.replace(m);
+                                } else {
+                                    send_nonfatal!(
+                                        &mut stream,
+                                        NonFatalErrorCode::AuthenticationFailed,
+                                        "Invalid authentication mechanism: {}", mechanism
+                                    )
+                                }
+                            } else {
+                                send_nonfatal!(
+                                    &mut stream,
+                                    NonFatalErrorCode::AuthenticationFailed,
+                                    "Invalid authentication mechanism"
+                                )
+                            }
+                        }
                         Message {
                             message_type: MessageType::AuthenticationExchange,
                             ..
                         } => {}
                         msg => {
                             send_nonfatal!(peer=peer.to_string(), session_id=self.id;
-                                stream,
+                                &mut stream,
                                 NonFatalErrorCode::UnidentifiedError,
                                 "Unexpected message type in synchronous channel: {:?}", msg.message_type
                             );
@@ -355,10 +501,10 @@ where
                 // Invalid message
                 Err(err) => {
                     if err.is_fatal() {
-                        Message::from(err).write_to(stream).await?;
+                        Message::from(err).write_to(&mut stream).await?;
                         return Err(io::ErrorKind::Other.into());
                     } else {
-                        Message::from(err).write_to(stream).await?;
+                        Message::from(err).write_to(&mut stream).await?;
                     }
                 }
             }
@@ -396,14 +542,14 @@ where
             id,
             config,
             protocol,
+            event: todo!(),
         }
     }
 
-    pub(crate) async fn handle_sync_session(
-        self,
-        stream: &mut HislipStream<'_>,
+    pub(crate) async fn handle_session(
+        mut self,
+        mut stream: HislipStream<'_>,
         peer: SocketAddr,
-        config: ServerConfig,
         #[cfg(feature = "tls")] acceptor: TlsAcceptor,
     ) -> Result<(), io::Error> {
         let (sender, receiver) = channel::bounded::<Result<(), SharedLockError>>(1);
@@ -413,7 +559,7 @@ where
                 // Send response to AsyncLock request
             }
 
-            match Message::read_from(stream, config.max_message_size).await? {
+            match Message::read_from(&mut stream, self.config.max_message_size).await? {
                 Ok(msg) => {
                     match msg {
                         Message {
@@ -421,7 +567,7 @@ where
                             ..
                         } => {
                             send_nonfatal!(peer=peer.to_string(), session_id=self.id;
-                                stream, NonFatalErrorCode::UnrecognizedVendorDefinedMessage,
+                                &mut stream, NonFatalErrorCode::UnrecognizedVendorDefinedMessage,
                                 "Unrecognized Vendor Defined Message ({})", code
                             );
                         }
@@ -469,7 +615,7 @@ where
                                 MessageType::AsyncLockResponse
                                     .message_params(control as u8, 0)
                                     .no_payload()
-                                    .write_to(stream)
+                                    .write_to(&mut stream)
                                     .await?;
                             } else {
                                 // Lock
@@ -524,7 +670,7 @@ where
                                 MessageType::AsyncLockResponse
                                     .message_params(control as u8, 0)
                                     .no_payload()
-                                    .write_to(stream)
+                                    .write_to(&mut stream)
                                     .await?;
                             }
                         }
@@ -584,17 +730,17 @@ where
                                     MessageType::AsyncRemoteLocalResponse
                                         .message_params(0, 0)
                                         .no_payload()
-                                        .write_to(stream)
+                                        .write_to(&mut stream)
                                         .await?
                                 }
                                 Err(DeviceError::NotSupported) => {
-                                    send_nonfatal!(peer=peer.to_string(), session_id=self.id; stream,
+                                    send_nonfatal!(peer=peer.to_string(), session_id=self.id; &mut stream,
                                         NonFatalErrorCode::UnrecognizedControlCode,
                                         "Unrecognized control code",
                                     );
                                 }
                                 Err(_) => {
-                                    send_nonfatal!(peer=peer.to_string(), session_id=self.id; stream,
+                                    send_nonfatal!(peer=peer.to_string(), session_id=self.id; &mut stream,
                                         NonFatalErrorCode::UnidentifiedError,
                                         "Internal error",
                                     );
@@ -608,7 +754,7 @@ where
                         } => {
                             if payload.len() != 8 {
                                 send_fatal!(peer=peer.to_string(), session_id=self.id;
-                                    stream, FatalErrorCode::PoorlyFormattedMessageHeader,
+                                &mut stream, FatalErrorCode::PoorlyFormattedMessageHeader,
                                     "Expected 8 bytes in AsyncMaximumMessageSize payload"
                                 )
                             }
@@ -627,7 +773,7 @@ where
                             MessageType::AsyncMaximumMessageSizeResponse
                                 .message_params(0, 0)
                                 .with_payload(buf.to_vec())
-                                .write_to(stream)
+                                .write_to(&mut stream)
                                 .await?;
                         }
                         Message {
@@ -651,7 +797,7 @@ where
                             MessageType::AsyncDeviceClearAcknowledge
                                 .message_params(features.0, 0)
                                 .no_payload()
-                                .write_to(stream)
+                                .write_to(&mut stream)
                                 .await?;
                         }
                         Message {
@@ -675,7 +821,7 @@ where
                             MessageType::AsyncStatusResponse
                                 .message_params(stb, 0)
                                 .no_payload()
-                                .write_to(stream)
+                                .write_to(&mut stream)
                                 .await?;
                         }
                         Message {
@@ -692,7 +838,7 @@ where
                             MessageType::AsyncLockInfoResponse
                                 .message_params(exclusive.into(), num_shared)
                                 .no_payload()
-                                .write_to(stream)
+                                .write_to(&mut stream)
                                 .await?;
                         }
                         Message {
@@ -703,7 +849,7 @@ where
                         } if self.protocol >= PROTOCOL_2_0 => {
                             if payload.len() != 4 {
                                 send_fatal!(peer=peer.to_string(), session_id=self.id;
-                                    stream, FatalErrorCode::PoorlyFormattedMessageHeader,
+                                    &mut stream, FatalErrorCode::PoorlyFormattedMessageHeader,
                                     "Expected 4 bytes in AsyncStartTLS payload"
                                 )
                             }
@@ -722,7 +868,7 @@ where
                                         Ok(_) => {
                                             inner.set_state(SessionState::EncryptionStart);
                                             HISLIP_TLS_SUCCESS
-                                        },
+                                        }
                                         Err(_) => HISLIP_TLS_ERROR,
                                     }
                                 } else {
@@ -736,7 +882,7 @@ where
                             MessageType::AsyncStartTLSResponse
                                 .message_params(control_code, 0)
                                 .no_payload()
-                                .write_to(stream)
+                                .write_to(&mut stream)
                                 .await?;
                         }
                         Message {
@@ -763,11 +909,11 @@ where
                             MessageType::AsyncEndTLSResponse
                                 .message_params(control_code, 0)
                                 .no_payload()
-                                .write_to(stream)
+                                .write_to(&mut stream)
                                 .await?;
                         }
                         _ => {
-                            send_nonfatal!(peer=peer.to_string(), session_id=self.id; stream,
+                            send_nonfatal!(peer=peer.to_string(), session_id=self.id; &mut stream,
                                 NonFatalErrorCode::UnrecognizedMessageType,
                                 "Unexpected message type in asynchronous channel",
                             );
@@ -777,117 +923,13 @@ where
                 Err(err) => {
                     // Send error to client and close if fatal
                     if err.is_fatal() {
-                        Message::from(err).write_to(stream).await?;
+                        Message::from(err).write_to(&mut stream).await?;
                         break Err(io::ErrorKind::Other.into());
                     } else {
-                        Message::from(err).write_to(stream).await?;
+                        Message::from(err).write_to(&mut stream).await?;
                     }
                 }
             }
         }
-    }
-}
-
-impl<DEV> Session<DEV>
-where
-    DEV: Device,
-{
-    pub(crate) fn new(
-        config: ServerConfig,
-        session_id: u16,
-        protocol: Protocol,
-        handle: LockHandle<DEV>,
-    ) -> Self {
-        Self {
-            config,
-            protocol,
-            mode: SessionMode::Overlapped,
-            id: session_id,
-            max_message_size: 256,
-            handle,
-            in_buf: Vec::new(),
-            out_buf: Vec::new(),
-            enable_remote: true,
-            sent_message_id: 0xffff_ff00,
-            read_message_id: 0xffff_ff00,
-
-            state: SessionState::Handshake,
-        }
-    }
-
-    pub(crate) fn close(&mut self) {
-        log::debug!(session_id=self.id; "Closing session");
-        // Release any lock this session might be holding
-        // Should be called anyways by LockHandle::drop() but done here to be obvious
-        self.handle.force_release();
-    }
-
-    pub(crate) async fn handle_async_session(
-        session: Arc<Mutex<Self>>,
-        stream: &mut HislipStream<'_>,
-        peer: SocketAddr,
-        config: ServerConfig,
-        #[cfg(feature = "tls")] acceptor: TlsAcceptor,
-    ) -> Result<(), io::Error> {
-        loop {
-            match Message::read_from(stream, config.max_message_size).await? {
-                Ok(msg) => {
-                    let mut session = session.lock().await;
-                    session
-                        .handle_async_message(
-                            msg,
-                            stream,
-                            peer,
-                            #[cfg(feature = "tls")]
-                            acceptor.clone(),
-                        )
-                        .await?;
-                }
-                Err(err) => {
-                    // Send error to client and close if fatal
-                    if err.is_fatal() {
-                        Message::from(err).write_to(stream).await?;
-                        break Err(io::ErrorKind::Other.into());
-                    } else {
-                        Message::from(err).write_to(stream).await?;
-                    }
-                }
-            }
-        }
-    }
-
-    /// Get the session's state.
-    #[must_use]
-    pub(crate) fn state(&self) -> SessionState {
-        self.state
-    }
-
-    #[must_use]
-    pub(crate) fn is_initialized(&self) -> bool {
-        // !matches!(self.state, SessionState::Handshake) // Just looks weird
-        match self.state {
-            SessionState::Handshake => false,
-            _ => false,
-        }
-    }
-
-    /// Get the session's protocol.
-    #[must_use]
-    pub(crate) fn protocol(&self) -> Protocol {
-        self.protocol
-    }
-
-    /// Set the session's state.
-    pub(crate) fn set_state(&mut self, state: SessionState) {
-        self.state = state;
-    }
-}
-
-impl<DEV> Drop for Session<DEV>
-where
-    DEV: Device,
-{
-    fn drop(&mut self) {
-        self.close()
     }
 }

@@ -26,7 +26,7 @@ pub trait Auth {
     /// Return a list of supported mechanims
     fn list_mechanisms(&self) -> Vec<&str>;
 
-    fn start_exchange(&self, mechanism: &str) -> Result<Box<dyn Mechanism>, SaslError>;
+    fn start_exchange(&self, mechanism: &str) -> Result<Box<dyn Mechanism + Send>, SaslError>;
 }
 
 #[derive(Debug, Clone)]
@@ -53,7 +53,7 @@ where
 impl<V> Auth for PlainAuth<V>
 where
     V: Clone + 'static,
-    V: Validator<secret::Plain>,
+    V: Validator<secret::Plain> + Send,
 {
     fn list_mechanisms(&self) -> Vec<&str> {
         let mut vec = Vec::new();
@@ -66,7 +66,7 @@ where
         vec
     }
 
-    fn start_exchange(&self, mechanism: &str) -> Result<Box<dyn Mechanism>, SaslError> {
+    fn start_exchange(&self, mechanism: &str) -> Result<Box<dyn Mechanism + Send>, SaslError> {
         match mechanism {
             "ANONYMOUS" if self.allow_anonymous => Ok(Box::new(Anonymous::new())),
             "PLAIN" => Ok(Box::new(Plain::new(self.validator.clone()))),
@@ -83,7 +83,7 @@ impl Auth for AnonymousAuth {
         vec!["ANONYMOUS"]
     }
 
-    fn start_exchange(&self, mechanism: &str) -> Result<Box<dyn Mechanism>, SaslError> {
+    fn start_exchange(&self, mechanism: &str) -> Result<Box<dyn Mechanism + Send>, SaslError> {
         if mechanism.eq_ignore_ascii_case("ANONYMOUS") {
             Ok(Box::new(Anonymous))
         } else {

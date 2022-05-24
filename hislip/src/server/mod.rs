@@ -18,14 +18,13 @@ use lxi_device::Device;
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::common::messages::{prelude::*, send_fatal, send_nonfatal};
 use crate::common::{Protocol, PROTOCOL_2_0, SUPPORTED_PROTOCOL};
-use crate::server::session::{Session, SessionState};
+use crate::server::session::{AsyncSession, Session, SessionState, SyncSession};
 use crate::server::stream::HislipStream;
 
 #[cfg(feature = "tls")]
 use async_tls::TlsAcceptor;
 #[cfg(feature = "tls")]
 use sasl::{secret, server::Validator};
-
 
 pub mod auth;
 use auth::Auth;
@@ -63,7 +62,7 @@ impl Default for ServerConfig {
 pub struct Server<DEV, A>
 where
     DEV: Device,
-    A: Auth
+    A: Auth,
 {
     inner: Arc<Mutex<InnerServer<DEV>>>,
     shared_lock: Arc<SpinMutex<SharedLock>>,
@@ -75,16 +74,20 @@ where
 impl<DEV, A> Server<DEV, A>
 where
     DEV: Device + Send + 'static,
-    A: Auth + Send + 'static
+    A: Auth + Send + 'static,
 {
-    pub fn new(shared_lock: Arc<SpinMutex<SharedLock>>, device: Arc<Mutex<DEV>>, authenticator: Arc<Mutex<A>>) -> Arc<Self> {
+    pub fn new(
+        shared_lock: Arc<SpinMutex<SharedLock>>,
+        device: Arc<Mutex<DEV>>,
+        authenticator: Arc<Mutex<A>>,
+    ) -> Arc<Self> {
         let config = ServerConfig::default();
         Arc::new(Server {
             inner: InnerServer::new(config.max_num_sessions),
             config,
             shared_lock,
             device,
-            authenticator
+            authenticator,
         })
     }
 
@@ -233,15 +236,21 @@ where
                                         .await?;
 
                                     // Continue as sync session
-                                    Session::handle_sync_session(
+                                    let sync_session = SyncSession::new(
                                         session,
-                                        &mut stream,
-                                        peer,
+                                        session_id,
                                         self.config,
-                                        #[cfg(feature = "tls")]
-                                        acceptor,
-                                    )
-                                    .await?;
+                                        lowest_protocol,
+                                        self.authenticator.clone()
+                                    );
+                                    return sync_session
+                                        .handle_session(
+                                            stream,
+                                            peer,
+                                            #[cfg(feature = "tls")]
+                                            acceptor,
+                                        )
+                                        .await;
                                 }
                                 Err(err) => {
                                     // Send (assumed fatal) error
@@ -273,6 +282,7 @@ where
 
                             let s = session.clone();
                             let mut session_guard = s.lock().await;
+                            let protocol = session_guard.protocol();
 
                             // Check if async channel has alreasy been initialized for this session
                             if session_guard.is_initialized() {
@@ -312,17 +322,20 @@ where
                                 drop(session_guard);
 
                                 // Continue as async session
-                                Session::handle_async_session(
+                                let async_session = AsyncSession::new(
                                     session,
-                                    &mut stream,
-                                    peer,
+                                    session_id,
                                     self.config,
-                                    #[cfg(feature = "tls")]
-                                    acceptor,
-                                )
-                                .await?;
-
-                                return Err(io::ErrorKind::Other.into());
+                                    protocol,
+                                );
+                                return async_session
+                                    .handle_session(
+                                        stream,
+                                        peer,
+                                        #[cfg(feature = "tls")]
+                                        acceptor,
+                                    )
+                                    .await;
                             }
                         }
                         msg => {
@@ -345,7 +358,6 @@ where
             }
         }
     }
-
 }
 
 struct InnerServer<DEV>
