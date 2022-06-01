@@ -33,12 +33,6 @@ use self::auth::AnonymousAuth;
 pub mod session;
 mod stream;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EncryptionMode {
-    Optional,
-    Mandatory,
-}
-
 #[derive(Debug, Copy, Clone)]
 pub struct ServerConfig {
     pub vendor_id: u16,

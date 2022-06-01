@@ -327,7 +327,7 @@ where
 
                                 // Enable remote
                                 if shared.enable_remote {
-                                    dev.set_remote(true);
+                                    let _res = dev.set_remote(true);
                                 }
 
                                 // Get status of device

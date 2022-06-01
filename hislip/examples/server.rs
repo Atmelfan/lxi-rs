@@ -14,8 +14,8 @@ use lxi_device::{
 };
 use lxi_hislip::{
     server::{
-        auth::{secret, AnonymousAuth, PlainAuth},
-        Server, ServerBuilder,
+        auth::{secret, PlainAuth},
+        ServerBuilder,
     },
     STANDARD_PORT,
 };

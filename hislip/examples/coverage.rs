@@ -14,8 +14,8 @@ use lxi_device::{
 };
 use lxi_hislip::{
     server::{
-        auth::{secret, AnonymousAuth, PlainAuth},
-        Server, ServerBuilder,
+        auth::{secret, PlainAuth},
+        ServerBuilder,
     },
     STANDARD_PORT,
 };
@@ -137,11 +137,15 @@ async fn main() -> Result<(), io::Error> {
     };
 
     println!("Running server on port {}:{}...", args.ip, args.port);
-    timeout(Duration::from_millis(10000), server
+    let _res = timeout(Duration::from_millis(10000), server
     .accept(
         (&args.ip[..], args.port),
         #[cfg(feature = "tls")]
         acceptor,
     )).await;
-    Ok(())
+
+    match _res {
+        Ok(res) => res,
+        Err(_) => Ok(()),
+    }
 }

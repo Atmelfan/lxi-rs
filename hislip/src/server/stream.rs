@@ -87,8 +87,3 @@ impl<'a> AsyncWrite for HislipStream<'a> {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    fn x() {}
-}

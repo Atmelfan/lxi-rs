@@ -116,7 +116,7 @@ where
                 }) => {
                     if self.handle.can_lock().is_ok() {
                         let mut dev = self.handle.inner_lock().await;
-                        dev.clear();
+                        let _res = dev.clear();
                     }
 
                     break self

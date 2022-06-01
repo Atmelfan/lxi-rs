@@ -461,6 +461,3 @@ pub(crate) enum ReleaseLockControl {
     SuccessShared = 2,
     Error = 3,
 }
-
-const DISABLE_REMOTE: u8 = 0;
-const ENABLE_REMOTE: u8 = 0;

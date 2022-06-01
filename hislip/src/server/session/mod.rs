@@ -1,6 +1,4 @@
 use async_std::channel::{self, Receiver, Sender};
-use lxi_device::lock::LockHandle;
-use lxi_device::Device;
 
 use super::ServerConfig;
 use crate::common::Protocol;
@@ -22,14 +20,6 @@ pub(crate) enum SessionState {
     AuthenticationExchange,
     Normal,
     EncryptionStop,
-}
-
-struct Session<DEV>
-where
-    DEV: Device,
-{
-    device: LockHandle<DEV>,
-    shared: SharedSession,
 }
 
 pub(crate) struct SharedSession {
