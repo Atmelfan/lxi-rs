@@ -1,5 +1,5 @@
 use lxi_device::{lock::SharedLock, util::SimpleDevice};
-use lxi_socket::{TELNET_STANDARD_PORT, server::telnet::ServerConfig};
+use lxi_socket::{server::telnet::ServerConfig, TELNET_STANDARD_PORT};
 
 use clap::Parser;
 

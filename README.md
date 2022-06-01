@@ -29,5 +29,8 @@ This crate uses two types of tests, the cargo test framework and pytest. Cargo t
 2. Install python requirements: `pip install -r requirements.txt`
 3. Run tests: `cargo test && pytest`
 
+## Coverage
+
+
 # Licensing
 Lxi-rs is available under dual Commercial and GPLv3 License, see [LICENSE.txt](./LICENSE.txt).

@@ -2,10 +2,10 @@ use std::{
     fs::File,
     io::BufReader,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::Arc, time::Duration,
 };
 
-use async_std::io;
+use async_std::{io, future::timeout};
 use futures::lock::Mutex;
 use lxi_device::{
     lock::SharedLock,
@@ -137,11 +137,11 @@ async fn main() -> Result<(), io::Error> {
     };
 
     println!("Running server on port {}:{}...", args.ip, args.port);
-    server
-        .accept(
-            (&args.ip[..], args.port),
-            #[cfg(feature = "tls")]
-            acceptor,
-        )
-        .await
+    timeout(Duration::from_millis(10000), server
+    .accept(
+        (&args.ip[..], args.port),
+        #[cfg(feature = "tls")]
+        acceptor,
+    )).await;
+    Ok(())
 }

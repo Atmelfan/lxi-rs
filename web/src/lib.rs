@@ -1,14 +1,15 @@
+use lxi_device::lock::LockHandle;
 use sqlx::SqlitePool;
 
-
-pub mod utils;
-pub mod templates;
-pub mod routes;
 pub mod records;
+pub mod routes;
+pub mod templates;
+pub mod utils;
+
+#[cfg(feature = "websockets")]
+pub mod websockets;
 
 pub type Request = tide::Request<State>;
-
-
 
 #[derive(Clone)]
 pub struct State {
@@ -24,11 +25,9 @@ pub struct LxiDeviceInfo {
 }
 
 pub trait LxiState {
-    
     fn get_device_info(&self) -> LxiDeviceInfo;
 
     fn set_hostname(&self, hostname: &str);
 
     fn advertise_hislip(&self) -> bool;
-
 }

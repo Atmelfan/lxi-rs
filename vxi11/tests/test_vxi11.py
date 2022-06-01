@@ -29,15 +29,15 @@ def test_trigger(vxi11_example, resource_manager: pyvisa.ResourceManager):
     inst = resource_manager.open_resource(vxi11_example)
 
     status = inst.read_stb()
-    assert status == 0
+    assert status & 0x40 == 0
 
     inst.assert_trigger()
     status = inst.read_stb()
-    assert status == 64
+    assert status & 0x40 != 0, "Failed to trigger?"
 
     inst.clear()
     status = inst.read_stb()
-    assert status == 0
+    assert status & 0x40 == 0
 
     inst.close()
 

@@ -1,13 +1,8 @@
-use alloc::{
-    sync::Arc,
-    vec::Vec,
-};
-use futures::{
-    channel::oneshot::{channel, Receiver, Sender},
-};
+use alloc::{sync::Arc, vec::Vec};
+use futures::channel::oneshot::{channel, Receiver, Sender};
 
-pub use spin::Mutex as SpinMutex;
 pub use futures::lock::{Mutex, MutexGuard};
+pub use spin::Mutex as SpinMutex;
 
 #[derive(Debug)]
 pub enum SharedLockError {
@@ -34,6 +29,7 @@ pub enum SharedLockMode {
 }
 
 pub struct SharedLock {
+    id_counter: u32,
     shared_lock: Option<Vec<u8>>,
     num_shared_locks: u32,
     exclusive_lock: bool,
@@ -47,6 +43,7 @@ impl SharedLock {
             num_shared_locks: 0,
             exclusive_lock: false,
             event: Vec::new(),
+            id_counter: 1,
         }))
     }
 
@@ -79,13 +76,16 @@ impl SharedLock {
         self.event.push(sender);
         receiver
     }
+
+    pub fn next_id(&mut self) -> u32 {
+        self.id_counter = self.id_counter.wrapping_add(1);
+        self.id_counter
+    }
 }
 
 /// A handle to a locked resource.
-///
-/// You **MUST** call [LockHandle::force_release] when a connection or handle is no
-/// longer needed!
 pub struct LockHandle<DEV> {
+    id: u32,
     parent: Arc<SpinMutex<SharedLock>>,
     device: Arc<Mutex<DEV>>,
     has_shared: bool,
@@ -94,7 +94,9 @@ pub struct LockHandle<DEV> {
 
 impl<DEV> LockHandle<DEV> {
     pub fn new(parent: Arc<SpinMutex<SharedLock>>, device: Arc<Mutex<DEV>>) -> Self {
+        let id = parent.lock().next_id();
         LockHandle {
+            id,
             parent,
             device,
             has_shared: false,
@@ -167,6 +169,7 @@ impl<DEV> LockHandle<DEV> {
                 self.has_exclusive = true;
 
                 //
+                log::trace!(id=self.id; "Acquired exclusive (previously unlocked)");
                 shared.notify_acquired();
                 Ok(())
             }
@@ -179,6 +182,7 @@ impl<DEV> LockHandle<DEV> {
                     shared.exclusive_lock = true;
 
                     //
+                    log::trace!(id=self.id; "Acquired exclusive (upgraded from shared)");
                     shared.notify_acquired();
                     Ok(())
                 } else {
@@ -206,11 +210,13 @@ impl<DEV> LockHandle<DEV> {
                         }
                         Some(l) => {
                             // Wait until a notification is received.
+                            log::trace!("Waiting to acquire exclusive...");
                             let _ = l.await;
                         }
                     }
                 }
                 Err(err) => {
+                    log::trace!("Failed to acquire shared: {err:?}");
                     break Err(err);
                 }
             }
@@ -232,6 +238,7 @@ impl<DEV> LockHandle<DEV> {
                 self.has_shared = true;
 
                 //
+                log::trace!(id=self.id; "Acquired shared (previouly unlocked)");
                 shared.notify_acquired();
                 Ok(())
             }
@@ -250,6 +257,7 @@ impl<DEV> LockHandle<DEV> {
                     self.has_shared = true;
 
                     //
+                    log::trace!(id=self.id; "Acquired shared (previously shared)");
                     shared.notify_acquired();
                     Ok(())
                 } else {
@@ -274,11 +282,13 @@ impl<DEV> LockHandle<DEV> {
                         }
                         Some(l) => {
                             // Wait until a notification is received.
+                            log::trace!("Waiting to acquire shared...");
                             let _ = l.await;
                         }
                     }
                 }
                 Err(err) => {
+                    log::trace!("Failed to acquire shared: {err:?}");
                     break Err(err);
                 }
             }
@@ -290,14 +300,17 @@ impl<DEV> LockHandle<DEV> {
     pub fn try_release(&mut self) -> Result<SharedLockMode, SharedLockError> {
         let mut shared = self.parent.lock();
         let mut res = Err(SharedLockError::AlreadyUnlocked);
+        let mut notify = false;
 
         // Release my shared lock
         if self.has_shared {
             shared.num_shared_locks -= 1;
             if shared.num_shared_locks == 0 {
                 shared.shared_lock = None;
+                notify = true;
             }
             self.has_shared = false;
+            log::trace!(id=self.id; "Released shared");
             res = Ok(SharedLockMode::Shared);
         }
 
@@ -305,11 +318,13 @@ impl<DEV> LockHandle<DEV> {
         if self.has_exclusive {
             shared.exclusive_lock = false;
             self.has_exclusive = false;
+            notify = true;
+            log::trace!(id=self.id; "Released exclusive");
             res = Ok(SharedLockMode::Exclusive);
         }
 
         // Notify others waiting that lock might be available
-        if res.is_ok() {
+        if notify {
             shared.notify_release();
         }
 
@@ -333,15 +348,22 @@ impl<DEV> LockHandle<DEV> {
             match self.can_lock() {
                 // Allowed to try and lock
                 Ok(()) => {
+                    log::trace!(id=self.id; "Can lock, trying...");
                     let mut shared = self.parent.lock();
                     let mut l = shared.listen();
                     drop(shared);
 
                     futures::select! {
                         // Device acquired
-                        guard = self.device.lock() => return Ok(guard),
+                        guard = self.device.lock() => {
+                            log::trace!(id=self.id; "Locked!");
+                            return Ok(guard)
+                        },
                         // Interrupted by a new lock being granted/released
-                        _event = l => continue
+                        _event = l => {
+                            log::trace!(id=self.id; "Lock interrupted, try again");
+                            continue
+                        }
                     }
                 }
                 // Currently locked by someone else
@@ -362,6 +384,13 @@ impl<DEV> LockHandle<DEV> {
                 Err(err) => return Err(err),
             }
         }
+    }
+
+    /// Lock device without checking shared/exclusive lock
+    /// NOTE: This shuld ony be used for quick actions like reading status etc to avoid locking
+    /// the device for handles holding a legitimate lock.
+    pub async fn inner_lock<'a>(&'a self) -> MutexGuard<'a, DEV> {
+        self.device.lock().await
     }
 
     /// Force release both shared and exclusive locks
@@ -389,13 +418,139 @@ impl<DEV> Drop for LockHandle<DEV> {
     }
 }
 
+/// Lock using a remote [LockHandle]
+/// Used to wait for a lock while also being able to request/release locks
+/// using the remote handle.
+pub struct RemoteLockHandle<DEV> {
+    handle: Arc<SpinMutex<LockHandle<DEV>>>,
+    device: Arc<Mutex<DEV>>,
+}
+
+impl<DEV> RemoteLockHandle<DEV> {
+    pub fn new(handle: Arc<SpinMutex<LockHandle<DEV>>>) -> Self {
+        let handle = handle.clone();
+        let device = handle.lock().device.clone();
+        Self { handle, device }
+    }
+
+    /// Check if the shared lock is available and then lock
+    pub async fn try_lock<'a>(&'a self) -> Result<MutexGuard<'a, DEV>, SharedLockError> {
+        // Check any active locks
+        self.can_lock()?;
+        // Lock device and return a guard
+        self.device.try_lock().ok_or(SharedLockError::Busy)
+    }
+
+    /// Wait for device becoming onlocked (or handle acquiring a lock) and available
+    ///
+    pub async fn async_lock<'a>(&'a self) -> Result<MutexGuard<'a, DEV>, SharedLockError> {
+        let mut listener = None;
+
+        loop {
+            match self.can_lock() {
+                // Allowed to try and lock
+                Ok(()) => {
+                    let remote = self.handle.lock();
+                    log::trace!(id=remote.id; "Can lock, trying...");
+
+                    let mut shared = remote.parent.lock();
+                    let mut l = shared.listen();
+                    drop(shared);
+                    drop(remote);
+
+                    futures::select! {
+                        // Device acquired
+                        guard = self.device.lock() => {
+                            log::trace!("Locked!");
+                            return Ok(guard)
+                        },
+                        // Interrupted by a new lock being granted/released
+                        _event = l => {
+                            log::trace!("Lock interrupted, try again");
+                            continue
+                        }
+                    }
+                }
+                // Currently locked by someone else
+                Err(SharedLockError::LockedByShared) | Err(SharedLockError::LockedByExclusive) => {
+                    match listener.take() {
+                        None => {
+                            // Start listening and then try locking again.
+                            let remote = self.handle.lock();
+                            log::trace!(id=remote.id; "Cannot lock, waiting...");
+
+                            let mut shared = remote.parent.lock();
+                            listener = Some(shared.listen());
+                        }
+                        Some(l) => {
+                            // Wait until a notification is received.
+                            let _ = l.await;
+                        }
+                    }
+                }
+                // Invalid attempt to lock
+                Err(err) => return Err(err),
+            }
+        }
+    }
+
+    pub fn can_lock(&self) -> Result<(), SharedLockError> {
+        let remote = self.handle.lock();
+        remote.can_lock()
+    }
+
+    /// Lock device without checking shared/exclusive lock
+    /// NOTE: This shuld ony be used for quick actions like reading status etc to avoid locking
+    /// the device for handles holding a legitimate lock.
+    pub async fn inner_lock<'a>(&'a self) -> MutexGuard<'a, DEV> {
+        self.device.lock().await
+    }
+
+    pub fn try_acquire(&self, lockstr: &[u8]) -> Result<(), SharedLockError> {
+        let mut remote = self.handle.lock();
+        remote.try_acquire(lockstr)
+    }
+    pub async fn async_acquire(&self, lockstr: &[u8]) -> Result<(), SharedLockError> {
+        let mut listener = None;
+
+        loop {
+            match self.try_acquire(lockstr) {
+                Ok(()) => break Ok(()),
+                Err(SharedLockError::LockedByShared) | Err(SharedLockError::LockedByExclusive) => {
+                    match listener.take() {
+                        None => {
+                            let remote = self.handle.lock();
+
+                            // Start listening and then try locking again.
+                            let mut shared = remote.parent.lock();
+                            listener = Some(shared.listen());
+                        }
+                        Some(l) => {
+                            // Wait until a notification is received.
+                            log::trace!("Waiting to acquire...");
+                            let _ = l.await;
+                        }
+                    }
+                }
+                Err(err) => {
+                    log::trace!("Failed to acquire: {err:?}");
+                    break Err(err);
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
-    use super::{LockHandle, SharedLock};
-    use crate::util::EchoDevice;
-    use alloc::sync::Arc;
-    use futures::lock::Mutex;
+    use super::{LockHandle, SharedLock, SpinMutex};
+    use crate::{lock::RemoteLockHandle, util::EchoDevice};
+    use async_std::{
+        sync::{Arc, Barrier},
+        task::yield_now,
+    };
+    use futures::{join, lock::Mutex};
 
     #[test]
     fn test_exclusive() {
@@ -483,7 +638,7 @@ mod tests {
         // Both handles can lock
         assert!(handle1.can_lock().is_ok());
 
-        // Handle 1 acquires an exclusive lock
+        // Handle 2 acquires an exclusive lock
         {
             let mut handle2 = LockHandle::new(shared.clone(), device.clone());
             assert!(handle1.can_lock().is_ok());
@@ -497,5 +652,80 @@ mod tests {
 
         // Handle1 can lock again
         assert!(handle1.can_lock().is_ok());
+    }
+
+    #[test]
+    fn test_shared_handle() {
+        let shared = SharedLock::new();
+        let device = Arc::new(Mutex::new(EchoDevice));
+
+        let handle1 = Arc::new(SpinMutex::new(LockHandle::new(
+            shared.clone(),
+            device.clone(),
+        )));
+        let mut handle2 = LockHandle::new(shared.clone(), device.clone());
+
+        let remote1 = RemoteLockHandle::new(handle1.clone());
+        let remote2 = RemoteLockHandle::new(handle1.clone());
+
+        // Both handles can lock
+        assert!(handle1.lock().can_lock().is_ok());
+        assert!(remote1.can_lock().is_ok());
+        assert!(remote2.can_lock().is_ok());
+
+        // Another handle has lock, none of our can lock
+        assert!(handle2.try_acquire_exclusive().is_ok());
+        assert!(handle1.lock().can_lock().is_err());
+        assert!(remote1.can_lock().is_err());
+        assert!(remote2.can_lock().is_err());
+    }
+
+    //#[cfg(std)]
+    #[async_std::test]
+    async fn test_shared_handle_async() {
+        femme::with_level(log::LevelFilter::Trace);
+
+        let shared = SharedLock::new();
+        let device = Arc::new(Mutex::new(EchoDevice));
+
+        let handle1 = Arc::new(SpinMutex::new(LockHandle::new(
+            shared.clone(),
+            device.clone(),
+        )));
+        let remote1 = RemoteLockHandle::new(handle1.clone());
+
+        let mut handle2 = LockHandle::new(shared.clone(), device.clone());
+
+        handle2.try_acquire_shared(b"foo").unwrap();
+
+        let barrier = Arc::new(Barrier::new(2));
+
+        let c = barrier.clone();
+        let t1 = async_std::task::spawn(async move {
+            // Wait until both tasks are running
+            c.wait().await;
+            log::info!("t1: Running...");
+
+            let d = remote1.async_lock().await;
+            // Wait forever because handle2 has lock...
+            assert!(d.is_ok());
+            log::info!("t1: locked!");
+        });
+
+        let c = barrier.clone();
+        let t2 = async_std::task::spawn(async move {
+            // Wait until both tasks are running
+            c.wait().await;
+            log::info!("t2: Running...");
+            // Let t1 try to get a lock first
+            yield_now().await;
+            log::info!("t2: Acquiring lock...");
+            let d = handle1.lock().async_acquire_shared(b"foo").await;
+            // Wait forever because handle2 has lock...
+            assert!(d.is_ok());
+            log::info!("t2: Lock acquired");
+        });
+
+        join!(t1, t2);
     }
 }

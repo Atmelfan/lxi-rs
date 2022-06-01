@@ -3,6 +3,7 @@ use futures::lock::Mutex;
 
 use crate::{Device, DeviceError};
 
+#[derive(Clone)]
 pub struct EchoDevice;
 
 impl EchoDevice {
@@ -33,32 +34,47 @@ impl Device for EchoDevice {
     }
 }
 
+#[derive(Clone)]
 pub struct SimpleDevice {
     trig: bool,
-    rmt: bool
+    clear: bool,
+    rmt: bool,
 }
 
 impl SimpleDevice {
-    pub fn new_arc() -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Self {
+    pub fn new() -> Self {
+        Self {
             rmt: false,
             trig: false,
-        }))
+            clear: false,
+        }
+    }
+
+    pub fn new_arc() -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(Self::new()))
     }
 }
 
 impl Device for SimpleDevice {
     fn execute(&mut self, cmd: &Vec<u8>) -> Vec<u8> {
-        log::info!(">>> {:?}", cmd);
+        log::debug!(">>> {:?}", cmd);
         let r = match cmd.as_slice() {
             x if x.eq_ignore_ascii_case(b"*IDN?") || x.eq_ignore_ascii_case(b"*IDN?\n") => {
                 b"Cyberdyne systems,T800 Model 101,A9012.C,V2.4".to_vec()
             }
-            x if x.eq_ignore_ascii_case(b"EVENT") || x.eq_ignore_ascii_case(b"EVENT\n") => b"".to_vec(),
-            x if x.eq_ignore_ascii_case(b"QUERY?") || x.eq_ignore_ascii_case(b"QUERY?\n") => b"RESPONSE".to_vec(),
-            _ => cmd.clone(),
+            x if x.eq_ignore_ascii_case(b"EVENT") || x.eq_ignore_ascii_case(b"EVENT\n") => {
+                b"".to_vec()
+            }
+            x if x.eq_ignore_ascii_case(b"QUERY?") || x.eq_ignore_ascii_case(b"QUERY?\n") => {
+                b"RESPONSE".to_vec()
+            }
+            _ => {
+                let mut rev = cmd.clone();
+                rev.reverse();
+                rev
+            }
         };
-        log::info!("<<< {:?}", r);
+        log::debug!("<<< {:?}", r);
         r
     }
 
@@ -66,24 +82,26 @@ impl Device for SimpleDevice {
         let mut stb = 0;
         stb |= (self.rmt as u8) << 7;
         stb |= (self.trig as u8) << 6;
-        log::info!("STATUS = {}", stb);
+        stb |= (self.clear as u8) << 5;
+        log::info!("===== STATUS={} =====", stb);
         Ok(stb)
     }
 
     fn trigger(&mut self) -> Result<(), DeviceError> {
-        log::info!("TRIGGERED");
+        log::info!("===== TRIGGERED =====");
         self.trig = true;
         Ok(())
     }
 
     fn clear(&mut self) -> Result<(), DeviceError> {
-        log::info!("CLEAR");
+        log::info!("===== CLEAR =====");
         self.trig = false;
+        self.clear = true;
         Ok(())
     }
 
     fn set_remote(&mut self, remote: bool) -> Result<(), DeviceError> {
-        log::info!("REMOTE = {}", remote);
+        log::info!("===== REMOTE={} =====", remote);
         self.rmt = remote;
         Ok(())
     }

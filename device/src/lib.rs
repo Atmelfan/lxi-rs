@@ -21,7 +21,7 @@ pub trait Device {
 
     /// Return a current device status (STB) byte
     /// Some flags (such as MAV) will be ignored.
-    /// 
+    ///
     /// Note: This should not reset any flags like a *STB? call would do.
     fn get_status(&mut self) -> Result<u8, DeviceError>;
 

@@ -1,11 +1,12 @@
-use sasl::{
-    secret,
-    server::{
-        mechanisms::{Anonymous, Plain},
-        Mechanism, Validator,
-    },
-    Error as SaslError,
+use sasl::server::{
+    mechanisms::{Anonymous, Plain},
+    Mechanism, MechanismError, Validator,
 };
+
+pub(crate) use sasl::server::Response as SaslResponse;
+pub(crate) use sasl::Error as SaslError;
+
+pub use sasl::secret;
 
 use crate::common::errors::{Error, NonFatalErrorCode};
 
@@ -19,6 +20,15 @@ impl From<SaslError> for Error {
             ),
             SaslError::SaslError(s) => Error::NonFatal(NonFatalErrorCode::AuthenticationFailed, s),
         }
+    }
+}
+
+impl From<MechanismError> for Error {
+    fn from(err: MechanismError) -> Self {
+        Error::NonFatal(
+            NonFatalErrorCode::AuthenticationFailed,
+            format!("Mechanism error: {}", err),
+        )
     }
 }
 
@@ -42,7 +52,7 @@ impl<V> PlainAuth<V>
 where
     V: Clone,
 {
-    pub(crate) fn new(allow_anonymous: bool, validator: V) -> Self {
+    pub fn new(allow_anonymous: bool, validator: V) -> Self {
         Self {
             allow_anonymous,
             validator,
@@ -97,12 +107,12 @@ mod tests {
 
     use sasl::{
         client::{
-            mechanisms::{Plain as ClientPlain, Anonymous as ClientAnonymous},
-            Mechanism as ClientMechanism, MechanismError as ClientMechanismError,
+            mechanisms::{Anonymous as ClientAnonymous, Plain as ClientPlain},
+            Mechanism as ClientMechanism,
         },
-        common::{Identity, Credentials, scram::Sha1, ChannelBinding},
-        secret,
-        server::{Validator, ValidatorError, Response, mechanisms::Scram},
+        common::{Credentials, Identity},
+        secret::Plain as PlainSecret,
+        server::{Response, Validator, ValidatorError},
     };
 
     use super::{Auth, PlainAuth};
@@ -110,12 +120,8 @@ mod tests {
     #[derive(Clone)]
     struct DummyValidator;
 
-    impl Validator<secret::Plain> for DummyValidator {
-        fn validate(
-            &self,
-            identity: &Identity,
-            value: &secret::Plain,
-        ) -> Result<(), ValidatorError> {
+    impl Validator<PlainSecret> for DummyValidator {
+        fn validate(&self, identity: &Identity, value: &PlainSecret) -> Result<(), ValidatorError> {
             match identity {
                 Identity::None => Err(ValidatorError::AuthenticationFailed),
                 Identity::Username(username) => {
@@ -131,36 +137,35 @@ mod tests {
 
     #[test]
     fn plain_auth() {
-
         //Server
         let validator = DummyValidator;
         let auth = PlainAuth::new(true, validator);
 
-
         // Client
         let credentials = Credentials::default()
-                        .with_username("user")
-                        .with_password("pencil");
+            .with_username("user")
+            .with_password("pencil");
         let mut client = ClientPlain::from_credentials(credentials).unwrap();
 
         // Select PLAIN
         let mut server = auth.start_exchange("PLAIN").unwrap();
 
-        // C -> S 
+        // C -> S
         let exchange1 = client.initial();
 
         // S -> C OK
         let exchange2 = server.respond(&exchange1).unwrap();
-        assert_eq!(exchange2, Response::Success(Identity::Username("user".to_string()), vec![]))
+        assert_eq!(
+            exchange2,
+            Response::Success(Identity::Username("user".to_string()), vec![])
+        )
     }
 
     #[test]
     fn anonymous_auth() {
-
         //Server
         let validator = DummyValidator;
         let auth = PlainAuth::new(true, validator);
-
 
         // Client
         let mut client = ClientAnonymous::new();
@@ -168,13 +173,16 @@ mod tests {
         // Select PLAIN
         let mut server = auth.start_exchange("ANONYMOUS").unwrap();
 
-        // C -> S 
+        // C -> S
         let exchange1 = client.initial();
         println!("C: {:?}", exchange1);
 
         // S -> C OK
         let exchange2 = server.respond(&exchange1).unwrap();
 
-        assert!(matches!(exchange2, Response::Success(Identity::Username(..), _)))
+        assert!(matches!(
+            exchange2,
+            Response::Success(Identity::Username(..), _)
+        ))
     }
 }

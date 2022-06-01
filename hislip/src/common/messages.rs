@@ -1,6 +1,6 @@
 use core::option::Option;
 use core::result::Result;
-use std::{io, fmt::Display};
+use std::{fmt::Display, io};
 
 use bitfield::bitfield;
 
@@ -16,7 +16,7 @@ pub(crate) mod prelude {
     pub(crate) use super::{
         AsyncInitializeResponseControl, AsyncInitializeResponseParameter, FeatureBitmap,
         InitializeParameter, InitializeResponseControl, InitializeResponseParameter, Message,
-        MessageType, RmtDeliveredControl, RequestLockControl, ReleaseLockControl
+        MessageType, ReleaseLockControl, RequestLockControl, RmtDeliveredControl,
     };
 }
 
@@ -32,10 +32,7 @@ impl Message {
     pub const MESSAGE_HEADER_SIZE: usize = 16;
 
     pub(crate) fn with_payload(self, payload: Vec<u8>) -> Self {
-        Self {
-            payload,
-            ..self
-        }
+        Self { payload, ..self }
     }
 
     pub(crate) fn no_payload(self) -> Message {
@@ -65,6 +62,7 @@ impl Message {
         let control_code = buf[3];
         let len = BigEndian::read_u64(&buf[8..16]);
         let message_parameter = BigEndian::read_u32(&buf[4..8]);
+
         if len > maxlen {
             Ok(Err(Error::NonFatal(
                 NonFatalErrorCode::MessageTooLarge,
@@ -77,15 +75,14 @@ impl Message {
                 NonFatalErrorCode::UnrecognizedMessageType,
                 "Unrecognized message type".to_string(),
             )) {
-                Ok(message_type) => Ok(Ok(Message { 
+                Ok(message_type) => Ok(Ok(Message {
                     message_type,
                     control_code,
-                    message_parameter, 
-                    payload 
+                    message_parameter,
+                    payload,
                 })),
-                Err(err) => Ok(Err(err))
+                Err(err) => Ok(Err(err)),
             }
-            
         }
     }
 
@@ -100,8 +97,9 @@ impl Message {
         buf[3] = self.control_code;
         NetworkEndian::write_u32(&mut buf[4..8], self.message_parameter);
         NetworkEndian::write_u64(&mut buf[8..16], self.payload.len() as u64);
-        writer.write_all(&buf).await?;
-        writer.write_all(self.payload.as_slice()).await?;
+        let mut to_send = buf.to_vec();
+        to_send.extend_from_slice(&self.payload);
+        writer.write_all(&to_send).await?;
         Ok(())
     }
 }
@@ -125,6 +123,7 @@ macro_rules! send_fatal {
         Message::from(Error::Fatal($err, format!($($arg)*)))
             .write_to($stream)
             .await?;
+        $stream.flush().await?;
         return Err(io::ErrorKind::Other.into());
     }};
     ($($key:ident=$value:expr),*; $stream:expr, $err:expr, $($arg:tt)*) => {{
@@ -132,6 +131,7 @@ macro_rules! send_fatal {
         Message::from(Error::Fatal($err, format!($($arg)*)))
             .write_to($stream)
             .await?;
+        $stream.flush().await?;
         return Err(io::ErrorKind::Other.into());
     }};
 }
@@ -142,17 +142,18 @@ macro_rules! send_nonfatal {
         log::warn!($($arg)*);
         Message::from(Error::NonFatal($err, format!($($arg)*)))
             .write_to($stream)
-            .await?
+            .await?;
+        $stream.flush().await?;
     }};
     ($($key:ident=$value:expr),*; $stream:expr, $err:expr, $($arg:tt)*) => {{
         log::warn!($($key=$value),*; $($arg)*);
         Message::from(Error::NonFatal($err, format!($($arg)*)))
             .write_to($stream)
-            .await?
+            .await?;
+        $stream.flush().await?;
     }};
 }
 pub(crate) use send_nonfatal;
-
 
 /// Message Type Value Definitions
 ///
@@ -428,15 +429,21 @@ impl FeatureBitmap {
 
 impl Display for FeatureBitmap {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "overlapped: {}, encryption: {}, initial_encryption: {}", self.overlapped(), self.encryption(), self.initial_encryption())
+        write!(
+            f,
+            "overlapped: {}, encryption: {}, initial_encryption: {}",
+            self.overlapped(),
+            self.encryption(),
+            self.initial_encryption()
+        )
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate)enum RequestLockControl {
+pub(crate) enum RequestLockControl {
     Failure = 0,
     Success = 1,
-    Error = 2
+    Error = 2,
 }
 
 impl From<SharedLockError> for RequestLockControl {
@@ -449,13 +456,11 @@ impl From<SharedLockError> for RequestLockControl {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate)enum ReleaseLockControl {
+pub(crate) enum ReleaseLockControl {
     SuccessExclusive = 1,
     SuccessShared = 2,
-    Error = 3
+    Error = 3,
 }
 
 const DISABLE_REMOTE: u8 = 0;
 const ENABLE_REMOTE: u8 = 0;
-
-

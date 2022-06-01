@@ -1,36 +1,43 @@
 use std::cmp::min;
 use std::collections::HashMap;
 use std::io;
-use std::net::SocketAddr;
 use std::str::from_utf8;
 use std::sync::Weak;
 
+use async_std::channel::{self, Receiver, Sender};
 use async_std::sync::Arc;
 use async_std::{
     net::{TcpListener, TcpStream, ToSocketAddrs},
     task,
 };
 
-use futures::StreamExt;
-use lxi_device::lock::{LockHandle, Mutex, SharedLock, SpinMutex};
+use futures::{AsyncWriteExt, StreamExt};
+use lxi_device::lock::{LockHandle, Mutex, RemoteLockHandle, SharedLock, SpinMutex};
 use lxi_device::Device;
 
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::common::messages::{prelude::*, send_fatal, send_nonfatal};
 use crate::common::{Protocol, PROTOCOL_2_0, SUPPORTED_PROTOCOL};
-use crate::server::session::{AsyncSession, Session, SessionState, SyncSession};
+use crate::server::session::{SessionState, SharedSession};
 use crate::server::stream::HislipStream;
+use crate::DEFAULT_DEVICE_SUBADRESS;
 
 #[cfg(feature = "tls")]
 use async_tls::TlsAcceptor;
-#[cfg(feature = "tls")]
-use sasl::{secret, server::Validator};
 
 pub mod auth;
 use auth::Auth;
 
+use self::auth::AnonymousAuth;
+
 pub mod session;
 mod stream;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EncryptionMode {
+    Optional,
+    Mandatory,
+}
 
 #[derive(Debug, Copy, Clone)]
 pub struct ServerConfig {
@@ -50,12 +57,77 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             vendor_id: 0xBEEF,
-            max_message_size: 1024,
+            max_message_size: 1024 * 1024,
             prefer_overlap: true,
             encryption_mode: false,
             initial_encryption: false,
             max_num_sessions: 64,
         }
+    }
+}
+
+pub struct ServerBuilder<DEV> {
+    config: ServerConfig,
+    devices: HashMap<String, (Arc<SpinMutex<SharedLock>>, Arc<Mutex<DEV>>)>,
+}
+
+impl<DEV> Default for ServerBuilder<DEV> {
+    fn default() -> Self {
+        Self {
+            config: Default::default(),
+            devices: HashMap::new(),
+        }
+    }
+}
+
+impl<DEV> ServerBuilder<DEV>
+where
+    DEV: Device + Send + 'static,
+{
+    pub fn new(config: ServerConfig) -> Self {
+        Self {
+            config,
+            devices: HashMap::new(),
+        }
+    }
+
+    pub fn new_with_device(
+        config: ServerConfig,
+        subaddr: String,
+        dev: Arc<Mutex<DEV>>,
+        shared_lock: Arc<SpinMutex<SharedLock>>,
+    ) -> Self {
+        Self::new(config).device(subaddr, dev, shared_lock)
+    }
+
+    pub fn device(
+        mut self,
+        subaddr: String,
+        dev: Arc<Mutex<DEV>>,
+        shared_lock: Arc<SpinMutex<SharedLock>>,
+    ) -> Self {
+        self.devices.insert(subaddr, (shared_lock, dev));
+        self
+    }
+
+    pub fn build_with_auth<A>(self, authenticator: Arc<Mutex<A>>) -> Arc<Server<DEV, A>>
+    where
+        A: Auth + Send + 'static,
+    {
+        assert!(
+            self.devices.len() > 0,
+            "Server must have one or more devices"
+        );
+        Server::with_config(self.config, self.devices, authenticator)
+    }
+
+    pub fn build(self) -> Arc<Server<DEV, AnonymousAuth>> {
+        let authenticator = Arc::new(Mutex::new(AnonymousAuth));
+        assert!(
+            self.devices.len() > 0,
+            "Server must have one or more devices"
+        );
+        Server::with_config(self.config, self.devices, authenticator)
     }
 }
 
@@ -65,8 +137,7 @@ where
     A: Auth,
 {
     inner: Arc<Mutex<InnerServer<DEV>>>,
-    shared_lock: Arc<SpinMutex<SharedLock>>,
-    device: Arc<Mutex<DEV>>,
+    devices: HashMap<String, (Arc<SpinMutex<SharedLock>>, Arc<Mutex<DEV>>)>,
     config: ServerConfig,
     authenticator: Arc<Mutex<A>>,
 }
@@ -77,16 +148,27 @@ where
     A: Auth + Send + 'static,
 {
     pub fn new(
-        shared_lock: Arc<SpinMutex<SharedLock>>,
-        device: Arc<Mutex<DEV>>,
+        devices: HashMap<String, (Arc<SpinMutex<SharedLock>>, Arc<Mutex<DEV>>)>,
         authenticator: Arc<Mutex<A>>,
     ) -> Arc<Self> {
         let config = ServerConfig::default();
         Arc::new(Server {
             inner: InnerServer::new(config.max_num_sessions),
             config,
-            shared_lock,
-            device,
+            authenticator,
+            devices,
+        })
+    }
+
+    pub fn with_config(
+        config: ServerConfig,
+        devices: HashMap<String, (Arc<SpinMutex<SharedLock>>, Arc<Mutex<DEV>>)>,
+        authenticator: Arc<Mutex<A>>,
+    ) -> Arc<Self> {
+        Arc::new(Server {
+            inner: InnerServer::new(config.max_num_sessions),
+            config,
+            devices,
             authenticator,
         })
     }
@@ -108,6 +190,8 @@ where
 
             let s = self.clone();
             task::spawn(async move {
+                log::info!("{peer} connected");
+
                 let res = s
                     .handle_session(
                         stream,
@@ -115,19 +199,19 @@ where
                         acceptor,
                     )
                     .await;
-                log::debug!("{peer} disconnected: {res:?}")
+
+                log::info!("{peer} disconnected: {res:?}")
             });
         }
         Ok(())
     }
 
     async fn handle_session(
-        self: Arc<Self>,
+        &self,
         stream: TcpStream,
         #[cfg(feature = "tls")] acceptor: TlsAcceptor,
     ) -> Result<(), io::Error> {
         let peer = stream.peer_addr()?;
-        log::info!("{} connected", peer);
 
         let mut stream = HislipStream::Open(&stream);
 
@@ -177,89 +261,98 @@ where
                         } => {
                             // Create new session
                             let client_parameters = InitializeParameter(message_parameter);
-
-                            // TODO: Accept other than hislip0
-                            if !payload.eq_ignore_ascii_case(b"hislip0") {
-                                let s = std::str::from_utf8(&payload).unwrap_or("<invalid utf8>");
-                                send_fatal!(peer=format!("{}", peer); &mut stream, FatalErrorCode::InvalidInitialization, "Invalid sub adress: {}", s)
-                            }
-
-                            log::debug!(peer=format!("{}", peer);
+                            log::debug!(peer=peer.to_string();
                                 "Sync initialize, version={}, vendor={}",
                                 client_parameters.client_protocol(),
                                 client_parameters.client_vendorid()
                             );
 
-                            // Check if negotiated protocol is compatible with mandatory encryption
-                            let lowest_protocol =
-                                min(SUPPORTED_PROTOCOL, client_parameters.client_protocol());
-                            if cfg!(feature = "tls")
-                                && self.config.encryption_mode
-                                && lowest_protocol < PROTOCOL_2_0
-                            {
-                                send_fatal!(peer=format!("{}", peer); &mut stream,
-                                    FatalErrorCode::InvalidInitialization,
-                                    "Encryption is mandatory, must use protocol version 2.0 or later"
-                                )
-                            }
+                            // TODO: Accept other than hislip0
+                            if let Ok(mut s) = String::from_utf8(payload) {
+                                if s.is_empty() {
+                                    log::debug!(peer=peer.to_string(); "Empty sub-address, using default: {DEFAULT_DEVICE_SUBADRESS:?}");
+                                    s = DEFAULT_DEVICE_SUBADRESS.to_string();
+                                }
 
-                            let mut inner = self.inner.lock().await;
-                            let handle =
-                                LockHandle::new(self.shared_lock.clone(), self.device.clone());
-
-                            // Create new session
-                            match inner.new_session(self.config, lowest_protocol, handle) {
-                                Ok((session_id, session)) => {
-                                    // Negotiate encryption settings
-                                    let encryption_mode = self.config.encryption_mode
-                                        && lowest_protocol >= PROTOCOL_2_0;
-                                    let initial_encryption = self.config.initial_encryption
-                                        && lowest_protocol >= PROTOCOL_2_0;
-
-                                    let response_param = InitializeResponseParameter::new(
-                                        lowest_protocol,
-                                        session_id,
+                                if let Some((lock, dev)) = self.devices.get(&s) {
+                                    // Check if negotiated protocol is compatible with mandatory encryption
+                                    let protocol = min(
+                                        SUPPORTED_PROTOCOL,
+                                        client_parameters.client_protocol(),
                                     );
-
-                                    let control = InitializeResponseControl::new(
-                                        self.config.prefer_overlap,
-                                        encryption_mode,
-                                        initial_encryption,
-                                    );
-
-                                    // Send response
-                                    log::debug!(peer=format!("{}", peer); "New session 0x{:04x}", session_id);
-                                    MessageType::InitializeResponse
-                                        .message_params(control.0, response_param.0)
-                                        .no_payload()
-                                        .write_to(&mut stream)
-                                        .await?;
-
-                                    // Continue as sync session
-                                    let sync_session = SyncSession::new(
-                                        session,
-                                        session_id,
-                                        self.config,
-                                        lowest_protocol,
-                                        self.authenticator.clone()
-                                    );
-                                    return sync_session
-                                        .handle_session(
-                                            stream,
-                                            peer,
-                                            #[cfg(feature = "tls")]
-                                            acceptor,
+                                    if cfg!(feature = "tls")
+                                        && self.config.encryption_mode
+                                        && protocol < PROTOCOL_2_0
+                                    {
+                                        send_fatal!(peer=format!("{}", peer); &mut stream,
+                                            FatalErrorCode::InvalidInitialization,
+                                            "Encryption is mandatory, must use protocol version 2.0 or later"
                                         )
-                                        .await;
-                                }
-                                Err(err) => {
-                                    // Send (assumed fatal) error
-                                    Message::from(err).write_to(&mut stream).await?;
-                                }
-                            }
+                                    }
 
-                            // Stop using this connection
-                            return Err(io::ErrorKind::Other.into());
+                                    let mut inner = self.inner.lock().await;
+                                    let handle = LockHandle::new(lock.clone(), dev.clone());
+
+                                    // Create new session
+                                    match inner.create_session(protocol, handle) {
+                                        Ok((id, shared, device)) => {
+                                            // Negotiate encryption settings
+                                            let encryption_mode = self.config.encryption_mode
+                                                && protocol >= PROTOCOL_2_0;
+                                            let initial_encryption = self.config.initial_encryption
+                                                && protocol >= PROTOCOL_2_0;
+
+                                            let response_param =
+                                                InitializeResponseParameter::new(protocol, id);
+
+                                            let control = InitializeResponseControl::new(
+                                                self.config.prefer_overlap,
+                                                encryption_mode,
+                                                initial_encryption,
+                                            );
+                                            drop(inner);
+
+                                            // Send response
+                                            log::debug!(peer=peer.to_string(); "New session {id}, subaddr: {s:?}");
+                                            MessageType::InitializeResponse
+                                                .message_params(control.0, response_param.0)
+                                                .no_payload()
+                                                .write_to(&mut stream)
+                                                .await?;
+
+                                            // Continue as sync session
+                                            let res = session::synchronous::SyncSession::new(
+                                                id,
+                                                self.config,
+                                                shared,
+                                                RemoteLockHandle::new(device),
+                                                self.authenticator.clone(),
+                                            )
+                                            .await
+                                            .handle_session(
+                                                stream,
+                                                peer,
+                                                #[cfg(feature = "tls")]
+                                                acceptor,
+                                            )
+                                            .await;
+                                            log::debug!(peer=peer.to_string(), session_id=id; "Sync session closed: {res:?}");
+                                            return res;
+                                        }
+                                        Err(err) => {
+                                            // Send (assumed fatal) error
+                                            Message::from(err).write_to(&mut stream).await?;
+                                        }
+                                    }
+
+                                    // Stop using this connection
+                                    return Err(io::ErrorKind::Other.into());
+                                } else {
+                                    send_fatal!(peer=format!("{}", peer); &mut stream, FatalErrorCode::InvalidInitialization, "Invalid subadress: {s}")
+                                }
+                            } else {
+                                send_fatal!(peer=format!("{}", peer); &mut stream, FatalErrorCode::InvalidInitialization, "Invalid subadress: <invalid utf8>")
+                            }
                         }
                         Message {
                             message_type: MessageType::AsyncInitialize,
@@ -267,31 +360,31 @@ where
                             ..
                         } => {
                             // Connect to existing session
-                            let session_id = (message_parameter & 0x0000FFFF) as u16;
+                            let id = (message_parameter & 0x0000FFFF) as u16;
                             let session = {
                                 let mut guard = self.inner.lock().await;
-                                if let Some(s) = guard.get_session(session_id) {
+                                if let Some(s) = guard.get_session(id) {
                                     s
                                 } else {
-                                    send_fatal!(peer=format!("{}", peer), session_id=session_id;
+                                    send_fatal!(peer=format!("{}", peer), session_id=id;
                                     &mut stream, FatalErrorCode::InvalidInitialization,
                                         "Invalid session id"
                                     );
                                 }
                             };
 
-                            let s = session.clone();
-                            let mut session_guard = s.lock().await;
-                            let protocol = session_guard.protocol();
+                            let (shared, device) = session.clone();
+                            let mut session_guard = shared.lock().await;
 
                             // Check if async channel has alreasy been initialized for this session
                             if session_guard.is_initialized() {
-                                send_fatal!(peer=format!("{}", peer), session_id=session_id;
+                                drop(session_guard);
+                                send_fatal!(peer=format!("{}", peer), session_id=id;
                                 &mut stream, FatalErrorCode::InvalidInitialization,
                                     "Async session already initialized"
                                 );
                             } else {
-                                log::debug!(peer=format!("{}", peer), session_id=session_id; "Async initialize");
+                                log::debug!(peer=format!("{}", peer), session_id=id; "Async initialize");
 
                                 // Support secure connection if "tls" feature is enabled and the agreed upon protocol is >= 2.0.
                                 let secure_connection = cfg!(feature = "tls")
@@ -307,6 +400,7 @@ where
                                 } else {
                                     session_guard.set_state(SessionState::Normal)
                                 }
+                                drop(session_guard);
 
                                 MessageType::AsyncInitializeResponse
                                     .message_params(
@@ -319,23 +413,24 @@ where
                                     .no_payload()
                                     .write_to(&mut stream)
                                     .await?;
-                                drop(session_guard);
 
                                 // Continue as async session
-                                let async_session = AsyncSession::new(
-                                    session,
-                                    session_id,
+                                let res = session::asynchronous::AsyncSession::new(
+                                    id,
                                     self.config,
-                                    protocol,
-                                );
-                                return async_session
-                                    .handle_session(
-                                        stream,
-                                        peer,
-                                        #[cfg(feature = "tls")]
-                                        acceptor,
-                                    )
-                                    .await;
+                                    shared,
+                                    device,
+                                )
+                                .await
+                                .handle_session(
+                                    stream,
+                                    peer,
+                                    #[cfg(feature = "tls")]
+                                    acceptor,
+                                )
+                                .await;
+                                log::debug!(peer=peer.to_string(), session_id=id; "Async session closed: {res:?}");
+                                return res;
                             }
                         }
                         msg => {
@@ -360,12 +455,50 @@ where
     }
 }
 
+/// A handle to a created active season
+#[derive(Clone)]
+struct SessionHandle<DEV>
+where
+    DEV: Device,
+{
+    id: u16,
+    shared: Weak<Mutex<SharedSession>>,
+    device: Weak<SpinMutex<LockHandle<DEV>>>,
+    clear_sender: Sender<()>,
+    clear_receiver: Receiver<()>,
+}
+
+impl<DEV> SessionHandle<DEV>
+where
+    DEV: Device,
+{
+    fn new(
+        id: u16,
+        session: Weak<Mutex<SharedSession>>,
+        handle: Weak<SpinMutex<LockHandle<DEV>>>,
+    ) -> Self {
+        let (clear_sender, clear_receiver) = channel::bounded(1);
+        Self {
+            id,
+            shared: session,
+            device: handle,
+            clear_sender,
+            clear_receiver,
+        }
+    }
+
+    /// Return false if the assosciated object have been closed
+    fn active(&self) -> bool {
+        self.shared.strong_count() > 0 && self.device.strong_count() > 0
+    }
+}
+
 struct InnerServer<DEV>
 where
     DEV: Device,
 {
     session_id: u16,
-    sessions: HashMap<u16, Weak<Mutex<Session<DEV>>>>,
+    sessions: HashMap<u16, SessionHandle<DEV>>,
     max_num_sessions: usize,
 }
 
@@ -403,12 +536,18 @@ where
     }
 
     // Should only return Fatal errors
-    fn new_session(
+    fn create_session(
         &mut self,
-        config: ServerConfig,
         protocol: Protocol,
         handle: LockHandle<DEV>,
-    ) -> Result<(u16, Arc<Mutex<Session<DEV>>>), Error> {
+    ) -> Result<
+        (
+            u16,
+            Arc<Mutex<SharedSession>>,
+            Arc<SpinMutex<LockHandle<DEV>>>,
+        ),
+        Error,
+    > {
         self.gc_sessions();
         if self.sessions.len() >= self.max_num_sessions {
             return Err(Error::Fatal(
@@ -417,24 +556,32 @@ where
             ));
         }
 
-        let session_id = self.new_session_id()?;
-        let session = Arc::new(Mutex::new(Session::new(
-            config, session_id, protocol, handle,
-        )));
-        // Store a weak pointer so that the session gets dropped when both sync and async channels are dropped
-        self.sessions.insert(session_id, Arc::downgrade(&session));
-        Ok((session_id, session))
+        let id = self.new_session_id()?;
+
+        // Create new resources for session
+        let shared = Arc::new(Mutex::new(SharedSession::new(protocol)));
+        let device = Arc::new(SpinMutex::new(handle));
+        let session = SessionHandle::new(id, Arc::downgrade(&shared), Arc::downgrade(&device));
+
+        self.sessions.insert(id, session);
+        Ok((id, shared, device))
     }
 
     /// Get a session
     /// Note: Returns a strong reference which will keep any locks assosciated with session active until dropped
-    fn get_session(&mut self, session_id: u16) -> Option<Arc<Mutex<Session<DEV>>>> {
-        let session = self.sessions.get(&session_id)?;
-        session.upgrade()
+    fn get_session(
+        &mut self,
+        session_id: u16,
+    ) -> Option<(Arc<Mutex<SharedSession>>, Arc<SpinMutex<LockHandle<DEV>>>)> {
+        let tmp = self.sessions.get(&session_id)?;
+        let shared = tmp.shared.upgrade()?;
+        let dev = tmp.device.upgrade()?;
+
+        Some((shared, dev))
     }
 
     /// Remove any stale session id
     fn gc_sessions(&mut self) {
-        self.sessions.retain(|_, v| v.strong_count() != 0)
+        self.sessions.retain(|_, session| session.active())
     }
 }

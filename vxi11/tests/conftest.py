@@ -16,7 +16,7 @@ def resource_manager(request):
 def vxi11_example(xprocess, request):
     debug = os.environ.get('VXI11_TARGET')
     if debug is not None:
-        yield debug
+        yield f'TCPIP::{debug}::inst0::INSTR'
     else:
         class Starter(ProcessStarter):
             # startup pattern

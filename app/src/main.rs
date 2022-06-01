@@ -7,14 +7,14 @@ use std::{
     sync::Arc,
 };
 
-use async_std::{io, future};
+use async_std::{future, io};
 use lxi_device::{
     lock::{Mutex, SharedLock},
     util::{EchoDevice, SimpleDevice},
 };
 
 use lxi_hislip::{
-    server::{auth::AnonymousAuth, Server as HislipServer},
+    server::{auth::AnonymousAuth, ServerBuilder as HislipServerBuilder},
     STANDARD_PORT as HISLIP_STANDARD_PORT,
 };
 
@@ -107,7 +107,9 @@ async fn main() -> Result<(), io::Error> {
         #[cfg(feature = "tls")]
         let acceptor = TlsAcceptor::from(Arc::new(hislip_tls_config));
 
-        let server = HislipServer::new(hislip_lock, hislip_device, authenticator);
+        let server = HislipServerBuilder::default()
+            .device("hislip0".to_string(), hislip_device, hislip_lock)
+            .build_with_auth(authenticator);
         server
             .accept(
                 (&hislip_addr[..], HISLIP_STANDARD_PORT),
@@ -135,7 +137,7 @@ async fn main() -> Result<(), io::Error> {
     #[cfg(feature = "tls")]
     {
         let acceptor = TlsAcceptor::from(Arc::new(config));
-        
+
         let tls_socket_addr = args.ip.clone();
         let tls_socket_lock = shared_lock.clone();
         let tls_socket_device = device.clone();
@@ -143,10 +145,10 @@ async fn main() -> Result<(), io::Error> {
             let server = SocketServerConfig::default().read_buffer(16 * 1024).build();
             server
                 .accept_tls(
-                    (&tls_socket_addr[..], SOCKET_STANDARD_PORT+1000),
+                    (&tls_socket_addr[..], SOCKET_STANDARD_PORT + 1000),
                     tls_socket_lock,
                     tls_socket_device,
-                    acceptor
+                    acceptor,
                 )
                 .await
         });
@@ -168,5 +170,4 @@ async fn main() -> Result<(), io::Error> {
     });
 
     telnet.await
-
 }

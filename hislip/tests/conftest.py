@@ -21,7 +21,7 @@ def resource_manager(request):
 
 @pytest.fixture
 def hislip_example(xprocess, request):
-    debug = os.environ.get('HISLIP_DEBUG')
+    debug = os.environ.get('HISLIP_TARGET')
     if debug is not None:
         addr, port = debug.split(':')
 

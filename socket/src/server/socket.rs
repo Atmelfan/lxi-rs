@@ -1,4 +1,3 @@
-
 use std::fmt::Debug;
 use std::time::Duration;
 
@@ -74,7 +73,7 @@ impl Server {
         addr: impl ToSocketAddrs,
         shared_lock: Arc<SpinMutex<SharedLock>>,
         device: Arc<Mutex<DEV>>,
-        acceptor: TlsAcceptor
+        acceptor: TlsAcceptor,
     ) -> io::Result<()>
     where
         DEV: Device + Send + 'static,
@@ -171,7 +170,6 @@ impl Server {
 
         let handle = LockHandle::new(shared_lock, device);
 
-
         loop {
             // Read a line from stream.
             let n = reader.read_until(self.0.read_termination, &mut cmd).await?;
@@ -184,7 +182,7 @@ impl Server {
 
             let mut resp = {
                 let mut device = handle.async_lock().await.unwrap();
-                cmd.pop();// Remove read_termination
+                cmd.pop(); // Remove read_termination
                 device.execute(&cmd)
             };
 

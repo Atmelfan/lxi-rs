@@ -1,22 +1,18 @@
 use std::fmt::Debug;
-use std::io::Cursor;
-use std::pin::Pin;
 use std::time::Duration;
 
-use async_std::path::Path;
 use async_std::sync::Arc;
 use async_std::task;
 use futures::lock::Mutex;
 use futures::{AsyncWriteExt, StreamExt};
 
-use async_std::io::{self, BufReader, Read, ReadExt, Write};
+use async_std::io::{self, Read, ReadExt, Write};
 use async_std::net::{TcpListener, ToSocketAddrs};
 
 use async_listen::ListenExt;
 
-use libtelnet_rs::bytes::Bytes;
-use libtelnet_rs::events::{TelnetEvents, TelnetNegotiation};
-use libtelnet_rs::{telnet::op_command as commands, telnet::op_option as options, Parser};
+use libtelnet_rs::events::TelnetEvents;
+use libtelnet_rs::{telnet::op_option as options, Parser};
 
 use lxi_device::lock::SpinMutex;
 use lxi_device::{
@@ -27,6 +23,8 @@ use lxi_device::{
 pub struct Server(ServerConfig);
 
 impl Server {
+
+    /// Accept client connections
     pub async fn accept<DEV>(
         self: Arc<Self>,
         addr: impl ToSocketAddrs,
@@ -61,6 +59,7 @@ impl Server {
         Ok(())
     }
 
+    /// Process a client stream
     pub async fn process_client<DEV, IO, SA>(
         self: Arc<Self>,
         mut stream: IO,
@@ -111,17 +110,22 @@ impl Server {
                     TelnetEvents::Subnegotiation(_sub) => {}
                     TelnetEvents::DataReceive(data) => {
                         for b in data {
+                            // Echo back if enabled
                             if instance.options.get_option(options::ECHO).local_state {
                                 stream.write_all(&[b]).await?;
                             }
+                            
                             if b == b'\n' {
+                                // Remove \r
                                 cmd.pop();
+                                // Lock device and execute
                                 let resp = {
                                     let mut device = handle.async_lock().await.unwrap();
                                     device.execute(&cmd)
                                 };
                                 cmd.clear();
 
+                                // Send back response if any
                                 if !resp.is_empty() {
                                     let to_send = Parser::escape_iac(resp);
                                     stream.write_all(&to_send).await?;
@@ -135,12 +139,10 @@ impl Server {
                     TelnetEvents::DataSend(data) => {
                         stream.write_all(&data).await?;
                     }
-                    TelnetEvents::DecompressImmediate(data) => unreachable!(),
+                    TelnetEvents::DecompressImmediate(_data) => unreachable!(),
                 }
             }
         }
-
-        Ok(())
     }
 }
 
@@ -178,12 +180,13 @@ impl ServerConfig {
         }
     }
 
-    /// Set the termination character for writes.
+    /// Set the maximmum number of clients allowed to be served at once.
     ///
     pub fn backpressure(self, limit: usize) -> Self {
         Self { limit, ..self }
     }
 
+    /// Finishes and reurns the server
     pub fn build(self) -> Arc<Server> {
         Arc::new(Server(self))
     }

@@ -1,5 +1,5 @@
 use lxi_device::{lock::SharedLock, util::SimpleDevice};
-use lxi_socket::{SOCKET_STANDARD_PORT, server::socket::ServerConfig};
+use lxi_socket::{server::socket::ServerConfig, SOCKET_STANDARD_PORT};
 
 use clap::Parser;
 

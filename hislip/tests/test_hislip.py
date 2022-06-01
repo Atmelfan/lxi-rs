@@ -50,19 +50,41 @@ def test_hislip_shared_lock(hislip_example, resource_manager: pyvisa.ResourceMan
     inst3 = resource_manager.open_resource(hislip_example)
 
     # Lock
-    inst1.lock(requested_key="foo")
-    inst2.lock(requested_key="foo")
+    inst1.lock(requested_key="foo", timeout=0)
+    inst2.lock(requested_key="foo", timeout=1000000000)
+
+    # Timeout
     t1 = time()
     with pytest.raises(pyvisa.VisaIOError) as excinfo:
         inst3.lock(1000, requested_key="bar")
     dt = time() - t1
+    print(f"Timeout took {dt}s")
+    assert dt > 1.0, "Timeout occured too fast"
 
     inst1.unlock()
     inst2.unlock()
 
+    # inst3 may lock
+    inst3.lock(1000, requested_key="bar")
+
     inst1.close()
     inst2.close()
     inst3.close()
+
+
+def test_hislip_clear_in_progress(hislip_example, resource_manager: pyvisa.ResourceManager):
+    inst1 = resource_manager.open_resource(hislip_example)
+    inst2 = resource_manager.open_resource(hislip_example)
+
+    # Lock
+    inst1.lock(requested_key="foo")
+
+    # Timeout
+    
+
+    inst1.close()
+    inst2.close()
+    
 
 
 

@@ -1,42 +1,38 @@
-use std::{pin::Pin, sync::Arc};
+use std::pin::Pin;
 
 use async_std::{io, net::TcpStream};
 use futures::{AsyncRead, AsyncWrite};
 
-#[cfg(feature = "tls")] 
+#[cfg(feature = "tls")]
 use async_tls::{server::TlsStream, TlsAcceptor};
-
 
 pub(crate) const HISLIP_TLS_BUSY: u8 = 0;
 pub(crate) const HISLIP_TLS_SUCCESS: u8 = 1;
 pub(crate) const HISLIP_TLS_ERROR: u8 = 3;
-
 
 pub(crate) enum HislipStream<'a> {
     /// Unencrypted stream
     Open(&'a TcpStream),
 
     /// TLS encrypted stream
-    #[cfg(feature = "tls")] 
+    #[cfg(feature = "tls")]
     Encrypted(TlsStream<&'a TcpStream>),
 }
 
 impl<'a> HislipStream<'a> {
-    #[cfg(feature = "tls")] 
+    #[cfg(feature = "tls")]
     pub async fn start_tls(&mut self, acceptor: TlsAcceptor) -> io::Result<()> {
         match self {
             HislipStream::Open(stream) => {
-                let e = acceptor
-                    .accept(*stream)
-                    .await?;
+                let e = acceptor.accept(*stream).await?;
                 *self = HislipStream::Encrypted(e);
                 Ok(())
-            },
+            }
             HislipStream::Encrypted(_) => Ok(()),
         }
     }
 
-    #[cfg(feature = "tls")] 
+    #[cfg(feature = "tls")]
     pub async fn end_tls(&mut self) -> io::Result<()> {
         Err(io::ErrorKind::Other.into())
     }
@@ -90,4 +86,9 @@ impl<'a> AsyncWrite for HislipStream<'a> {
             HislipStream::Encrypted(stream) => Pin::new(stream).poll_close(cx),
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    fn x() {}
 }

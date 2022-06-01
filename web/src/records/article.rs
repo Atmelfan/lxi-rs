@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{database::HasArguments, query::{Query, QueryAs}, sqlite::SqliteArguments};
+use sqlx::{
+    database::HasArguments,
+    query::{Query, QueryAs},
+    sqlite::SqliteArguments,
+};
 
 #[derive(sqlx::FromRow, Debug, Deserialize, Serialize)]
 pub struct Article {
@@ -23,7 +27,10 @@ pub struct PartialArticle {
 }
 
 impl PartialArticle {
-    pub fn update_by_id(&self, id: i64) -> Query<'_, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'_>> {
+    pub fn update_by_id(
+        &self,
+        id: i64,
+    ) -> Query<'_, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'_>> {
         sqlx::query(
             "UPDATE articles (text, title, updated) VALUES (
             COALESCE($1, articles.text),
@@ -52,7 +59,7 @@ impl Article {
         sqlx::query_as("SELECT * FROM users")
     }
 
-    pub fn last_id() -> QueryAs<'static, sqlx::Sqlite, (i64,), SqliteArguments<'static>>  {
+    pub fn last_id() -> QueryAs<'static, sqlx::Sqlite, (i64,), SqliteArguments<'static>> {
         sqlx::query_as("SELECT last_insert_rowid()")
     }
 

@@ -1,10 +1,9 @@
 use async_sqlx_session::SqliteSessionStore;
-use lxi_web::{routes, State};
+use lxi_web::{routes, websockets::Session, State};
 use sqlx::sqlite::SqlitePool;
 use std::{collections::BTreeMap, env, sync::Arc, time::Duration};
 use tide::{sessions::SessionMiddleware, Redirect};
-
-use handlebars::{Handlebars, HelperDef, RenderContext, Helper, Context, JsonRender, HelperResult, Output, RenderError};
+use tide_websockets::WebSocket;
 
 async fn db_connection() -> tide::Result<SqlitePool> {
     let database_url = env::var("DATABASE_URL")?;
@@ -29,17 +28,20 @@ async fn main() -> tide::Result<()> {
     tide::log::with_level(tide::log::LevelFilter::Info);
     let db = db_connection().await?;
 
-    let state = State {
-        db: db.clone(),
-    };
+    let state = State { db: db.clone() };
 
     let mut app = tide::with_state(state);
 
     app.with(build_session_middleware(db).await?);
 
-    app.at("/").get(Redirect::new("/welcome")); 
+    app.at("/").get(Redirect::new("/welcome"));
 
     app.at("/welcome").get(routes::welcome);
+
+    //
+    app.at("/as_middleware")
+        .with(WebSocket::new(LxiWebSocketServer::handle))
+        .get(|_| async move { Ok("this was not a websocket request") });
 
     // Serve manual
     app.at("/manual").get(Redirect::new("/manual/index.html"));

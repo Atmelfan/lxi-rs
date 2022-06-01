@@ -1,52 +1,31 @@
-#![allow(non_upper_case_globals)]
-
 use std::{
-    cmp::min,
     collections::HashMap,
     io::{self, Cursor},
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    sync::{Arc, Weak},
-    time::{Duration, Instant},
+    sync::Arc,
+    time::Duration, cmp::min,
 };
 
 use async_listen::ListenExt;
 use async_std::{
-    future::timeout,
-    net::{TcpListener, TcpStream, ToSocketAddrs, UdpSocket},
-    task,
+    net::TcpListener,
+    future::timeout, task,
 };
+use lxi_device::{Device, lock::SharedLockError};
+
+use crate::common::{
+    onc_rpc::prelude::*,
+    vxi11::{self, xdr},
+    xdr::prelude::*,
+};
+
 use futures::{
-    channel::mpsc::{channel, Receiver, Sender},
     lock::Mutex,
     select, FutureExt, StreamExt,
 };
-use lxi_device::{
-    lock::{LockHandle, SharedLock, SharedLockError, SpinMutex},
-    Device, DeviceError as LxiDeviceError,
-};
 
-use crate::{
-    client::portmapper::PortMapperClient,
-    common::{
-        onc_rpc::prelude::*,
-        portmapper::{xdr::Mapping, PORTMAPPER_PROT_TCP},
-        vxi11::{xdr::DeviceSrqParms, *},
-    },
-};
 
-use crate::common::xdr::prelude::*;
-
-pub mod prelude {
-    pub use super::{VxiAsyncServer, VxiCoreServer, VxiServerBuilder};
-    pub use crate::common::vxi11::{
-        DEVICE_ASYNC, DEVICE_ASYNC_VERSION, DEVICE_CORE, DEVICE_CORE_VERSION, DEVICE_INTR,
-        DEVICE_INTR_VERSION,
-    };
-}
-
-use prelude::*;
-
-use super::portmapper::StaticPortMapBuilder;
+use super::{intr_client::VxiSrqClient, prelude::*, Link, VxiInner};
 
 macro_rules! get_link {
     ($links:expr, $lid:expr) => {
@@ -70,184 +49,11 @@ macro_rules! lock_device {
     };
 }
 
-impl From<LxiDeviceError> for xdr::DeviceErrorCode {
-    fn from(de: LxiDeviceError) -> Self {
-        match de {
-            LxiDeviceError::NotSupported => xdr::DeviceErrorCode::OperationNotSupported,
-            LxiDeviceError::IoTimeout => xdr::DeviceErrorCode::IoTimeout,
-            LxiDeviceError::IoError => xdr::DeviceErrorCode::IoError,
-            _ => xdr::DeviceErrorCode::DeviceNotAccessible,
-        }
-    }
-}
-
-impl From<SharedLockError> for xdr::DeviceErrorCode {
-    fn from(de: SharedLockError) -> Self {
-        match de {
-            SharedLockError::AlreadyLocked | SharedLockError::AlreadyUnlocked => {
-                xdr::DeviceErrorCode::NoLockHeldByThisLink
-            }
-            SharedLockError::Timeout
-            | SharedLockError::LockedByShared
-            | SharedLockError::LockedByExclusive => xdr::DeviceErrorCode::DeviceLockedByAnotherLink,
-            SharedLockError::Aborted => xdr::DeviceErrorCode::Abort,
-            SharedLockError::Busy => xdr::DeviceErrorCode::DeviceNotAccessible,
-        }
-    }
-}
-
-impl<T> From<Result<(), T>> for xdr::DeviceErrorCode
-where
-    T: Into<xdr::DeviceErrorCode>,
-{
-    fn from(res: Result<(), T>) -> Self {
-        match res {
-            Ok(_) => xdr::DeviceErrorCode::NoError,
-            Err(err) => err.into(),
-        }
-    }
-}
-
-struct Link<DEV> {
-    id: u32,
-    handle: LockHandle<DEV>,
-
-    abort: Receiver<()>,
-
-    // Srq
-    srq_enable: bool,
-    srq_handle: Option<Vec<u8>>,
-
-    // Buffers
-    in_buf: Vec<u8>,
-    out_buf: Vec<u8>,
-}
-
-impl<DEV> Link<DEV> {
-    fn new(id: u32, handle: LockHandle<DEV>) -> (Self, Sender<()>) {
-        let (sender, receiver) = channel(1);
-        (
-            Self {
-                id,
-                handle,
-                abort: receiver,
-                in_buf: Vec::new(),
-                out_buf: Vec::new(),
-                srq_enable: false,
-                srq_handle: None,
-            },
-            sender,
-        )
-    }
-
-    fn clear(&mut self) {
-        self.in_buf.clear();
-        self.out_buf.clear();
-    }
-
-    fn close(&mut self) {
-        log::trace!("Link {} closed", self.id);
-        // Release any held locks
-        self.handle.force_release();
-    }
-}
-
-impl<DEV> Drop for Link<DEV> {
-    fn drop(&mut self) {
-        self.close()
-    }
-}
-
-struct VxiInner<DEV> {
-    link_id: u32,
-    links: HashMap<u32, Sender<()>>,
-    shared: Arc<SpinMutex<SharedLock>>,
-    device: Arc<Mutex<DEV>>,
-}
-
-impl<DEV> VxiInner<DEV> {
-    fn new(shared: Arc<SpinMutex<SharedLock>>, device: Arc<Mutex<DEV>>) -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Self {
-            link_id: 0,
-            links: HashMap::default(),
-            shared,
-            device,
-        }))
-    }
-
-    fn next_link_id(&mut self) -> u32 {
-        self.link_id += 1;
-        while self.links.contains_key(&self.link_id) {
-            self.link_id += 1;
-        }
-        self.link_id
-    }
-
-    fn new_link(&mut self) -> (u32, Link<DEV>) {
-        let id = self.next_link_id();
-        let handle = LockHandle::new(self.shared.clone(), self.device.clone());
-        let (link, sender) = Link::new(id, handle);
-        self.links.insert(id, sender);
-        (id, link)
-    }
-
-    fn remove_link(&mut self, lid: u32) {
-        self.links.remove(&lid);
-    }
-}
-
 /// Core RPC service
 pub struct VxiCoreServer<DEV> {
-    inner: Arc<Mutex<VxiInner<DEV>>>,
-    max_recv_size: u32,
-    async_port: u16,
-}
-
-pub struct VxiCoreSession<DEV> {
-    peer: SocketAddr,
-    inner: Arc<Mutex<VxiInner<DEV>>>,
-    max_recv_size: u32,
-    async_port: u16,
-
-    // Links created by this session
-    // Will be dropped when client disconnects
-    links: Mutex<HashMap<u32, Link<DEV>>>,
-
-    srq: Mutex<Option<VxiSrqClient>>,
-}
-
-struct VxiSrqClient {
-    // Service request
-    client: RpcClient,
-}
-
-impl VxiSrqClient {
-    async fn device_intr_srq(&mut self, handle: Vec<u8>) -> Result<(), RpcError> {
-        let args = DeviceSrqParms::new(Opaque(handle));
-        self.client.call_no_reply(DEVICE_INTR_SRQ, args).await
-    }
-}
-
-impl VxiSrqClient {
-    async fn new(
-        host_addr: u32,
-        host_port: u16,
-        prog_num: u32,
-        prog_vers: u32,
-        udp: bool,
-    ) -> io::Result<Self> {
-        let client = if udp {
-            let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await?;
-            socket
-                .connect((Ipv4Addr::from(host_addr), host_port))
-                .await?;
-            RpcClient::Udp(UdpRpcClient::new(prog_num, prog_vers, socket))
-        } else {
-            let stream = TcpStream::connect((Ipv4Addr::from(host_addr), host_port)).await?;
-            RpcClient::Tcp(StreamRpcClient::new(stream, prog_num, prog_vers))
-        };
-        Ok(Self { client })
-    }
+    pub(super) inner: Arc<Mutex<VxiInner<DEV>>>,
+    pub(super) max_recv_size: u32,
+    pub(super) async_port: u16,
 }
 
 impl<DEV> VxiCoreServer<DEV>
@@ -290,6 +96,19 @@ where
     }
 }
 
+pub struct VxiCoreSession<DEV> {
+    peer: SocketAddr,
+    inner: Arc<Mutex<VxiInner<DEV>>>,
+    max_recv_size: u32,
+    async_port: u16,
+
+    // Links created by this session
+    // Will be dropped when client disconnects
+    links: Mutex<HashMap<u32, Link<DEV>>>,
+
+    srq: Mutex<Option<VxiSrqClient>>,
+}
+
 #[async_trait::async_trait]
 impl<DEV> RpcService for VxiCoreSession<DEV>
 where
@@ -319,7 +138,7 @@ where
 
         match proc {
             0 => Ok(()),
-            CREATE_LINK => {
+            vxi11::CREATE_LINK => {
                 let mut parms = xdr::CreateLinkParms::default();
                 parms.read_xdr(args)?;
 
@@ -362,7 +181,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            DEVICE_WRITE => {
+            vxi11::DEVICE_WRITE => {
                 // Read parameters
                 let mut parms = xdr::DeviceWriteParms::default();
                 parms.read_xdr(args)?;
@@ -411,7 +230,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            DEVICE_READ => {
+            vxi11::DEVICE_READ => {
                 // Read parameters
                 let mut parms = xdr::DeviceReadParms::default();
                 parms.read_xdr(args)?;
@@ -473,7 +292,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            DEVICE_READSTB => {
+            vxi11::DEVICE_READSTB => {
                 // Read parameters
                 let mut parms = xdr::DeviceGenericParms::default();
                 parms.read_xdr(args)?;
@@ -515,7 +334,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            DEVICE_TRIGGER => {
+            vxi11::DEVICE_TRIGGER => {
                 // Read parameters
                 let mut parms = xdr::DeviceGenericParms::default();
                 parms.read_xdr(args)?;
@@ -545,7 +364,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            DEVICE_CLEAR => {
+            vxi11::DEVICE_CLEAR => {
                 // Read parameters
                 let mut parms = xdr::DeviceGenericParms::default();
                 parms.read_xdr(args)?;
@@ -577,7 +396,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            DEVICE_LOCAL | DEVICE_REMOTE => {
+            vxi11::DEVICE_LOCAL | vxi11::DEVICE_REMOTE => {
                 // Read parameters
                 let mut parms = xdr::DeviceGenericParms::default();
                 parms.read_xdr(args)?;
@@ -586,7 +405,7 @@ where
                     lock_timeout=parms.lock_timeout,
                     io_timeout=parms.io_timeout,
                     flags=format!("{}", parms.flags); 
-                    "Local {}", proc == DEVICE_REMOTE);
+                    "Local {}", proc == vxi11::DEVICE_REMOTE);
 
                 let mut resp = xdr::DeviceError::default();
 
@@ -596,7 +415,7 @@ where
                             lock_device!(link.handle, parms.flags, parms.lock_timeout, link.abort);
 
                         match dev {
-                            Ok(mut d) => d.set_remote(proc == DEVICE_REMOTE).into(),
+                            Ok(mut d) => d.set_remote(proc == vxi11::DEVICE_REMOTE).into(),
                             Err(err) => err.into(),
                         }
                     }
@@ -607,7 +426,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            DEVICE_LOCK => {
+            vxi11::DEVICE_LOCK => {
                 // Read parameters
                 let mut parms = xdr::DeviceLockParms::default();
                 parms.read_xdr(args)?;
@@ -638,7 +457,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            DEVICE_UNLOCK => {
+            vxi11::DEVICE_UNLOCK => {
                 // Read parameters
                 let mut parms = xdr::DeviceLink::default();
                 parms.read_xdr(args)?;
@@ -659,7 +478,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            DEVICE_ENABLE_SRQ => {
+            vxi11::DEVICE_ENABLE_SRQ => {
                 // Read parameters
                 let mut parms = xdr::DeviceEnableSrqParms::default();
                 parms.read_xdr(args)?;
@@ -689,7 +508,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            DEVICE_DOCMD => {
+            vxi11::DEVICE_DOCMD => {
                 // Read parameters
                 let mut parms = xdr::DeviceDocmdParms::default();
                 parms.read_xdr(args)?;
@@ -704,7 +523,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            DESTROY_LINK => {
+            vxi11::DESTROY_LINK => {
                 // Read parameters
                 let mut parms = xdr::DeviceLink::default();
                 parms.read_xdr(args)?;
@@ -727,7 +546,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            CREATE_INTR_CHAN => {
+            vxi11::CREATE_INTR_CHAN => {
                 // Read parameters
                 let mut parms = xdr::DeviceRemoteFunc::default();
                 parms.read_xdr(args)?;
@@ -763,7 +582,7 @@ where
                 resp.write_xdr(ret)?;
                 Ok(())
             }
-            DESTROY_INTR_CHAN => {
+            vxi11::DESTROY_INTR_CHAN => {
                 // Read parameters
                 ().read_xdr(args)?;
 
@@ -783,203 +602,5 @@ where
             }
             _ => Err(RpcError::ProcUnavail),
         }
-    }
-}
-
-/// Async/abort RPC service
-pub struct VxiAsyncServer<DEV> {
-    inner: Arc<Mutex<VxiInner<DEV>>>,
-    async_port: u16,
-}
-
-impl<DEV> VxiAsyncServer<DEV>
-where
-    DEV: Send + 'static,
-{
-    pub async fn bind(self: Arc<Self>, addrs: IpAddr) -> io::Result<()> {
-        let listener = TcpListener::bind((addrs, self.async_port)).await?;
-        self.serve(listener).await
-    }
-
-    pub async fn serve(self: Arc<Self>, listener: TcpListener) -> io::Result<()> {
-        log::info!("Async listening on {}", listener.local_addr()?);
-        let mut incoming = listener
-            .incoming()
-            .log_warnings(|warn| log::warn!("Listening error: {}", warn))
-            .handle_errors(Duration::from_millis(100))
-            .backpressure(10);
-
-        while let Some((token, stream)) = incoming.next().await {
-            let peer = stream.peer_addr()?;
-            log::debug!("Accepted from: {}", peer);
-
-            let s = self.clone();
-            task::spawn(async move {
-                if let Err(err) = s.serve_tcp_stream(stream).await {
-                    log::debug!("Error processing client: {}", err)
-                }
-                drop(token);
-            });
-        }
-        log::info!("Stopped");
-        Ok(())
-    }
-}
-
-#[async_trait::async_trait]
-impl<DEV> RpcService for VxiAsyncServer<DEV>
-where
-    DEV: Send,
-{
-    async fn call(
-        self: Arc<Self>,
-        prog: u32,
-        vers: u32,
-        proc: u32,
-        args: &mut Cursor<Vec<u8>>,
-        ret: &mut Cursor<Vec<u8>>,
-    ) -> Result<(), RpcError>
-    where
-        Self: Sync,
-    {
-        if prog != DEVICE_ASYNC {
-            return Err(RpcError::ProgUnavail);
-        }
-
-        if vers != DEVICE_ASYNC_VERSION {
-            return Err(RpcError::ProgMissmatch(MissmatchInfo {
-                low: DEVICE_ASYNC_VERSION,
-                high: DEVICE_ASYNC_VERSION,
-            }));
-        }
-
-        match proc {
-            0 => Ok(()),
-            DEVICE_ABORT => {
-                // Read parameters
-                let mut parms = xdr::DeviceLink::default();
-                parms.read_xdr(args)?;
-
-                let mut resp = xdr::DeviceError::default();
-
-                // TODO
-                let sender = {
-                    let inner = self.inner.lock().await;
-                    inner.links.get(&parms.0).cloned()
-                };
-
-                resp.error = match sender {
-                    Some(mut abort) => {
-                        let _ = abort.try_send(());
-                        xdr::DeviceErrorCode::NoError
-                    }
-                    None => xdr::DeviceErrorCode::InvalidLinkIdentifier,
-                };
-                resp.write_xdr(ret)?;
-                Ok(())
-            }
-            _ => Err(RpcError::ProcUnavail),
-        }
-    }
-}
-
-/// Builder used to create a VXI11 server
-pub struct VxiServerBuilder {
-    core_port: u16,
-    async_port: u16,
-}
-
-impl VxiServerBuilder {
-    pub fn new() -> Self {
-        Self {
-            core_port: 4322,
-            async_port: 4323,
-        }
-    }
-
-    /// Set the vxi server core port.
-    pub fn core_port(mut self, core_port: u16) -> Self {
-        self.core_port = core_port;
-        self
-    }
-
-    /// Set the vxi server async/abort port.
-    pub fn async_port(mut self, async_port: u16) -> Self {
-        self.async_port = async_port;
-        self
-    }
-
-    /// Register VXI server using portmap/rpcbind
-    pub async fn register_portmap(self, addrs: impl ToSocketAddrs) -> Result<Self, RpcError> {
-        if self.async_port == 0 || self.core_port == 0 {
-            log::error!("Dynamic port not supported");
-            return Err(RpcError::SystemErr);
-        }
-
-        let mut portmap = PortMapperClient::connect_tcp(addrs).await?;
-        // Register core service
-        let mut res = portmap
-            .set(Mapping::new(
-                DEVICE_CORE,
-                DEVICE_CORE_VERSION,
-                PORTMAPPER_PROT_TCP,
-                self.core_port as u32,
-            ))
-            .await?;
-        // Register async service
-        res &= portmap
-            .set(Mapping::new(
-                DEVICE_ASYNC,
-                DEVICE_ASYNC_VERSION,
-                PORTMAPPER_PROT_TCP,
-                self.async_port as u32,
-            ))
-            .await?;
-        if res {
-            Ok(self)
-        } else {
-            Err(RpcError::SystemErr)
-        }
-    }
-
-    /// Register VXI server using [StaticPortMap]
-    pub fn register_static_portmap(
-        self,
-        portmap: &mut StaticPortMapBuilder,
-    ) -> Result<Self, RpcError> {
-        // Register core service
-        portmap.add(Mapping::new(
-            DEVICE_CORE,
-            DEVICE_CORE_VERSION,
-            PORTMAPPER_PROT_TCP,
-            self.core_port as u32,
-        ));
-        // Register async service
-        portmap.add(Mapping::new(
-            DEVICE_ASYNC,
-            DEVICE_ASYNC_VERSION,
-            PORTMAPPER_PROT_TCP,
-            self.async_port as u32,
-        ));
-        Ok(self)
-    }
-
-    pub fn build<DEV>(
-        self,
-        shared: Arc<SpinMutex<SharedLock>>,
-        device: Arc<Mutex<DEV>>,
-    ) -> (Arc<VxiCoreServer<DEV>>, Arc<VxiAsyncServer<DEV>>) {
-        let inner = VxiInner::new(shared, device);
-        (
-            Arc::new(VxiCoreServer {
-                inner: inner.clone(),
-                async_port: self.async_port,
-                max_recv_size: 128 * 1024,
-            }),
-            Arc::new(VxiAsyncServer {
-                inner: inner.clone(),
-                async_port: self.async_port,
-            }),
-        )
     }
 }
