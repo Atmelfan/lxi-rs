@@ -1,0 +1,11 @@
+[book]
+authors = ["Gustav Palmqvist"]
+language = "en"
+multilingual = false
+src = "src"
+title = "Example manual"
+
+
+
+[output.html]
+site-url = "/user-manual/"

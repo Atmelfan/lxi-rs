@@ -1,10 +1,68 @@
-{% extends "layout.html" %}
+{% extends "layout.html" %} 
 
-{% block title %}Welcome{% endblock %}
+{% block title %}LXI-{{ manufacturer }}-{{ model }}-{{ serial_number }}-{{ description }}{% endblock %} 
 
 {% block content %}
-<h1>Hello, {{ name }}!</h1>
-<p>
-  <a href="/articles">Want to see some articles?</a>
-</p>
+<h1>Hello!</h1>
+
+<p>Manufacturer: {{ manufacturer }}</p>
+<p>Model: {{ model }}</p>
+<p>Serial number: {{ serial_number }}</p>
+<p>LXI version: {{ lxi_version }}</p>
+<p>FW version: {{ fw_version }}</p>
+
+{% for interface in interfaces %}
+<div id="interface-{{ interface.name|id }}">
+    {# Only show interface name is there's is more than one #}
+    {% if interfaces.len() > 1 %}
+        {% if interface.typ != "LXI" %}
+            <h2>{{interface.name|e}} - {{interface.typ|e}}</h2>
+        {% else %}
+            <h2>{{interface.name|e}}</h2>
+        {% endif %}
+    {% endif %}
+
+    {% match interface.network_info %} 
+    {% when Some with (info) %}
+        <div id="interface-{{ interface.name|id }}-info">
+            <h3>Network info:</h3>
+            <p>Hostname: {{ info.hostname }}</p>
+            <p>Ip address: {{ info.ip_addr }}</p>
+            <p>Subnet mask: {{ info.subnet_mask }}</p>
+            <p>Gateway: {{ info.gateway }}</p>
+            <p>MAC address: {{ info.mac_address }}</p>
+            <p>DHCP enabled: {{ info.dhcp_enabled }}</p>
+            <p>Auto IP enabled: {{ info.auto_ip_enabled }}</p>
+        </div>
+    {% when None %}
+        {# No network information #}
+    {% endmatch %} 
+
+    {% if interface.instr_addr_string.len() > 1 %}
+        <div id="interface-{{ interface.name|id }}-addr">
+            <h3>Address strings:</h3>
+            <ul>
+                {% for addr in interface.instr_addr_string %}
+                <li>{{ addr|e }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+    
+</div>
+{% endfor %}
+
+{% if extended_functions.len()>= 1 %}
+<!-- List extended functions -->
+<div id="lxi-extended-functions">
+    <h2>LXI extended functions</h2>
+    <ul>
+        {% for func in extended_functions %}
+        <li id="{{ func.name|id }}">{{ func.name|e }}, Version {{ func.version|e }}</li>
+        {% endfor %}
+    </ul>
+</div>
+
+{% endif %}
+
 {% endblock %}

@@ -8,4 +8,4 @@ title = "Example manual"
 
 
 [output.html]
-site-url = "/manual/"
+site-url = "/user-manual/"

@@ -1,16 +1,25 @@
 pub mod articles;
 
-pub mod welcome {
-    use askama::Template;
-    #[derive(Template)]
-    #[template(path = "welcome.html")]
-    pub struct WelcomeTemplate<'a> {
-        name: &'a str,
-    }
+pub mod welcome;
+pub mod error;
+//pub mod files;
 
-    impl<'a> WelcomeTemplate<'a> {
-        pub fn new(name: &'a str) -> Self {
-            Self { name }
-        }
+mod filters {
+    pub fn id(s: &str) -> ::askama::Result<String> {
+        Ok(s.trim().to_lowercase().replace(" ", "-"))
     }
+}
+
+pub enum UserInfo<'a> {
+    /// Not logged in
+    Guest,
+    /// Logged in user
+    User {
+        username: &'a str,
+        role: &'a str
+    }
+}
+
+pub struct UserTemplate {
+    
 }

@@ -1,12 +1,58 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <title>{% block title %}{{ title }} - My Site{% endblock %}</title>
+
+<head>
+    <title>{% block title %}LXI-{{ manufacturer }}-{{ model }}-{{ serial_number }}-{{ description }}{% endblock %}</title>
     {% block head %}{% endblock %}
-  </head>
-  <body>
-    <div id="content">
-      {% block content %}{% endblock %}
+
+    <link rel="stylesheet" href="/assets/css/styles.css">
+    <link rel="stylesheet" href="/assets/FontAwesome/css/font-awesome.css">
+</head>
+
+<body>
+    <!-- Header -->
+    <div class="header">
+        <h1>My Website</h1>
+        <p>With a <b>flexible</b> layout.</p>
     </div>
-  </body>
+
+    <!-- Side bar -->
+    <div class="row">
+
+        <nav>
+            <ul class="menu side">
+                <li class="item"><a href="#"><i class="fa fa-home"></i> Home</a></li>
+                <li class="item"><a href="#"><i class="fa fa-terminal"></i> Control</a></li>
+                <li class="item"><a href="#"><i class="fa fa-file"></i> Storage</a></li>
+                <li class="item has-submenu">
+                    <a tabindex="0"><i class="fa fa-cog"></i> Settings</a>
+                    <ul class="submenu">
+                    <li class="subitem"><a href="#"><i class="fa fa-server"></i> Network</a></li>
+                    <li class="subitem"><a href="#"><i class="fa fa-shield"></i> Security</a></li>
+                    <li class="subitem"><a href="#"><i class="fa fa-users"></i> Users</a></li>
+                    <li class="subitem"><a href="#"><i class="fa fa-ellipsis-h"></i> Other</a></li>
+                    </ul>
+                </li>
+                <li class="item"><a href="#"><i class="fa fa-sign-in"></i> Log In</a></li>
+                <li class="item"><a href="#"><i class="fa fa-sign-out"></i> Log Out</a></li>
+                <li class="toggle"><a href="#"><i class="fa fa-bars"></i></a></li>
+            </ul>
+        </nav>
+    
+        <!-- Main content -->
+        <div id="content" class="main">
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+    
+
+    <!-- Footer -->
+    <div class="footer">
+        <h2>Footer</h2>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/assets/js/script.js"></script>
+</body>
+
 </html>
