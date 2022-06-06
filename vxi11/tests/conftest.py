@@ -14,9 +14,9 @@ def resource_manager(request):
 
 @pytest.fixture
 def vxi11_example(xprocess, request):
-    debug = os.environ.get('VXI11_TARGET')
-    if debug is not None:
-        yield f'TCPIP::{debug}::inst0::INSTR'
+    target = os.environ.get('DEBUG_TARGET')
+    if target is not None:
+        yield f'TCPIP::{target}::inst0::INSTR'
     else:
         class Starter(ProcessStarter):
             # startup pattern
@@ -30,29 +30,10 @@ def vxi11_example(xprocess, request):
 
 
         # ensure process is running and return its logfile
-        logfile = xprocess.ensure("vxi11_example", Starter)
+        name = request.function.__name__
+        logfile = xprocess.ensure(f"vxi11_example-{name}", Starter)
 
         yield "TCPIP::localhost::inst0::INSTR"
 
         # clean up whole process tree afterwards
-        xprocess.getinfo("vxi11_example").terminate()
-
-@pytest.fixture
-def portmap_example(xprocess, request):
-
-    class Starter(ProcessStarter):
-        # startup pattern
-        pattern = "Running server"
-        max_read_lines = 500
-
-        # command to start process
-        args = ['cargo', 'run', '--manifest-path', request.fspath.dirname+'/../Cargo.toml', '--example', 'portmap']
-
-
-    # ensure process is running and return its logfile
-    logfile = xprocess.ensure("portmap_example", Starter)
-
-    yield
-
-    # clean up whole process tree afterwards
-    xprocess.getinfo("portmap_example").terminate()
+        xprocess.getinfo(f"vxi11_example-{name}").terminate()

@@ -4,7 +4,7 @@ use std::time::Duration;
 use async_std::path::Path;
 use async_std::sync::Arc;
 use async_std::task;
-use futures::{lock::Mutex, AsyncRead, AsyncReadExt};
+use futures::{lock::Mutex, AsyncReadExt};
 use futures::{AsyncBufReadExt, AsyncWriteExt, StreamExt};
 
 use async_std::io::{self, BufReader, Read, Write};
@@ -178,7 +178,7 @@ impl Server {
                 break;
             }
 
-            log::debug!("{:?} read {:?}", peer, cmd);
+            log::trace!("{:?} read {:?}", peer, cmd);
 
             let mut resp = {
                 let mut device = handle.async_lock().await.unwrap();
@@ -189,7 +189,7 @@ impl Server {
             // Write back
             if !resp.is_empty() {
                 resp.push(self.0.write_termination);
-                log::debug!("{:?} write {:?}", peer, resp);
+                log::trace!("{:?} write {:?}", peer, resp);
                 writer.write_all(&resp).await?;
                 //writer.flush().await?;
             }

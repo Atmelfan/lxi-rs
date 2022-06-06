@@ -21,11 +21,15 @@ def resource_manager(request):
 
 @pytest.fixture
 def hislip_example(xprocess, request):
-    debug = os.environ.get('HISLIP_TARGET')
+    debug = os.environ.get('DEBUG_TARGET')
     if debug is not None:
-        addr, port = debug.split(':')
+        port = os.environ.get('HISLIP_PORT', default="4880")
 
-        yield f'TCPIP::{addr}::hislip0,{port}::INSTR'
+        if port == "4880":
+            yield f'TCPIP::{addr}::hislip0::INSTR'
+        else:
+            yield f'TCPIP::{addr}::hislip0,{port}::INSTR'
+
     else:
         addr = "127.0.0.1"
         port = find_free_port()

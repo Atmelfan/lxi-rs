@@ -6,6 +6,7 @@ use alloc::{boxed::Box, vec::Vec};
 pub mod frontpanel;
 pub mod lock;
 pub mod util;
+pub mod status;
 
 #[derive(Debug)]
 #[non_exhaustive]

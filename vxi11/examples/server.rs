@@ -1,6 +1,6 @@
 use std::{io, net::Ipv4Addr};
 
-use async_std::net::{TcpListener, TcpStream};
+use async_std::net::TcpListener;
 use futures::try_join;
 use lxi_device::{
     lock::SharedLock,
@@ -51,6 +51,15 @@ async fn main() -> io::Result<()> {
             PortMapperClient::connect_tcp((Ipv4Addr::LOCALHOST, PORTMAPPER_PORT)).await?;
 
         // Register core service
+        let _core_unset = portmap
+            .unset(Mapping::new(
+                DEVICE_CORE,
+                DEVICE_CORE_VERSION,
+                PORTMAPPER_PROT_TCP,
+                0,
+            ))
+            .await
+            .expect("Failed to unset core channel");
         let core_set = portmap
             .set(Mapping::new(
                 DEVICE_CORE,
@@ -63,6 +72,15 @@ async fn main() -> io::Result<()> {
         log::info!("portmap::set(DEVICE_CORE) returned {}", core_set);
 
         // Register async service
+        let _async_unset = portmap
+            .unset(Mapping::new(
+                DEVICE_ASYNC,
+                DEVICE_ASYNC_VERSION,
+                PORTMAPPER_PROT_TCP,
+                0,
+            ))
+            .await
+            .expect("Failed to unset async channel");
         let async_set = portmap
             .set(Mapping::new(
                 DEVICE_ASYNC,
