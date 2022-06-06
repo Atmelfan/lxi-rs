@@ -13,4 +13,4 @@ members = [
 ]
 
 [workspace.metadata.release]
-pre-relase-hook = ['pre-release-hook.sh']
+pre-release-hook = ['./pre-release-hook.sh']
