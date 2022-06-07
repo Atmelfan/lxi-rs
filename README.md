@@ -27,3 +27,5 @@ This crate uses two types of tests, the cargo test framework and pytest. Cargo t
 
 # Licensing
 Lxi-rs is available under dual Commercial and GPLv3 License, see [LICENSE.txt](./LICENSE.txt).
+
+Core crates like [lxi-device](device) are licensed under MIT and APACHE version 2.
