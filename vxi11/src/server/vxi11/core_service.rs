@@ -11,7 +11,7 @@ use async_std::{
     net::TcpListener,
     future::timeout, task,
 };
-use lxi_device::{Device, lock::SharedLockError};
+use lxi_device::{Device, lock::SharedLockError, trigger::Source};
 
 use crate::common::{
     onc_rpc::prelude::*,
@@ -353,7 +353,7 @@ where
                             lock_device!(link.handle, parms.flags, parms.lock_timeout, link.abort);
 
                         match dev {
-                            Ok(mut d) => d.trigger().into(),
+                            Ok(mut d) => d.trigger(Source::Bus).into(),
                             Err(err) => err.into(),
                         }
                     }

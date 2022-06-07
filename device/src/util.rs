@@ -1,7 +1,7 @@
 use alloc::{sync::Arc, vec::Vec};
 use futures::lock::Mutex;
 
-use crate::{Device, DeviceError};
+use crate::{Device, DeviceError, trigger::Source};
 
 #[derive(Clone)]
 pub struct EchoDevice;
@@ -21,7 +21,7 @@ impl Device for EchoDevice {
         Ok(0)
     }
 
-    fn trigger(&mut self) -> Result<(), DeviceError> {
+    fn trigger(&mut self, _: Source) -> Result<(), DeviceError> {
         Ok(())
     }
 
@@ -87,8 +87,8 @@ impl Device for SimpleDevice {
         Ok(stb)
     }
 
-    fn trigger(&mut self) -> Result<(), DeviceError> {
-        log::info!("===== TRIGGERED =====");
+    fn trigger(&mut self, source: Source) -> Result<(), DeviceError> {
+        log::info!("===== TRIGGERED BY {source:?} =====");
         self.trig = true;
         Ok(())
     }

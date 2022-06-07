@@ -8,6 +8,7 @@ use futures::lock::Mutex;
 use futures::{select, AsyncWriteExt, FutureExt};
 use lxi_device::lock::RemoteLockHandle;
 use lxi_device::Device;
+use lxi_device::trigger::Source;
 use sasl::server::Mechanism;
 
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
@@ -300,6 +301,8 @@ where
                                 SessionState::Normal => {
                                     let control = RmtDeliveredControl(control_code);
                                     log::debug!(session_id=self.id, message_id=message_id; "Trigger, {}", control);
+
+                                    let _ = dev.trigger(Source::Bus);
                                 }
                                 // Initial handshake
                                 SessionState::Handshake => {

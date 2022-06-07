@@ -2,11 +2,13 @@
 
 extern crate alloc;
 use alloc::{boxed::Box, vec::Vec};
+use trigger::Source;
 
 pub mod frontpanel;
 pub mod lock;
 pub mod util;
 pub mod status;
+pub mod trigger;
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -27,7 +29,7 @@ pub trait Device {
     fn get_status(&mut self) -> Result<u8, DeviceError>;
 
     /// Send a trigger signal to device
-    fn trigger(&mut self) -> Result<(), DeviceError>;
+    fn trigger(&mut self, source: Source) -> Result<(), DeviceError>;
 
     /// Send a clear signal to device
     fn clear(&mut self) -> Result<(), DeviceError>;
@@ -55,8 +57,8 @@ impl<DEV: Device + ?Sized> Device for Box<DEV> {
         (**self).get_status()
     }
 
-    fn trigger(&mut self) -> Result<(), DeviceError> {
-        (**self).trigger()
+    fn trigger(&mut self, source: Source) -> Result<(), DeviceError> {
+        (**self).trigger(source)
     }
 
     fn clear(&mut self) -> Result<(), DeviceError> {
