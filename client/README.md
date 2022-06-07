@@ -1,4 +1,4 @@
-# lxi-device
+# lxi-client
 
 
 

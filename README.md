@@ -7,16 +7,9 @@ Currently the focus is on implementing HiSLIP/VXI-11/Socket protocols for Unix-l
 
 
 # Relevant standards:
-* [IVI-6.1 High-Speed LAN Instrument Protocol (HiSLIP) v2.0 April 23, 2020](https://www.ivifoundation.org/specifications/)
-* [VXI-11 REVISION 1.0](https://www.vxibus.org/specifications.html)
-
-
-# Usage
-
-```toml
-[dependencies]
-#TBD
-```
+* [IVI-6.1 High-Speed LAN Instrument Protocol (HiSLIP) v2.0](https://www.ivifoundation.org/specifications/)
+* [VXI-11 REVISION v1.0](https://www.vxibus.org/specifications.html)
+* [LXI Device specification v1.5](https://www.lxistandard.org/members/Adopted%20Specifications/Latest%20Version%20of%20Standards_/LXI%20Standard%201.5%20Specifications/LXI%20Device%20Specification%20v1_5_01.pdf)
 
 # Scope
 This crate does not handle command parsing and/or execution, look at [scpi-rs](https://github.com/Atmelfan/scpi-rs)(:crab:) or [libscpi](https://github.com/j123b567/scpi-parser)(C) for that.

@@ -1,6 +1,6 @@
-# lxi-device
+# {{crate}}
 
-
+{{readme}}
 
 # License
 

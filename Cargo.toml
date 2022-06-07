@@ -5,10 +5,10 @@ license = "GPL-3.0-or-later"
 members = [
     "client",
     "device",
+    "event",
     "hislip",
     "socket",
     "vxi11",
-    "app",
     "web"
 ]
 
