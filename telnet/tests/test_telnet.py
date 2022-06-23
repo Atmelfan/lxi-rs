@@ -1,5 +1,6 @@
 from telnetlib import Telnet
 
+
 def test_telnet(telnet_example):
     with Telnet(*telnet_example, timeout=1000) as tn:
         tn.read_until(b"SCPI> ")

@@ -3,31 +3,34 @@ import pytest
 import pyvisa
 import pyvisa.util
 
-#if "ivi" not in pyvisa.util.get_system_details():
+# if "ivi" not in pyvisa.util.get_system_details():
 #    pytest.skip("Cannot test HiSLIP without NI-VISA installed", allow_module_level=True)
+
 
 def test_connect(hislip_example, resource_manager):
     inst = resource_manager.open_resource(hislip_example)
 
     inst.close()
 
+
 def test_hislip_idn(hislip_example, resource_manager):
     inst = resource_manager.open_resource(hislip_example)
-    inst.read_termination = ''
-    inst.write_termination = ''
+    inst.read_termination = ""
+    inst.write_termination = ""
 
     resp = inst.query("*IDN?")
     assert resp == "Cyberdyne systems,T800 Model 101,A9012.C,V2.4"
 
     inst.close()
 
+
 def test_clear(hislip_example, resource_manager: pyvisa.ResourceManager):
     inst = resource_manager.open_resource(hislip_example)
-
 
     inst.clear()
 
     inst.close()
+
 
 def test_trigger(hislip_example, resource_manager: pyvisa.ResourceManager):
     inst = resource_manager.open_resource(hislip_example)
@@ -36,7 +39,10 @@ def test_trigger(hislip_example, resource_manager: pyvisa.ResourceManager):
 
     inst.close()
 
-def test_hislip_exclusive_lock(hislip_example, resource_manager: pyvisa.ResourceManager):
+
+def test_hislip_exclusive_lock(
+    hislip_example, resource_manager: pyvisa.ResourceManager
+):
     inst = resource_manager.open_resource(hislip_example)
 
     # Lock and unlock
@@ -44,6 +50,7 @@ def test_hislip_exclusive_lock(hislip_example, resource_manager: pyvisa.Resource
     inst.unlock()
 
     inst.close()
+
 
 def test_hislip_shared_lock(hislip_example, resource_manager: pyvisa.ResourceManager):
     inst1 = resource_manager.open_resource(hislip_example)
@@ -56,7 +63,7 @@ def test_hislip_shared_lock(hislip_example, resource_manager: pyvisa.ResourceMan
 
     # Timeout
     t1 = time()
-    with pytest.raises(pyvisa.VisaIOError) as excinfo:
+    with pytest.raises(pyvisa.VisaIOError):
         inst3.lock(1000, requested_key="bar")
     dt = time() - t1
     print(f"Timeout took {dt}s")
@@ -73,7 +80,9 @@ def test_hislip_shared_lock(hislip_example, resource_manager: pyvisa.ResourceMan
     inst3.close()
 
 
-def test_hislip_clear_in_progress(hislip_example, resource_manager: pyvisa.ResourceManager):
+def test_hislip_clear_in_progress(
+    hislip_example, resource_manager: pyvisa.ResourceManager
+):
     inst1 = resource_manager.open_resource(hislip_example)
     inst2 = resource_manager.open_resource(hislip_example)
 
@@ -81,12 +90,6 @@ def test_hislip_clear_in_progress(hislip_example, resource_manager: pyvisa.Resou
     inst1.lock(requested_key="foo")
 
     # Timeout
-    
 
     inst1.close()
     inst2.close()
-    
-
-
-
-
