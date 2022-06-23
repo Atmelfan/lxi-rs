@@ -11,27 +11,19 @@ use async_std::{
     task,
 };
 
-use futures::{AsyncWriteExt, StreamExt};
+use futures::task::{Spawn, SpawnExt};
+use futures::{AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt};
 use lxi_device::lock::{LockHandle, Mutex, RemoteLockHandle, SharedLock, SpinMutex};
+use lxi_device::status::Sender as StatusSender;
 use lxi_device::Device;
 
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::common::messages::{prelude::*, send_fatal, send_nonfatal};
 use crate::common::{Protocol, PROTOCOL_2_0, SUPPORTED_PROTOCOL};
 use crate::server::session::{SessionState, SharedSession};
-use crate::server::stream::HislipStream;
 use crate::DEFAULT_DEVICE_SUBADRESS;
 
-#[cfg(feature = "tls")]
-use async_tls::TlsAcceptor;
-
-pub mod auth;
-use auth::Auth;
-
-use self::auth::AnonymousAuth;
-
 pub mod session;
-mod stream;
 
 #[derive(Debug, Copy, Clone)]
 pub struct ServerConfig {
@@ -40,10 +32,6 @@ pub struct ServerConfig {
     pub max_message_size: u64,
     /// Prefer overlapped data
     pub prefer_overlap: bool,
-    /// Mandatory encryption if true
-    pub encryption_mode: bool,
-    /// Require
-    pub initial_encryption: bool,
     pub max_num_sessions: usize,
 }
 
@@ -53,8 +41,6 @@ impl Default for ServerConfig {
             vendor_id: 0xBEEF,
             max_message_size: 1024 * 1024,
             prefer_overlap: true,
-            encryption_mode: false,
-            initial_encryption: false,
             max_num_sessions: 64,
         }
     }
@@ -104,52 +90,35 @@ where
         self
     }
 
-    pub fn build_with_auth<A>(self, authenticator: Arc<Mutex<A>>) -> Arc<Server<DEV, A>>
-    where
-        A: Auth + Send + 'static,
-    {
+    pub fn build(self) -> Arc<Server<DEV>> {
         assert!(
             self.devices.len() > 0,
             "Server must have one or more devices"
         );
-        Server::with_config(self.config, self.devices, authenticator)
-    }
-
-    pub fn build(self) -> Arc<Server<DEV, AnonymousAuth>> {
-        let authenticator = Arc::new(Mutex::new(AnonymousAuth));
-        assert!(
-            self.devices.len() > 0,
-            "Server must have one or more devices"
-        );
-        Server::with_config(self.config, self.devices, authenticator)
+        Server::with_config(self.config, self.devices)
     }
 }
 
-pub struct Server<DEV, A>
+pub struct Server<DEV>
 where
     DEV: Device,
-    A: Auth,
 {
     inner: Arc<Mutex<InnerServer<DEV>>>,
     devices: HashMap<String, (Arc<SpinMutex<SharedLock>>, Arc<Mutex<DEV>>)>,
     config: ServerConfig,
-    authenticator: Arc<Mutex<A>>,
 }
 
-impl<DEV, A> Server<DEV, A>
+impl<DEV> Server<DEV>
 where
     DEV: Device + Send + 'static,
-    A: Auth + Send + 'static,
 {
     pub fn new(
         devices: HashMap<String, (Arc<SpinMutex<SharedLock>>, Arc<Mutex<DEV>>)>,
-        authenticator: Arc<Mutex<A>>,
     ) -> Arc<Self> {
         let config = ServerConfig::default();
         Arc::new(Server {
             inner: InnerServer::new(config.max_num_sessions),
             config,
-            authenticator,
             devices,
         })
     }
@@ -157,42 +126,36 @@ where
     pub fn with_config(
         config: ServerConfig,
         devices: HashMap<String, (Arc<SpinMutex<SharedLock>>, Arc<Mutex<DEV>>)>,
-        authenticator: Arc<Mutex<A>>,
     ) -> Arc<Self> {
         Arc::new(Server {
             inner: InnerServer::new(config.max_num_sessions),
             config,
             devices,
-            authenticator,
         })
     }
 
     /// Start accepting connections from addr
     ///
-    pub async fn accept(
+    pub async fn accept<P>(
         self: Arc<Self>,
         addr: impl ToSocketAddrs,
-        #[cfg(feature = "tls")] acceptor: TlsAcceptor,
-    ) -> Result<(), io::Error> {
+        mut srq: StatusSender,
+        spawner: P,
+    ) -> Result<(), io::Error>
+    where
+        P: Spawn,
+    {
         let listener = TcpListener::bind(addr).await?;
         let mut incoming = listener.incoming();
         while let Some(stream) = incoming.next().await {
             let stream = stream?;
             let peer = stream.peer_addr()?;
-            #[cfg(feature = "tls")]
-            let acceptor = acceptor.clone();
 
             let s = self.clone();
-            task::spawn(async move {
+            let t = srq.get_new_receiver();
+            let res = spawner.spawn(async move {
                 log::info!("{peer} connected");
-
-                let res = s
-                    .handle_session(
-                        stream,
-                        #[cfg(feature = "tls")]
-                        acceptor,
-                    )
-                    .await;
+                let res = s.handle_session(peer.to_string(), stream, t).await;
 
                 log::info!("{peer} disconnected: {res:?}")
             });
@@ -200,15 +163,16 @@ where
         Ok(())
     }
 
-    async fn handle_session(
+    async fn handle_session<S, SRQ>(
         &self,
-        stream: TcpStream,
-        #[cfg(feature = "tls")] acceptor: TlsAcceptor,
-    ) -> Result<(), io::Error> {
-        let peer = stream.peer_addr()?;
-
-        let mut stream = HislipStream::Open(&stream);
-
+        peer: String,
+        mut stream: S,
+        srq: SRQ,
+    ) -> Result<(), io::Error>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+        SRQ: Stream<Item = u8> + Unpin,
+    {
         loop {
             match Message::read_from(&mut stream, self.config.max_message_size).await? {
                 Ok(msg) => {
@@ -261,7 +225,6 @@ where
                                 client_parameters.client_vendorid()
                             );
 
-                            // TODO: Accept other than hislip0
                             if let Ok(mut s) = String::from_utf8(payload) {
                                 if s.is_empty() {
                                     log::debug!(peer=peer.to_string(); "Empty sub-address, using default: {DEFAULT_DEVICE_SUBADRESS:?}");
@@ -274,37 +237,28 @@ where
                                         SUPPORTED_PROTOCOL,
                                         client_parameters.client_protocol(),
                                     );
-                                    if cfg!(feature = "tls")
-                                        && self.config.encryption_mode
-                                        && protocol < PROTOCOL_2_0
-                                    {
-                                        send_fatal!(peer=format!("{}", peer); &mut stream,
-                                            FatalErrorCode::InvalidInitialization,
-                                            "Encryption is mandatory, must use protocol version 2.0 or later"
-                                        )
-                                    }
-
-                                    let mut inner = self.inner.lock().await;
-                                    let handle = LockHandle::new(lock.clone(), dev.clone());
 
                                     // Create new session
-                                    match inner.create_session(protocol, handle) {
-                                        Ok((id, shared, device)) => {
-                                            // Negotiate encryption settings
-                                            let encryption_mode = self.config.encryption_mode
-                                                && protocol >= PROTOCOL_2_0;
-                                            let initial_encryption = self.config.initial_encryption
-                                                && protocol >= PROTOCOL_2_0;
+                                    let mut inner = self.inner.lock().await;
+                                    let handle = LockHandle::new(lock.clone(), dev.clone());
+                                    let session = inner.create_session(protocol, handle);
+                                    drop(inner);
 
+                                    match session {
+                                        Ok((id, shared, device)) => {
                                             let response_param =
                                                 InitializeResponseParameter::new(protocol, id);
 
                                             let control = InitializeResponseControl::new(
                                                 self.config.prefer_overlap,
-                                                encryption_mode,
-                                                initial_encryption,
+                                                false,
+                                                false,
                                             );
-                                            drop(inner);
+
+                                            let receiver = {
+                                                let s = shared.lock().await;
+                                                s.get_clear_receiver()
+                                            };
 
                                             // Send response
                                             log::debug!(peer=peer.to_string(); "New session {id}, subaddr: {s:?}");
@@ -320,15 +274,9 @@ where
                                                 self.config,
                                                 shared,
                                                 RemoteLockHandle::new(device),
-                                                self.authenticator.clone(),
+                                                receiver
                                             )
-                                            .await
-                                            .handle_session(
-                                                stream,
-                                                peer,
-                                                #[cfg(feature = "tls")]
-                                                acceptor,
-                                            )
+                                            .handle_session(stream, peer.clone(), protocol, )
                                             .await;
                                             log::debug!(peer=peer.to_string(), session_id=id; "Sync session closed: {res:?}");
                                             return res;
@@ -373,32 +321,21 @@ where
                             // Check if async channel has alreasy been initialized for this session
                             if session_guard.is_initialized() {
                                 drop(session_guard);
-                                send_fatal!(peer=format!("{}", peer), session_id=id;
+                                send_fatal!(peer=peer.to_string(), session_id=id;
                                 &mut stream, FatalErrorCode::InvalidInitialization,
                                     "Async session already initialized"
                                 );
                             } else {
                                 log::debug!(peer=format!("{}", peer), session_id=id; "Async initialize");
 
-                                // Support secure connection if "tls" feature is enabled and the agreed upon protocol is >= 2.0.
-                                let secure_connection = cfg!(feature = "tls")
-                                    && session_guard.protocol() >= PROTOCOL_2_0;
-
-                                // Require encryption transaction if encryption is mandatory or initially required
-                                // if not, go to normal state
-                                if cfg!(feature = "tls")
-                                    && (self.config.initial_encryption
-                                        || self.config.encryption_mode)
-                                {
-                                    session_guard.set_state(SessionState::EncryptionStart)
-                                } else {
-                                    session_guard.set_state(SessionState::Normal)
-                                }
+                                session_guard.set_state(SessionState::Normal);
+                                let protocol = session_guard.protocol();
+                                let sender = session_guard.get_clear_sender();
                                 drop(session_guard);
 
                                 MessageType::AsyncInitializeResponse
                                     .message_params(
-                                        AsyncInitializeResponseControl::new(secure_connection).0,
+                                        AsyncInitializeResponseControl::new(false).0,
                                         AsyncInitializeResponseParameter::new(
                                             self.config.vendor_id,
                                         )
@@ -414,14 +351,9 @@ where
                                     self.config,
                                     shared,
                                     device,
+                                    sender
                                 )
-                                .await
-                                .handle_session(
-                                    stream,
-                                    peer,
-                                    #[cfg(feature = "tls")]
-                                    acceptor,
-                                )
+                                .handle_session(stream, peer.clone(), srq, protocol)
                                 .await;
                                 log::debug!(peer=peer.to_string(), session_id=id; "Async session closed: {res:?}");
                                 return res;
@@ -458,8 +390,6 @@ where
     id: u16,
     shared: Weak<Mutex<SharedSession>>,
     device: Weak<SpinMutex<LockHandle<DEV>>>,
-    clear_sender: Sender<()>,
-    clear_receiver: Receiver<()>,
 }
 
 impl<DEV> SessionHandle<DEV>
@@ -471,13 +401,10 @@ where
         session: Weak<Mutex<SharedSession>>,
         handle: Weak<SpinMutex<LockHandle<DEV>>>,
     ) -> Self {
-        let (clear_sender, clear_receiver) = channel::bounded(1);
         Self {
             id,
             shared: session,
             device: handle,
-            clear_sender,
-            clear_receiver,
         }
     }
 

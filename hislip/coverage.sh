@@ -12,8 +12,8 @@ cargo build
 cargo test
 
 ##### Run python tests #####
-# Start the server
-cargo run --example coverage -- $HISLIP_SERVER_ARGS &
+# Start the server ()
+cargo run --example server -- --timeout 10000 $HISLIP_SERVER_ARGS &
 COVERAGE_PID=$!
 # Run pytest and tell it to not instantiate its own server
 HISLIP_TARGET="127.0.0.1:4880" pytest

@@ -24,6 +24,7 @@ def test_hislip_idn(hislip_example, resource_manager):
 def test_clear(hislip_example, resource_manager: pyvisa.ResourceManager):
     inst = resource_manager.open_resource(hislip_example)
 
+
     inst.clear()
 
     inst.close()

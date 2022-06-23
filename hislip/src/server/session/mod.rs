@@ -15,11 +15,8 @@ pub enum SessionMode {
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub(crate) enum SessionState {
     Handshake,
-    EncryptionStart,
-    AuthenticationStart,
-    AuthenticationExchange,
     Normal,
-    EncryptionStop,
+    Clear,
 }
 
 pub(crate) struct SharedSession {
@@ -82,5 +79,13 @@ impl SharedSession {
     /// Set the session's state.
     pub(crate) fn set_state(&mut self, state: SessionState) {
         self.state = state;
+    }
+
+    pub(crate) fn get_clear_receiver(&self) -> Receiver<()> {
+        self.clear.1.clone()
+    }
+
+    pub(crate) fn get_clear_sender(&self) -> Sender<()> {
+        self.clear.0.clone()
     }
 }

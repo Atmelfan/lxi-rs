@@ -1,24 +1,25 @@
 use std::io;
-use std::net::SocketAddr;
 use std::str::from_utf8;
 use std::time::Duration;
 
 use async_std::channel::Sender;
 use async_std::future;
+use async_std::prelude::StreamExt;
 use async_std::sync::Arc;
 use byteorder::{ByteOrder, NetworkEndian};
+use futures::future::Either;
 use futures::lock::Mutex;
-use futures::AsyncWriteExt;
+use futures::{
+    pin_mut, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt, Stream,
+};
 use lxi_device::lock::{LockHandle, SharedLockError, SharedLockMode, SpinMutex};
 use lxi_device::{Device, DeviceError};
 
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::common::messages::{prelude::*, send_fatal, send_nonfatal};
-use crate::common::PROTOCOL_2_0;
+use crate::common::{PROTOCOL_2_0, Protocol};
 
 use super::{ServerConfig, SharedSession};
-use crate::server::session::SessionState;
-use crate::server::stream::{HislipStream, HISLIP_TLS_BUSY, HISLIP_TLS_ERROR, HISLIP_TLS_SUCCESS};
 
 pub(crate) struct AsyncSession<DEV>
 where
@@ -36,37 +37,74 @@ where
     /// Device
     handle: Arc<SpinMutex<LockHandle<DEV>>>,
 
-    event: Sender<()>,
+    clear: Sender<()>,
 }
 
 impl<DEV> AsyncSession<DEV>
 where
     DEV: Device,
 {
-    pub(crate) async fn new(
+    pub(crate) fn new(
         id: u16,
         config: ServerConfig,
         shared: Arc<Mutex<SharedSession>>,
         handle: Arc<SpinMutex<LockHandle<DEV>>>,
+        clear: Sender<()>
     ) -> Self {
-        let event = shared.lock().await.clear.0.clone();
         Self {
             id,
             config,
             shared,
             handle,
-            event,
+            clear,
         }
     }
 
-    pub(crate) async fn handle_session(
+    pub(crate) async fn handle_session<S, SRQ>(
         self,
-        mut stream: HislipStream<'_>,
-        peer: SocketAddr,
-        #[cfg(feature = "tls")] acceptor: async_tls::TlsAcceptor,
-    ) -> Result<(), io::Error> {
+        stream: S,
+        peer: String,
+        mut srq: SRQ,
+        protocol: Protocol
+    ) -> Result<(), io::Error>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+        SRQ: Stream<Item = u8> + Unpin,
+    {
+        let (mut rd, mut wr) = stream.split();
+        let mut srq_bit = false;
+
         loop {
-            match Message::read_from(&mut stream, self.config.max_message_size).await? {
+            let read_msg = Message::read_from(&mut rd, self.config.max_message_size).fuse();
+            pin_mut!(read_msg);
+
+            let t = match futures::future::select(read_msg, srq.next()).await {
+                // Message was received
+                Either::Left((msg, _)) => msg,
+                // Status changed
+                Either::Right((stb, read_msg)) => {
+                    // Send SRQ
+                    match stb {
+                        Some(val) if !srq_bit => {
+                            srq_bit = true;
+                            MessageType::AsyncServiceRequest
+                                .message_params(val, 0)
+                                .write_to(&mut wr)
+                                .await?
+                        }
+                        _ => {
+                            send_fatal!(peer=peer.to_string(), session_id=self.id;
+                                &mut wr, FatalErrorCode::UnidentifiedError,
+                                "Server shutdown",
+                            );
+                        }
+                    }
+                    // Finish receiving message
+                    read_msg.await
+                }
+            }?;
+
+            match t {
                 Ok(msg) => {
                     match msg {
                         Message {
@@ -74,7 +112,7 @@ where
                             ..
                         } => {
                             send_nonfatal!(peer=peer.to_string(), session_id=self.id;
-                                &mut stream, NonFatalErrorCode::UnrecognizedVendorDefinedMessage,
+                                &mut wr, NonFatalErrorCode::UnrecognizedVendorDefinedMessage,
                                 "Unrecognized Vendor Defined Message ({})", code
                             );
                         }
@@ -122,7 +160,7 @@ where
                                 MessageType::AsyncLockResponse
                                     .message_params(control as u8, 0)
                                     .no_payload()
-                                    .write_to(&mut stream)
+                                    .write_to(&mut wr)
                                     .await?;
                             } else {
                                 // Lock
@@ -169,7 +207,7 @@ where
                                 MessageType::AsyncLockResponse
                                     .message_params(control as u8, 0)
                                     .no_payload()
-                                    .write_to(&mut stream)
+                                    .write_to(&mut wr)
                                     .await?;
                             }
                         }
@@ -237,17 +275,17 @@ where
                                     MessageType::AsyncRemoteLocalResponse
                                         .message_params(0, 0)
                                         .no_payload()
-                                        .write_to(&mut stream)
+                                        .write_to(&mut wr)
                                         .await?
                                 }
                                 Err(DeviceError::NotSupported) => {
-                                    send_nonfatal!(peer=peer.to_string(), session_id=self.id; &mut stream,
+                                    send_nonfatal!(peer=peer.to_string(), session_id=self.id; &mut wr,
                                         NonFatalErrorCode::UnrecognizedControlCode,
                                         "Unrecognized control code",
                                     );
                                 }
                                 Err(_) => {
-                                    send_nonfatal!(peer=peer.to_string(), session_id=self.id; &mut stream,
+                                    send_nonfatal!(peer=peer.to_string(), session_id=self.id; &mut wr,
                                         NonFatalErrorCode::UnidentifiedError,
                                         "Internal error",
                                     );
@@ -261,7 +299,7 @@ where
                         } => {
                             if payload.len() != 8 {
                                 send_fatal!(peer=peer.to_string(), session_id=self.id;
-                                &mut stream, FatalErrorCode::PoorlyFormattedMessageHeader,
+                                &mut wr, FatalErrorCode::PoorlyFormattedMessageHeader,
                                     "Expected 8 bytes in AsyncMaximumMessageSize payload"
                                 )
                             }
@@ -280,7 +318,7 @@ where
                             MessageType::AsyncMaximumMessageSizeResponse
                                 .message_params(0, 0)
                                 .with_payload(buf.to_vec())
-                                .write_to(&mut stream)
+                                .write_to(&mut wr)
                                 .await?;
                         }
                         Message {
@@ -292,20 +330,20 @@ where
                             log::debug!(session_id=self.id; "Device clear");
 
                             // Send a clear event
-                            let _ = self.event.try_send(());
+                            let _ = self.clear.try_send(());
 
                             // Announce preferred features
                             let features = FeatureBitmap::new(
                                 self.config.prefer_overlap,
-                                self.config.encryption_mode && shared.protocol >= PROTOCOL_2_0,
-                                self.config.initial_encryption && shared.protocol >= PROTOCOL_2_0,
+                                false,
+                                false,
                             );
                             drop(shared);
 
                             MessageType::AsyncDeviceClearAcknowledge
                                 .message_params(features.0, 0)
                                 .no_payload()
-                                .write_to(&mut stream)
+                                .write_to(&mut wr)
                                 .await?;
                         }
                         Message {
@@ -334,10 +372,12 @@ where
                                 dev.get_status().unwrap_or(0) & 0xef | mav
                             };
 
+                            srq_bit = false;
+
                             MessageType::AsyncStatusResponse
                                 .message_params(stb, 0)
                                 .no_payload()
-                                .write_to(&mut stream)
+                                .write_to(&mut wr)
                                 .await?;
                         }
                         Message {
@@ -354,7 +394,7 @@ where
                             MessageType::AsyncLockInfoResponse
                                 .message_params(exclusive.into(), num_shared)
                                 .no_payload()
-                                .write_to(&mut stream)
+                                .write_to(&mut wr)
                                 .await?;
                         }
                         Message {
@@ -362,12 +402,10 @@ where
                             control_code,
                             message_parameter,
                             payload,
-                        } => {
-                            let mut shared = self.shared.lock().await;
-
+                        } if protocol >= PROTOCOL_2_0 => {
                             if payload.len() != 4 {
                                 send_fatal!(peer=peer.to_string(), session_id=self.id;
-                                    &mut stream, FatalErrorCode::PoorlyFormattedMessageHeader,
+                                    &mut wr, FatalErrorCode::PoorlyFormattedMessageHeader,
                                     "Expected 4 bytes in AsyncStartTLS payload"
                                 )
                             }
@@ -378,54 +416,19 @@ where
 
                             log::debug!(session_id=self.id, message_id_sent=message_id_sent, message_id_read=message_id_read; "Start async TLS");
 
-                            // Why did you send this?
-                            if shared.protocol() < PROTOCOL_2_0 {
-                                send_nonfatal!(peer=peer.to_string(), session_id=self.id;
-                                    &mut stream,
-                                    NonFatalErrorCode::UnrecognizedMessageType,
-                                    "Negotiated protocol version does not support this message"
-                                );
-                                continue;
-                            }
-
-                            #[cfg(feature = "tls")]
-                            let control_code = {
-                                // Check that the last message that the client sent has been received by the server
-                                // and vice-versa.
-                                if shared.read_message_id == message_id_sent
-                                    && shared.sent_message_id == message_id_read
-                                {
-                                    match stream.start_tls(acceptor.clone()).await {
-                                        Ok(_) => {
-                                            shared.set_state(SessionState::EncryptionStart);
-                                            HISLIP_TLS_SUCCESS
-                                        }
-                                        Err(_) => HISLIP_TLS_ERROR,
-                                    }
-                                } else {
-                                    HISLIP_TLS_BUSY
-                                }
-                            };
-
-                            #[cfg(not(feature = "tls"))]
+                            // TODO: Encryption support
                             send_fatal!(
-                                &mut stream,
+                                &mut wr,
                                 FatalErrorCode::SecureConnectionFailed,
                                 "Secure connection not supported"
-                            );
-
-                            MessageType::AsyncStartTLSResponse
-                                .message_params(control_code, 0)
-                                .no_payload()
-                                .write_to(&mut stream)
-                                .await?;
+                            )
                         }
                         Message {
                             message_type: MessageType::AsyncEndTLS,
                             control_code,
                             message_parameter,
                             payload,
-                        } => {
+                        } if protocol >= PROTOCOL_2_0 => {
                             // Only supported >= 2.0
 
                             let _control = RmtDeliveredControl(control_code);
@@ -434,37 +437,15 @@ where
 
                             log::debug!(session_id=self.id, message_id_sent=message_id_sent, message_id_read=message_id_read; "Stop async TLS");
 
-                            #[cfg(feature = "tls")]
-                            let control_code = {
-                                // Check that the last message that the client sent has been received by the server
-                                // and vice-versa.
-                                let mut shared = self.shared.lock().await;
-                                if shared.read_message_id == message_id_sent
-                                    && shared.sent_message_id == message_id_read
-                                {
-                                    match stream.end_tls().await {
-                                        Ok(_) => {
-                                            shared.set_state(SessionState::EncryptionStop);
-                                            HISLIP_TLS_SUCCESS
-                                        }
-                                        Err(_) => HISLIP_TLS_ERROR,
-                                    }
-                                } else {
-                                    HISLIP_TLS_BUSY
-                                }
-                            };
-
-                            #[cfg(not(feature = "tls"))]
-                            let control_code = HISLIP_TLS_ERROR;
-
-                            MessageType::AsyncEndTLSResponse
-                                .message_params(control_code, 0)
-                                .no_payload()
-                                .write_to(&mut stream)
-                                .await?;
+                            // TODO: Encryption support
+                            send_fatal!(
+                                &mut wr,
+                                FatalErrorCode::SecureConnectionFailed,
+                                "Secure connection not supported"
+                            )
                         }
                         _ => {
-                            send_nonfatal!(peer=peer.to_string(), session_id=self.id; &mut stream,
+                            send_nonfatal!(peer=peer.to_string(), session_id=self.id; &mut wr,
                                 NonFatalErrorCode::UnrecognizedMessageType,
                                 "Unexpected message type in asynchronous channel",
                             );
@@ -474,10 +455,10 @@ where
                 Err(err) => {
                     // Send error to client and close if fatal
                     if err.is_fatal() {
-                        Message::from(err).write_to(&mut stream).await?;
+                        Message::from(err).write_to(&mut wr).await?;
                         break Err(io::ErrorKind::Other.into());
                     } else {
-                        Message::from(err).write_to(&mut stream).await?;
+                        Message::from(err).write_to(&mut wr).await?;
                     }
                 }
             }
