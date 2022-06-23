@@ -16,6 +16,11 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+
+    - name: Install rpcbind
+      run: |
+        sudo apt-get update
+        sudo apt-get install rpcbind
     
     - name: Build
       run: cargo build --verbose
