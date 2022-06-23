@@ -4,6 +4,7 @@ use futures::channel::oneshot::{channel, Receiver, Sender};
 pub use futures::lock::{Mutex, MutexGuard};
 pub use spin::Mutex as SpinMutex;
 
+/// A error returned by a locking operation
 #[derive(Debug)]
 pub enum SharedLockError {
     /// Already locked
@@ -28,6 +29,8 @@ pub enum SharedLockMode {
     Exclusive,
 }
 
+/// A lock controlling a device which may be accessed by multiple users.
+/// A user may acquire a shared or exclusive lock or try to access without any lock.
 pub struct SharedLock {
     id_counter: u32,
     shared_lock: Option<Vec<u8>>,
@@ -84,6 +87,8 @@ impl SharedLock {
 }
 
 /// A handle to a locked resource.
+/// 
+/// This will check if the shared lock is available for this handle before locking.
 pub struct LockHandle<DEV> {
     id: u32,
     parent: Arc<SpinMutex<SharedLock>>,
@@ -93,6 +98,7 @@ pub struct LockHandle<DEV> {
 }
 
 impl<DEV> LockHandle<DEV> {
+    /// Create a new lock handle for device using a sared lock
     pub fn new(parent: Arc<SpinMutex<SharedLock>>, device: Arc<Mutex<DEV>>) -> Self {
         let id = parent.lock().next_id();
         LockHandle {
@@ -104,6 +110,7 @@ impl<DEV> LockHandle<DEV> {
         }
     }
 
+    /// Get status about the shared lock
     pub fn lock_info(&self) -> (bool, u32) {
         let shared = self.parent.lock();
         (shared.exclusive_lock(), shared.num_shared_locks())

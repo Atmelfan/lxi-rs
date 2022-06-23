@@ -1,3 +1,10 @@
+//! This crate contains an abstract device trait and common infrastructure used to create
+//! a LXI device.
+//! 
+//! The [Device] trait implements an abstract LXI device capable of receiving and excuting a command and some other common LXI tasks.
+//! 
+//! 
+//! 
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;

@@ -9,7 +9,7 @@ pub struct Sender {
     senders: Arc<Mutex<Vec<mpsc::Sender<u8>>>>,
 }
 
-type Receiver = mpsc::Receiver<u8>;
+pub type Receiver = mpsc::Receiver<u8>;
 
 impl Sender {
     pub fn new() -> Self {
