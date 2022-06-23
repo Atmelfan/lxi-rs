@@ -1,9 +1,10 @@
-use std::{io, net::Ipv4Addr};
+use std::{io, net::Ipv4Addr, time::Duration};
 
-use async_std::net::TcpListener;
+use async_std::{net::TcpListener, task};
 use futures::try_join;
 use lxi_device::{
     lock::SharedLock,
+    status::Sender as StatusSender,
     util::{EchoDevice, SimpleDevice},
 };
 use lxi_vxi11::{
@@ -41,10 +42,22 @@ async fn main() -> io::Result<()> {
     let core_listener = TcpListener::bind(args.core_addr).await?;
     let async_listener = TcpListener::bind(args.async_addr).await?;
 
+    let srq = StatusSender::new();
+
+    // Spam service requests
+    let mut srq_spammer = srq.clone();
+    task::spawn(async move {
+        loop {
+            task::sleep(Duration::from_secs(10)).await;
+            log::info!("Sending srq!");
+            srq_spammer.send_status(0);
+        }
+    });
+
     let (vxi11_core, vxi11_async) = VxiServerBuilder::new()
         .core_port(core_listener.local_addr()?.port())
         .async_port(async_listener.local_addr()?.port())
-        .build(shared, device);
+        .build(shared, device, srq);
 
     if args.register {
         let mut portmap =

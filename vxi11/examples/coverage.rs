@@ -8,6 +8,7 @@ use async_std::{
 use futures::try_join;
 use lxi_device::{
     lock::SharedLock,
+    status::Sender as StatusSender,
     util::{EchoDevice, SimpleDevice},
 };
 use lxi_vxi11::{
@@ -45,10 +46,19 @@ async fn main() -> io::Result<()> {
     let core_listener = TcpListener::bind(args.core_addr).await?;
     let async_listener = TcpListener::bind(args.async_addr).await?;
 
+    let srq = StatusSender::new();
+
+    // Spam service requests
+    let mut srq_spammer = srq.clone(); 
+    task::spawn(async move {
+        task::sleep(Duration::from_secs(10)).await;
+        srq_spammer.send_status(0);
+    });
+
     let (vxi11_core, vxi11_async) = VxiServerBuilder::new()
         .core_port(core_listener.local_addr()?.port())
         .async_port(async_listener.local_addr()?.port())
-        .build(shared, device);
+        .build(shared, device, srq);
 
     // Kill server after 10s
     let kill_timeout = async {

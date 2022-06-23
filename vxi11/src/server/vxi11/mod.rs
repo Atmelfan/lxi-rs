@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use async_std::net::ToSocketAddrs;
+use async_std::{net::ToSocketAddrs, task::JoinHandle};
 
 use futures::{
     channel::mpsc::{channel, Receiver, Sender},
@@ -11,6 +11,7 @@ use futures::{
 };
 use lxi_device::{
     lock::{LockHandle, SharedLock, SharedLockError, SpinMutex},
+    status::Sender as StatusSender,
     DeviceError as LxiDeviceError,
 };
 
@@ -86,7 +87,7 @@ struct Link<DEV> {
 
     // Srq
     srq_enable: bool,
-    srq_handle: Option<Vec<u8>>,
+    srq_handle: Option<JoinHandle<Result<(), RpcError>>>,
 
     // Buffers
     in_buf: Vec<u8>,
@@ -133,15 +134,17 @@ struct VxiInner<DEV> {
     links: HashMap<u32, Sender<()>>,
     shared: Arc<SpinMutex<SharedLock>>,
     device: Arc<Mutex<DEV>>,
+    status: StatusSender,
 }
 
 impl<DEV> VxiInner<DEV> {
-    fn new(shared: Arc<SpinMutex<SharedLock>>, device: Arc<Mutex<DEV>>) -> Arc<Mutex<Self>> {
+    fn new(shared: Arc<SpinMutex<SharedLock>>, device: Arc<Mutex<DEV>>, status: StatusSender) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(Self {
             link_id: 0,
             links: HashMap::default(),
             shared,
             device,
+            status
         }))
     }
 
@@ -252,8 +255,9 @@ impl VxiServerBuilder {
         self,
         shared: Arc<SpinMutex<SharedLock>>,
         device: Arc<Mutex<DEV>>,
+        status: StatusSender,
     ) -> (Arc<VxiCoreServer<DEV>>, Arc<VxiAsyncServer<DEV>>) {
-        let inner = VxiInner::new(shared, device);
+        let inner = VxiInner::new(shared, device, status);
         (
             Arc::new(VxiCoreServer {
                 inner: inner.clone(),

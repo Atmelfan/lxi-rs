@@ -14,8 +14,8 @@ pub(crate) struct VxiSrqClient {
 }
 
 impl VxiSrqClient {
-    pub(crate) async fn device_intr_srq(&mut self, handle: Vec<u8>) -> Result<(), RpcError> {
-        let args = xdr::DeviceSrqParms::new(Opaque(handle));
+    pub(crate) async fn device_intr_srq(&mut self, handle: &[u8]) -> Result<(), RpcError> {
+        let args = xdr::DeviceSrqParms::new(Opaque(handle.to_vec()));
         self.client.call_no_reply(DEVICE_INTR_SRQ, args).await
     }
 }

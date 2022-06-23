@@ -1,17 +1,19 @@
 use std::{
+    cmp::min,
     collections::HashMap,
     io::{self, Cursor},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
-    time::Duration, cmp::min,
+    time::Duration,
 };
 
 use async_listen::ListenExt;
 use async_std::{
+    future::timeout,
     net::TcpListener,
-    future::timeout, task,
+    task::{self, JoinHandle},
 };
-use lxi_device::{Device, lock::SharedLockError, trigger::Source};
+use lxi_device::{lock::SharedLockError, trigger::Source, Device};
 
 use crate::common::{
     onc_rpc::prelude::*,
@@ -19,11 +21,7 @@ use crate::common::{
     xdr::prelude::*,
 };
 
-use futures::{
-    lock::Mutex,
-    select, FutureExt, StreamExt,
-};
-
+use futures::{lock::Mutex, select, FutureExt, StreamExt};
 
 use super::{intr_client::VxiSrqClient, prelude::*, Link, VxiInner};
 
@@ -81,7 +79,7 @@ where
                 max_recv_size: self.max_recv_size,
                 async_port: self.async_port,
                 links: Mutex::new(HashMap::new()),
-                srq: Mutex::new(None),
+                srq: Arc::new(Mutex::new(None)),
             });
 
             task::spawn(async move {
@@ -106,7 +104,7 @@ pub struct VxiCoreSession<DEV> {
     // Will be dropped when client disconnects
     links: Mutex<HashMap<u32, Link<DEV>>>,
 
-    srq: Mutex<Option<VxiSrqClient>>,
+    srq: Arc<Mutex<Option<VxiSrqClient>>>,
 }
 
 #[async_trait::async_trait]
@@ -493,13 +491,45 @@ where
 
                 resp.error = match get_link!(self.links, &parms.lid.0) {
                     Some(link) => {
-                        link.srq_enable = parms.enable;
-                        // Replace or remove userdata from SRQ handler
-                        if parms.handle.is_empty() || !parms.enable {
-                            link.srq_handle.take();
+                        let old = if parms.enable {
+                            let client = self.srq.clone();
+                            let mut inner = self.inner.lock().await;
+                            let mut reader = inner.status.get_new_receiver();
+
+                            // Spawn a new tasks which monitors srq events
+                            let fut: JoinHandle<Result<(), RpcError>> = task::spawn(async move {
+                                // Wait for status event
+                                while let Some(stb) = reader.next().await {
+                                    // Check if interrupt channel is open
+                                    let mut tmp = client.lock().await;
+                                    if let Some(client) = tmp.as_mut() {
+                                        log::debug!(link=parms.lid.0; "Sending service request, stb={stb}");
+
+                                        // Send SRQ RPC to host
+                                        if let Err(err) = client.device_intr_srq(&parms.handle.0).await {
+                                            log::error!(link=parms.lid.0; "Failed to send service request: {err:?}");
+                                            return Err(err);
+                                        }
+                                    } else {
+                                        log::error!(link=parms.lid.0; "Failed to send service request: No interrupt channel open");
+                                    }
+                                }
+                                Ok(())
+                            });
+
+                            // Replace any old srq task
+                            link.srq_handle.replace(fut)
                         } else {
-                            link.srq_handle.replace(parms.handle.0);
+                            // Remove any old srq task
+                            link.srq_handle.take()
+                        };
+
+                        // Cancel old SRQ task
+                        if let Some(task) = old {
+                            task.cancel().await;
+                            log::debug!(peer=self.peer.to_string(), link=parms.lid.0; "Cancelled srq task");
                         }
+
                         xdr::DeviceErrorCode::NoError
                     }
                     None => xdr::DeviceErrorCode::InvalidLinkIdentifier,
@@ -560,6 +590,7 @@ where
                 let mut resp = xdr::DeviceError::default();
 
                 let mut srq = self.srq.lock().await;
+
                 if srq.is_some() {
                     resp.error = xdr::DeviceErrorCode::ChannelAlreadyEstablished
                 } else {
@@ -590,6 +621,7 @@ where
 
                 let mut resp = xdr::DeviceError::default();
 
+                // Destroy interrupt RPC client
                 let mut srq = self.srq.lock().await;
                 if srq.take().is_some() {
                     resp.error = xdr::DeviceErrorCode::NoError
