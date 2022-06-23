@@ -1,4 +1,4 @@
-use std::{io, net::Ipv4Addr};
+use std::{io, net::Ipv4Addr, sync::Arc};
 
 use lxi_vxi11::server::{portmapper::prelude::*, vxi11::prelude::*};
 
@@ -30,19 +30,19 @@ async fn main() -> io::Result<()> {
     let args = Args::parse();
 
     println!("Running server ...");
-    let portmap = StaticPortMapBuilder::new()
-        .set(Mapping::new(
+    let portmap = StaticPortMap::new([
+        Mapping::new(
             DEVICE_CORE, // VXI-11 CORE
             DEVICE_CORE_VERSION,
             PORTMAPPER_PROT_TCP,
             args.core_port as u32,
-        ))
-        .set(Mapping::new(
+        ),
+        Mapping::new(
             DEVICE_ASYNC, // VXI-11 ASYNC
             DEVICE_ASYNC_VERSION,
             PORTMAPPER_PROT_TCP,
             args.async_port as u32,
-        ))
-        .build();
+        ),
+    ]);
     portmap.bind((Ipv4Addr::UNSPECIFIED, args.port)).await
 }

@@ -39,8 +39,6 @@ pub mod prelude {
 
 use prelude::*;
 
-use super::portmapper::StaticPortMapBuilder;
-
 impl From<LxiDeviceError> for xdr::DeviceErrorCode {
     fn from(de: LxiDeviceError) -> Self {
         match de {
@@ -227,28 +225,6 @@ impl VxiServerBuilder {
         } else {
             Err(RpcError::SystemErr)
         }
-    }
-
-    /// Register VXI server using [StaticPortMap]
-    pub fn register_static_portmap(
-        self,
-        portmap: &mut StaticPortMapBuilder,
-    ) -> Result<Self, RpcError> {
-        // Register core service
-        portmap.add(Mapping::new(
-            DEVICE_CORE,
-            DEVICE_CORE_VERSION,
-            PORTMAPPER_PROT_TCP,
-            self.core_port as u32,
-        ));
-        // Register async service
-        portmap.add(Mapping::new(
-            DEVICE_ASYNC,
-            DEVICE_ASYNC_VERSION,
-            PORTMAPPER_PROT_TCP,
-            self.async_port as u32,
-        ));
-        Ok(self)
     }
 
     pub fn build<DEV>(

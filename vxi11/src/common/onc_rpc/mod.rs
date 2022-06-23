@@ -38,6 +38,8 @@ pub enum RpcError {
     RpcMissmatch(MissmatchInfo),
     /// Error during RPC authentication
     AuthError(AuthStat),
+    /// Failed to register with portmap
+    Portmap,
     /// (De-)serialiation error on RPC channel
     Io(Error),
 }
@@ -131,9 +133,9 @@ pub(crate) trait RpcService {
                         RpcError::GarbageArgs => xdr::AcceptStat::GarbageArgs,
                         RpcError::SystemErr => xdr::AcceptStat::SystemErr,
                         RpcError::Io(err) => return Err(err),
-                        // Shouldn't be returned by call()
                         RpcError::RpcMissmatch(_) => unreachable!(),
                         RpcError::AuthError(_) => unreachable!(),
+                        RpcError::Portmap =>  unreachable!(),
                     }
                 } else {
                     xdr::AcceptStat::Success

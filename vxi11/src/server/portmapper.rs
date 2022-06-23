@@ -10,68 +10,31 @@ use futures::{try_join, StreamExt};
 use crate::common::{
     onc_rpc::prelude::*,
     portmapper::{
-        xdr, PMAPPROC_DUMP, PMAPPROC_GETPORT, PMAPPROC_NULL, PORTMAPPER_PORT, PORTMAPPER_PROG,
-        PORTMAPPER_PROT_TCP, PORTMAPPER_PROT_UDP, PORTMAPPER_VERS,
+        xdr, PMAPPROC_DUMP, PMAPPROC_GETPORT, PMAPPROC_NULL, PORTMAPPER_PROG, PORTMAPPER_VERS,
     },
     xdr::prelude::*,
 };
 
 pub mod prelude {
-    pub use super::{StaticPortMap, StaticPortMapBuilder};
+    pub use super::StaticPortMap;
     pub use crate::common::portmapper::{
         xdr::Mapping, PORTMAPPER_PORT, PORTMAPPER_PROG, PORTMAPPER_PROT_TCP, PORTMAPPER_PROT_UDP,
         PORTMAPPER_VERS,
     };
 }
 
-pub struct StaticPortMapBuilder {
-    mappings: Vec<xdr::Mapping>,
-}
-
-impl StaticPortMapBuilder {
-    pub fn new() -> Self {
-        let mut mappings = Vec::new();
-        mappings.push(xdr::Mapping::new(
-            PORTMAPPER_PROG,
-            PORTMAPPER_VERS,
-            PORTMAPPER_PROT_TCP,
-            PORTMAPPER_PORT as u32,
-        ));
-        mappings.push(xdr::Mapping::new(
-            PORTMAPPER_PROG,
-            PORTMAPPER_VERS,
-            PORTMAPPER_PROT_UDP,
-            PORTMAPPER_PORT as u32,
-        ));
-        StaticPortMapBuilder { mappings }
-    }
-
-    /// Set a mapping
-    pub fn set(mut self, mapping: xdr::Mapping) -> Self {
-        self.mappings.push(mapping);
-        self
-    }
-
-    pub fn add(&mut self, mapping: xdr::Mapping) {
-        self.mappings.push(mapping);
-    }
-
-    /// Set a mapping
-    pub fn build(self) -> Arc<StaticPortMap> {
-        Arc::new(StaticPortMap {
-            mappings: self.mappings,
-        })
-    }
-}
-
 /// Create a simple static portmapper
 ///
 /// The static portmapper allows null, getport and dump procedures, others will respond with a ProcUnavail error
-pub struct StaticPortMap {
-    mappings: Vec<xdr::Mapping>,
+pub struct StaticPortMap<const N: usize> {
+    mappings: [xdr::Mapping; N],
 }
 
-impl StaticPortMap {
+impl<const N: usize> StaticPortMap<N> {
+    pub fn new(mappings: [xdr::Mapping; N]) -> Arc<Self> {
+        Arc::new(Self { mappings })
+    }
+
     /// Serve both TCP and UDP calls at standard address
     pub async fn bind(self: Arc<Self>, addrs: impl ToSocketAddrs + Clone) -> io::Result<()> {
         let a = {
@@ -85,6 +48,7 @@ impl StaticPortMap {
         try_join!(a, b).map(|_| ())
     }
 
+    /// Serve UDP calls
     pub async fn serve_udp(self: Arc<Self>, socket: UdpSocket) -> io::Result<()> {
         log::info!("Listening on UDP {:?}", socket.local_addr()?);
         self.serve_udp_socket(socket).await
@@ -117,7 +81,7 @@ impl StaticPortMap {
 }
 
 #[async_trait::async_trait]
-impl RpcService for StaticPortMap {
+impl<const N: usize> RpcService for StaticPortMap<N> {
     async fn call(
         self: Arc<Self>,
         prog: u32,
