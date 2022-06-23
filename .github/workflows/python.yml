@@ -51,6 +51,7 @@ jobs:
       env: 
         RUSTFLAGS: -Awarnings
     
+    # HiSLIP isn't supported by pyvisa-py yet
     - name: Test with pytest
       run: |
-        pytest -s
+        pytest -s -rsx

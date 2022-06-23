@@ -3,17 +3,18 @@ import pytest
 import pyvisa
 import pyvisa.util
 
-if "ivi" not in pyvisa.util.get_system_details()['backends']:
-   pytest.skip("Cannot test HiSLIP without NI-VISA installed", allow_module_level=True)
-
 
 def test_connect(hislip_example, resource_manager):
+    if resource_manager.visalib.library_path == "py":
+        pytest.skip("pyvisa-py does not support HiSLIP", allow_module_level=True)
     inst = resource_manager.open_resource(hislip_example)
 
     inst.close()
 
 
 def test_hislip_idn(hislip_example, resource_manager):
+    if resource_manager.visalib.library_path == "py":
+        pytest.skip("pyvisa-py does not support HiSLIP", allow_module_level=True)
     inst = resource_manager.open_resource(hislip_example)
     inst.read_termination = ""
     inst.write_termination = ""
@@ -25,6 +26,8 @@ def test_hislip_idn(hislip_example, resource_manager):
 
 
 def test_clear(hislip_example, resource_manager: pyvisa.ResourceManager):
+    if resource_manager.visalib.library_path == "py":
+        pytest.skip("pyvisa-py does not support HiSLIP", allow_module_level=True)
     inst = resource_manager.open_resource(hislip_example)
 
     inst.clear()
@@ -33,6 +36,8 @@ def test_clear(hislip_example, resource_manager: pyvisa.ResourceManager):
 
 
 def test_trigger(hislip_example, resource_manager: pyvisa.ResourceManager):
+    if resource_manager.visalib.library_path == "py":
+        pytest.skip("pyvisa-py does not support HiSLIP", allow_module_level=True)
     inst = resource_manager.open_resource(hislip_example)
 
     inst.assert_trigger()
@@ -43,6 +48,8 @@ def test_trigger(hislip_example, resource_manager: pyvisa.ResourceManager):
 def test_hislip_exclusive_lock(
     hislip_example, resource_manager: pyvisa.ResourceManager
 ):
+    if resource_manager.visalib.library_path == "py":
+        pytest.skip("pyvisa-py does not support HiSLIP", allow_module_level=True)
     inst = resource_manager.open_resource(hislip_example)
 
     # Lock and unlock
@@ -53,6 +60,8 @@ def test_hislip_exclusive_lock(
 
 
 def test_hislip_shared_lock(hislip_example, resource_manager: pyvisa.ResourceManager):
+    if resource_manager.visalib.library_path == "py":
+        pytest.skip("pyvisa-py does not support HiSLIP", allow_module_level=True)
     inst1 = resource_manager.open_resource(hislip_example)
     inst2 = resource_manager.open_resource(hislip_example)
     inst3 = resource_manager.open_resource(hislip_example)
@@ -83,6 +92,8 @@ def test_hislip_shared_lock(hislip_example, resource_manager: pyvisa.ResourceMan
 def test_hislip_clear_in_progress(
     hislip_example, resource_manager: pyvisa.ResourceManager
 ):
+    if resource_manager.visalib.library_path == "py":
+        pytest.skip("pyvisa-py does not support HiSLIP", allow_module_level=True)
     inst1 = resource_manager.open_resource(hislip_example)
     inst2 = resource_manager.open_resource(hislip_example)
 
