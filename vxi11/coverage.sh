@@ -13,7 +13,7 @@ cargo test
 
 ##### Run python tests #####
 # Start the server
-cargo run --example coverage -- $VXI11_SERVER_ARGS &
+cargo run --example vxi11 -- --timeout 10000 $VXI11_SERVER_ARGS &
 COVERAGE_PID=$!
 # Run pytest and tell it to not instantiate its own server
 VXI11_TARGET="127.0.0.1" pytest

@@ -28,6 +28,6 @@ async fn main() -> std::io::Result<()> {
         .build()
         .accept((&args.ip[..], args.port), shared_lock, device);
 
-    println!("Running server on port {}:{}...", args.ip, args.port);
+    log::info!("Running server on port {}:{}...", args.ip, args.port);
     ipv4_server.await
 }

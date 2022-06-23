@@ -44,7 +44,7 @@ def socket_example(xprocess, request):
                 "--manifest-path",
                 request.fspath.dirname + "/../Cargo.toml",
                 "--example",
-                "server",
+                "raw",
                 "--",
                 "--port",
                 str(port),

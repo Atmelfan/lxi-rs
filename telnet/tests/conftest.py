@@ -44,7 +44,7 @@ def telnet_example(xprocess, request):
                 "--manifest-path",
                 request.fspath.dirname + "/../Cargo.toml",
                 "--example",
-                "server",
+                "telnet",
                 "--",
                 "--port",
                 str(port),

@@ -31,7 +31,7 @@ def vxi11_example(xprocess, request):
                 "--manifest-path",
                 request.fspath.dirname + "/../Cargo.toml",
                 "--example",
-                "server",
+                "vxi11",
                 "--",
                 "--register",
                 "localhost:4321",

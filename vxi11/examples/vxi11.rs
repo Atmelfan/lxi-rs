@@ -1,11 +1,7 @@
 use std::{io, net::Ipv4Addr, time::Duration};
 
-use async_std::{
-    future::timeout,
-    net::{TcpListener, TcpStream},
-    task,
-};
-use futures::try_join;
+use async_std::{net::TcpListener, task, future::pending};
+use futures::{try_join, FutureExt};
 use lxi_device::{
     lock::SharedLock,
     status::Sender as StatusSender,
@@ -33,6 +29,9 @@ struct Args {
     /// Register using system rpcbind/portmap
     #[clap(short, long)]
     register: bool,
+
+    #[clap(short, long)]
+    timeout: Option<u64>
 }
 
 #[async_std::main]
@@ -49,25 +48,34 @@ async fn main() -> io::Result<()> {
     let srq = StatusSender::new();
 
     // Spam service requests
-    let mut srq_spammer = srq.clone(); 
+    let mut srq_spammer = srq.clone();
     task::spawn(async move {
-        task::sleep(Duration::from_secs(10)).await;
-        srq_spammer.send_status(0);
+        loop {
+            task::sleep(Duration::from_secs(10)).await;
+            log::info!("Sending srq!");
+            srq_spammer.send_status(0);
+        }
     });
+
+    // Kill server after 10s
+    let coverage = match args.timeout {
+        Some(t) => {
+            log::warn!("Will kill server after 10s");
+            async move {
+                task::sleep(Duration::from_millis(t)).await;
+                log::warn!("Killing server...");
+                Ok::<(), async_std::io::Error>(())
+            }.right_future()
+        },
+        None => {
+            pending().left_future()
+        },
+    };
 
     let (vxi11_core, vxi11_async) = VxiServerBuilder::new()
         .core_port(core_listener.local_addr()?.port())
         .async_port(async_listener.local_addr()?.port())
         .build(shared, device, srq);
-
-    // Kill server after 10s
-    let kill_timeout = async {
-        log::warn!("Will kill server after 10s");
-        task::sleep(Duration::from_millis(10000)).await;
-        log::warn!("Killing server...");
-        Err(io::Error::from(io::ErrorKind::TimedOut))?;
-        Ok(())
-    };
 
     if args.register {
         let mut portmap =
@@ -117,7 +125,7 @@ async fn main() -> io::Result<()> {
 
         println!("Running server ...");
         try_join!(
-            kill_timeout,
+            coverage,
             vxi11_core.serve(core_listener),
             vxi11_async.serve(async_listener)
         )
@@ -141,7 +149,7 @@ async fn main() -> io::Result<()> {
         println!("Running server ...");
 
         try_join!(
-            kill_timeout,
+            coverage,
             portmap.bind((Ipv4Addr::UNSPECIFIED, PORTMAPPER_PORT)),
             vxi11_core.serve(core_listener),
             vxi11_async.serve(async_listener)
