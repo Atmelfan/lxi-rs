@@ -7,9 +7,11 @@ members = [
     "device",
     "event",
     "hislip",
-    "socket",
+    "raw",
+    "telnet",
     "vxi11",
-    "web"
+
+#    "web"
 ]
 
 [workspace.metadata.release]
