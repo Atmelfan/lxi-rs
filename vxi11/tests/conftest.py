@@ -32,15 +32,13 @@ def vxi11_example(xprocess, request):
                 "vxi11",
                 "--",
                 "--register",
-                "localhost:4321",
-                "localhost:4322",
             ]
 
         # ensure process is running and return its logfile
         name = request.function.__name__
         xprocess.ensure(f"vxi11_example-{name}", Starter)
 
-        yield "TCPIP::localhost::inst0::INSTR"
+        yield "TCPIP::127.0.0.1::inst0::INSTR"
 
         # clean up whole process tree afterwards
         xprocess.getinfo(f"vxi11_example-{name}").terminate()
