@@ -74,7 +74,7 @@ async fn main() -> Result<(), io::Error> {
         .device("hislip1".to_string(), device1, shared_lock1)
         .build();
 
-    println!("Running server on port {}:{}...", args.ip, args.port);
+    log::info!("Running server on port {}:{}...", args.ip, args.port);
     if let Some(t) = args.timeout {
         timeout(
             Duration::from_millis(t),

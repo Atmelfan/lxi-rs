@@ -3,8 +3,8 @@ import pytest
 import pyvisa
 import pyvisa.util
 
-# if "ivi" not in pyvisa.util.get_system_details():
-#    pytest.skip("Cannot test HiSLIP without NI-VISA installed", allow_module_level=True)
+if "ivi" not in pyvisa.util.get_system_details()['backends']:
+   pytest.skip("Cannot test HiSLIP without NI-VISA installed", allow_module_level=True)
 
 
 def test_connect(hislip_example, resource_manager):

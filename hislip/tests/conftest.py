@@ -47,8 +47,6 @@ def hislip_example(xprocess, request):
                 "cargo",
                 "run",
                 "-q",
-                "--manifest-path",
-                request.fspath.dirname + "/../Cargo.toml",
                 "--example",
                 "hislip",
                 "--",
