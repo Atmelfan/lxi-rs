@@ -55,3 +55,8 @@ jobs:
     - name: Test with pytest
       run: |
         pytest -s -rsx
+    
+    - uses: actions/upload-artifact@v3
+    with:
+      name: pytest-cache
+      path: .pytest_cache/

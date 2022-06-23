@@ -101,6 +101,5 @@ def test_hislip_clear_in_progress(
     inst1.lock(requested_key="foo")
 
     # Timeout
-
     inst1.close()
     inst2.close()
