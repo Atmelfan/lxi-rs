@@ -17,36 +17,6 @@ def find_free_port():
 def resource_manager(request):
     return ResourceManager()
 
-
-@pytest.fixture
-def socket_example(xprocess, request):
-    target = os.environ.get('DEBUG_TARGET')
-    if target is not None:
-        port = os.environ.get('SOCKET_PORT', default="5025")
-
-        yield f'TCPIP::{target}::{port}::SOCKET'
-    else:
-        port = find_free_port()
-
-        class Starter(ProcessStarter):
-            # startup pattern
-            pattern = "Running server"
-
-            # Hide warnings
-            env = {'RUSTFLAGS': '-Awarnings', **os.environ}
-
-            # command to start process
-            args = ['cargo', 'run', '-q', '--manifest-path', request.fspath.dirname+'/../Cargo.toml', '--example', 'server', '--', '--port', str(port)]
-
-        # ensure process is running and return its logfile
-        name = request.function.__name__
-        logfile = xprocess.ensure(f"socket_example-{name}", Starter)
-
-        yield f'TCPIP::localhost::{port}::SOCKET'
-
-        # clean up whole process tree afterwards
-        xprocess.getinfo(f"socket_example-{name}").terminate()
-
 @pytest.fixture
 def telnet_example(xprocess, request):
     target = os.environ.get('DEBUG_TARGET')
@@ -65,7 +35,7 @@ def telnet_example(xprocess, request):
             env = {'RUSTFLAGS': '-Awarnings', **os.environ}
 
             # command to start process
-            args = ['cargo', 'run', '-q', '--manifest-path', request.fspath.dirname+'/../Cargo.toml', '--example', 'telnet', '--', '--port', str(port)]
+            args = ['cargo', 'run', '-q', '--manifest-path', request.fspath.dirname+'/../Cargo.toml', '--example', 'server', '--', '--port', str(port)]
 
         # ensure process is running and return its logfile
         name = request.function.__name__

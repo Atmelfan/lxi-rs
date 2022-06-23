@@ -13,16 +13,12 @@ license = "GPL-3.0-or-later"
 async-std = {version = "1.10.0", features = ["attributes"]}
 async-listen = "0.2.1"
 futures = "0.3.13"
-log = {version = "0.4.4", features = ["kv_unstable_std"]}
+log = {version = "0.4.4", features = ["kv_unstable"]}
 pin-project-lite = "0.2"
 
 [dependencies.lxi-device]
 path = "../device"
 version = "0.1.0"
-
-[dependencies.async-tls]
-version = "0.11.0"
-optional = true
 
 [dependencies.libtelnet-rs]
 version = "2.0.0"
@@ -30,6 +26,3 @@ version = "2.0.0"
 [dev-dependencies]
 femme = "2.2"
 clap = { version = "3.1.12", features = ["derive"] }
-
-[features]
-tls = ["async-tls"]

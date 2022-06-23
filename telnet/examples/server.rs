@@ -1,5 +1,5 @@
 use lxi_device::{lock::SharedLock, util::SimpleDevice};
-use lxi_socket::{server::socket::ServerConfig, SOCKET_STANDARD_PORT};
+use lxi_telnet::{server::ServerConfig, TELNET_STANDARD_PORT};
 
 use clap::Parser;
 
@@ -11,7 +11,7 @@ struct Args {
     ip: String,
 
     /// Number of times to greet
-    #[clap(short, long, default_value_t = SOCKET_STANDARD_PORT)]
+    #[clap(short, long, default_value_t = TELNET_STANDARD_PORT)]
     port: u16,
 }
 

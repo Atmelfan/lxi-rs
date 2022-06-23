@@ -21,9 +21,6 @@ use lxi_device::{
 #[cfg(unix)]
 use async_std::os::unix::net::UnixListener;
 
-#[cfg(feature = "tls")]
-use async_tls::TlsAcceptor;
-
 pub struct Server(ServerConfig);
 
 impl Server {
@@ -55,48 +52,6 @@ impl Server {
 
             task::spawn(async move {
                 let (reader, writer) = stream.split();
-                if let Err(err) = s
-                    .process_client(reader, writer, shared_lock, device, peer)
-                    .await
-                {
-                    log::warn!("Error processing client: {}", err)
-                }
-                drop(token);
-            });
-        }
-        Ok(())
-    }
-
-    #[cfg(feature = "tls")]
-    pub async fn accept_tls<DEV>(
-        self: Arc<Self>,
-        addr: impl ToSocketAddrs,
-        shared_lock: Arc<SpinMutex<SharedLock>>,
-        device: Arc<Mutex<DEV>>,
-        acceptor: TlsAcceptor,
-    ) -> io::Result<()>
-    where
-        DEV: Device + Send + 'static,
-    {
-        let listener = TcpListener::bind(addr).await?;
-        let mut incoming = listener
-            .incoming()
-            .log_warnings(|warn| log::warn!("Listening error: {}", warn))
-            .handle_errors(Duration::from_millis(100))
-            .backpressure(self.0.limit);
-
-        while let Some((token, stream)) = incoming.next().await {
-            let s = self.clone();
-            let peer = stream.peer_addr()?;
-            log::error!("Accepted from: {}", peer);
-
-            let shared_lock = shared_lock.clone();
-            let device = device.clone();
-
-            let tls_stream = acceptor.accept(stream).await?;
-
-            task::spawn(async move {
-                let (reader, writer) = tls_stream.split();
                 if let Err(err) = s
                     .process_client(reader, writer, shared_lock, device, peer)
                     .await
