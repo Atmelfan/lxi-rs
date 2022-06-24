@@ -1,156 +1,127 @@
-use std::fmt::Debug;
-use std::time::Duration;
+use core::fmt::Display;
 
-use async_std::path::Path;
-use async_std::sync::Arc;
-use async_std::task;
-use futures::{lock::Mutex, AsyncReadExt};
-use futures::{AsyncBufReadExt, AsyncWriteExt, StreamExt};
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 
-use async_std::io::{self, BufReader, Read, Write};
-use async_std::net::{TcpListener, ToSocketAddrs};
-
-use async_listen::ListenExt;
-
-use lxi_device::lock::SpinMutex;
+use futures::task::{LocalSpawn, LocalSpawnExt};
+use lxi_device::lock::{Mutex, SpinMutex};
 use lxi_device::{
     lock::{LockHandle, SharedLock},
     Device,
 };
 
-#[cfg(unix)]
-use async_std::os::unix::net::UnixListener;
-
+#[derive(Clone)]
 pub struct Server(ServerConfig);
 
 impl Server {
-    pub async fn accept<DEV>(
+    pub async fn bind<DEV, STACK, S>(
         self: Arc<Self>,
-        addr: impl ToSocketAddrs,
+        mut stack: STACK,
+        port: u16,
         shared_lock: Arc<SpinMutex<SharedLock>>,
         device: Arc<Mutex<DEV>>,
-    ) -> io::Result<()>
+        spawner: S,
+    ) -> Result<(), STACK::Error>
     where
-        DEV: Device + Send + 'static,
+        DEV: Device + 'static,
+        STACK: embedded_nal_async::TcpFullStack + Clone + 'static,
+        S: LocalSpawn,
     {
-        let listener = TcpListener::bind(addr).await?;
-        let mut incoming = listener
-            .incoming()
-            .log_warnings(|warn| log::warn!("Listening error: {}", warn))
-            .handle_errors(Duration::from_millis(100))
-            .backpressure(self.0.limit);
-
-        while let Some((token, stream)) = incoming.next().await {
-            let s = self.clone();
-            let peer = stream.peer_addr()?;
-            log::error!("Accepted from: {}", peer);
-
-            let shared_lock = shared_lock.clone();
-            let device = device.clone();
-
-            stream.set_nodelay(true)?;
-
-            task::spawn(async move {
-                let (reader, writer) = stream.split();
-                if let Err(err) = s
-                    .process_client(reader, writer, shared_lock, device, peer)
-                    .await
-                {
-                    log::warn!("Error processing client: {}", err)
-                }
-                drop(token);
-            });
-        }
-        Ok(())
+        let mut socket = stack.socket().await?;
+        stack.bind(&mut socket, port).await?;
+        self.accept(stack, socket, shared_lock, device, spawner)
+            .await
     }
 
-    #[cfg(unix)]
-    pub async fn accept_unix<DEV>(
+    pub async fn accept<DEV, STACK, S>(
         self: Arc<Self>,
-        path: impl AsRef<Path>,
+        mut stack: STACK,
+        mut socket: STACK::TcpSocket,
         shared_lock: Arc<SpinMutex<SharedLock>>,
         device: Arc<Mutex<DEV>>,
-    ) -> io::Result<()>
+        spawner: S,
+    ) -> Result<(), STACK::Error>
     where
-        DEV: Device + Send + 'static,
+        DEV: Device + 'static,
+        STACK: embedded_nal_async::TcpFullStack + Clone + 'static,
+        S: LocalSpawn,
     {
-        let listener = UnixListener::bind(path).await?;
-        let local = listener.local_addr()?;
-        let mut incoming = listener
-            .incoming()
-            .log_warnings(|warn| log::error!("{:?} listening error: {}", local, warn))
-            .handle_errors(Duration::from_millis(100))
-            .backpressure(self.0.limit);
+        loop {
+            let (s, peer) = stack.accept(&mut socket).await?;
+            log::info!("{peer} connected");
 
-        while let Some((token, stream)) = incoming.next().await {
-            let s = self.clone();
-            let peer = stream.peer_addr()?;
-            log::info!("Accepted from: {:?}", peer);
-
-            let shared_lock = shared_lock.clone();
-            let device = device.clone();
-
-            task::spawn(async move {
-                let (reader, writer) = stream.split();
-                if let Err(err) = s
-                    .process_client(reader, writer, shared_lock, device, peer)
-                    .await
-                {
-                    log::warn!("Error processing client: {}", err)
-                }
-                drop(token);
-            });
+            let client_stack = stack.clone();
+            let client_shared_lock = shared_lock.clone();
+            let client_device = device.clone();
+            let this = self.clone();
+            spawner
+                .spawn_local(async move {
+                    let res = this
+                        .process_client(client_stack, s, client_shared_lock, client_device, peer)
+                        .await;
+                    if let Err(err) = res {
+                        log::error!("{peer} disconnected: {err:?}");
+                    } else {
+                        log::info!("{peer} disconnected")
+                    }
+                })
+                .unwrap();
         }
-        Ok(())
     }
 
-    pub async fn process_client<DEV, RD, WR, SA>(
-        self: Arc<Self>,
-        reader: RD,
-        mut writer: WR,
+    pub async fn process_client<DEV, STACK>(
+        &self,
+        mut stack: STACK,
+        mut socket: STACK::TcpSocket,
         shared_lock: Arc<SpinMutex<SharedLock>>,
         device: Arc<Mutex<DEV>>,
-        peer: SA,
-    ) -> io::Result<()>
+        peer: impl Display,
+    ) -> Result<(), STACK::Error>
     where
-        DEV: Device + Send,
-        RD: Read + Unpin,
-        WR: Write + Unpin,
-        SA: Debug,
+        DEV: Device,
+        STACK: embedded_nal_async::TcpFullStack,
     {
-        let mut reader = BufReader::with_capacity(self.0.read_buffer, reader);
-        //let mut writer = BufWriter::with_capacity(self.0.write_buffer, writer);
-
+        let mut buffer = [0u8; 1024];
         let mut cmd = Vec::with_capacity(self.0.read_buffer);
 
         let handle = LockHandle::new(shared_lock, device);
 
         loop {
             // Read a line from stream.
-            let n = reader.read_until(self.0.read_termination, &mut cmd).await?;
+            let n = stack.receive(&mut socket, &mut buffer).await?;
             if n == 0 {
-                log::info!("{:?} disconnected", peer);
+                log::info!("{} disconnected", peer);
                 break;
             }
+            cmd.extend_from_slice(&buffer[..n]);
 
-            log::trace!("{:?} read {:?}", peer, cmd);
+            if let Some(nl) = cmd.iter().position(|c| *c == self.0.read_termination) {
+                log::trace!("{} read {:?}", peer, &cmd[..=nl]);
 
-            let mut resp = {
-                let mut device = handle.async_lock().await.unwrap();
-                cmd.pop(); // Remove read_termination
-                device.execute(&cmd)
-            };
+                let resp = {
+                    let mut device = handle.async_lock().await.unwrap();
+                    device.execute(&cmd[..=nl])
+                };
 
-            // Write back
-            if !resp.is_empty() {
-                resp.push(self.0.write_termination);
-                log::trace!("{:?} write {:?}", peer, resp);
-                writer.write_all(&resp).await?;
-                //writer.flush().await?;
+                log::trace!("{} write {:?}", peer, resp);
+
+                // Write back if response is not empty
+                if let Some(mut data) = resp {
+                    // Add termination if response does not contain one
+                    if data.last().map_or(true, |c| *c != self.0.write_termination) {
+                        data.push(self.0.write_termination)
+                    }
+
+                    // Write until no more data remains
+                    while !data.is_empty() {
+                        let n = stack.send(&mut socket, &data).await?;
+                        data.drain(..n);
+                    }
+                } 
+
+                // Remove line from buffer
+                cmd.drain(..=nl);
             }
-
-            // Clear until next message
-            cmd.clear();
         }
 
         Ok(())
@@ -159,10 +130,9 @@ impl Server {
 
 /// Socket server configuration builder
 ///
-#[cfg_attr(feature = "serde", derive(Deserializer, Serializer))]
+#[derive(Clone)]
 pub struct ServerConfig {
     read_buffer: usize,
-    limit: usize,
     read_termination: u8,
     write_termination: u8,
 }
@@ -171,7 +141,6 @@ impl Default for ServerConfig {
     fn default() -> Self {
         ServerConfig {
             read_buffer: 512 * 1024,
-            limit: 10,
             read_termination: b'\n',
             write_termination: b'\n',
         }
@@ -221,12 +190,6 @@ impl ServerConfig {
             write_termination,
             ..self
         }
-    }
-
-    /// Set the termination character for writes.
-    ///
-    pub fn backpressure(self, limit: usize) -> Self {
-        Self { limit, ..self }
     }
 
     pub fn build(self) -> Arc<Server> {

@@ -4,14 +4,14 @@ use std::str::from_utf8;
 use async_std::channel::Receiver;
 use async_std::sync::Arc;
 use futures::lock::Mutex;
-use futures::{select, AsyncWriteExt, FutureExt, AsyncRead, AsyncWrite};
+use futures::{select, AsyncRead, AsyncWrite, AsyncWriteExt, FutureExt};
 use lxi_device::lock::RemoteLockHandle;
-use lxi_device::Device;
 use lxi_device::trigger::Source;
+use lxi_device::Device;
 
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::common::messages::{prelude::*, send_fatal, send_nonfatal};
-use crate::common::{PROTOCOL_2_0, Protocol};
+use crate::common::{Protocol, PROTOCOL_2_0};
 
 use super::{ServerConfig, SharedSession};
 use crate::server::session::{SessionMode, SessionState};
@@ -35,6 +35,18 @@ where
     clear: Receiver<()>,
 }
 
+macro_rules! lock_device_or_continue {
+    ($handle:expr, $clear:expr) => {
+        select! {
+            res = $handle.async_lock().fuse() => res.unwrap(),
+            _abort = $clear.recv().fuse() => {
+                log::debug!("Clear received, abandoning attempt to lock");
+                continue;
+            }
+        }
+    };
+}
+
 impl<DEV> SyncSession<DEV>
 where
     DEV: Device,
@@ -55,110 +67,20 @@ where
         }
     }
 
-    async fn acknowledge_device_clear<S>(
-        &self,
-        mut stream: S,
-        peer: String,
-        control_code: u8,
-    ) -> Result<(), io::Error> where S: AsyncRead + AsyncWrite + Unpin {
-        let mut shared = self.shared.lock().await;
-        let feature_request = FeatureBitmap(control_code);
-        log::debug!(peer=peer.to_string(), session_id = self.id; "Device clear complete, {}", feature_request);
-
-        shared.set_state(SessionState::Normal);
-
-        // Client might prefer overlapped/synch, fine.
-        shared.mode = if feature_request.overlapped() {
-            SessionMode::Overlapped
-        } else {
-            SessionMode::Synchronized
-        };
-
-        // Agreed features
-        let feature_setting = FeatureBitmap::new(
-            feature_request.overlapped(),
-            false,
-            false,
-        );
-        let sent_message_id = shared.sent_message_id;
-        drop(shared);
-
-        MessageType::DeviceClearAcknowledge
-            .message_params(feature_setting.0, sent_message_id)
-            .no_payload()
-            .write_to(&mut stream)
-            .await
-    }
-
-    async fn clear_buffer<S>(
-        &self,
-        mut stream: S,
-        peer: String,
-        mut msg: Result<Message, Error>,
-    ) -> Result<(), io::Error> where S: AsyncRead + AsyncWrite + Unpin {
-        loop {
-            match msg {
-                Ok(Message {
-                    message_type: MessageType::DeviceClearComplete,
-                    control_code,
-                    ..
-                }) => {
-                    if self.handle.can_lock().is_ok() {
-                        let mut dev = self.handle.inner_lock().await;
-                        let _res = dev.clear();
-                    }
-
-                    break self
-                        .acknowledge_device_clear(stream, peer, control_code)
-                        .await;
-                }
-                // Ignore other messages
-                Ok(_) => {}
-                // Invalid message
-                Err(err) => {
-                    if err.is_fatal() {
-                        Message::from(err).write_to(&mut stream).await?;
-                        return Err(io::ErrorKind::Other.into());
-                    } else {
-                        Message::from(err).write_to(&mut stream).await?;
-                    }
-                }
-            }
-            msg = Message::read_from(&mut stream, self.config.max_message_size).await?;
-        }
-    }
-
     pub(crate) async fn handle_session<S>(
         self,
         mut stream: S,
         peer: String,
         protocol: Protocol,
-    ) -> Result<(), io::Error> where S: AsyncRead + AsyncWrite + Unpin {
+    ) -> Result<(), io::Error>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
         // Data buffer
         let mut buffer: Vec<u8> = Vec::new();
 
         loop {
             let msg = Message::read_from(&mut stream, self.config.max_message_size).await?;
-
-            // Check if a clear device is in progress before waiting for a lock
-            if let Ok(_abort) = self.clear.try_recv() {
-                // Clear buffer
-                buffer.clear();
-                self.clear_buffer(&mut stream, peer.clone(), msg).await?;
-                continue;
-            }
-
-            // Wait for device becoming available or a lock is acquired
-            // Abort the lock attempt if a clear device is started
-            let mut dev = select! {
-                res = self.handle.async_lock().fuse() => res.unwrap(),
-                _abort = self.clear.recv().fuse() => {
-                    // Clear buffer
-                    buffer.clear();
-                    self.clear_buffer(&mut stream, peer.clone(), msg).await?;
-                    continue;
-                }
-            };
 
             // Do not read messages unless a loc
             match msg {
@@ -212,6 +134,10 @@ where
                                 SessionState::Normal => {
                                     shared.read_message_id = message_id;
                                     buffer.extend_from_slice(&data);
+                                    let max_message_size = shared.max_message_size;
+                                    drop(shared);
+
+                                    let mut dev = lock_device_or_continue!(self.handle, self.clear);
 
                                     if !is_end {
                                         log::debug!(peer=peer.to_string(), session_id=self.id, message_id=message_id; "Data");
@@ -220,33 +146,34 @@ where
                                         let data = dev.execute(&buffer);
                                         buffer.clear();
 
-                                        let mut chunks = data
-                                            .chunks(shared.max_message_size as usize)
-                                            .peekable();
-                                        drop(shared);
+                                        // Write data if any
+                                        if let Some(data) = data {
+                                            let mut chunks =
+                                                data.chunks(max_message_size as usize).peekable();
 
-                                        while let Some(chunk) = chunks.next() {
-                                            // Stop sending if a clear has been received on async channel
-                                            if self.clear.try_recv().is_ok() {
-                                                break;
+                                            while let Some(chunk) = chunks.next() {
+                                                // Stop sending if a clear has been received on async channel
+                                                if self.clear.try_recv().is_ok() {
+                                                    break;
+                                                }
+
+                                                // Peek if next chunk exists, if not, mark data as end
+                                                let end = chunks.peek().is_none();
+                                                let msg = if end {
+                                                    MessageType::DataEnd
+                                                } else {
+                                                    MessageType::Data
+                                                };
+
+                                                // Send message
+                                                msg.message_params(0, message_id)
+                                                    .with_payload(chunk.to_vec())
+                                                    .write_to(&mut stream)
+                                                    .await?;
                                             }
 
-                                            // Peek if next chunk exists, if not, mark data as end
-                                            let end = chunks.peek().is_none();
-                                            let msg = if end {
-                                                MessageType::DataEnd
-                                            } else {
-                                                MessageType::Data
-                                            };
-
-                                            // Send message
-                                            msg.message_params(0, message_id)
-                                                .with_payload(chunk.to_vec())
-                                                .write_to(&mut stream)
-                                                .await?;
+                                            log::trace!("Write")
                                         }
-
-                                        log::trace!("Write")
                                     }
 
                                     // Do not acknowledge
@@ -268,16 +195,17 @@ where
                             control_code,
                             ..
                         } => {
-                            let mut inner = self.shared.lock().await;
-                            inner.read_message_id = message_id;
-                            let state = inner.state();
-                            drop(inner);
+                            let mut shared = self.shared.lock().await;
+                            shared.read_message_id = message_id;
+                            let state = shared.state();
+                            drop(shared);
 
                             match state {
                                 SessionState::Normal => {
                                     let control = RmtDeliveredControl(control_code);
                                     log::debug!(session_id=self.id, message_id=message_id; "Trigger, {}", control);
 
+                                    let mut dev = lock_device_or_continue!(self.handle, self.clear);
                                     let _ = dev.trigger(Source::Bus);
                                 }
                                 // Initial handshake
@@ -293,20 +221,51 @@ where
                         }
                         Message {
                             message_type: MessageType::DeviceClearComplete,
+                            control_code,
                             ..
                         } => {
-                            // Should've been handled above when AsyncDeviceClear was sent
-                            send_nonfatal!(peer=peer.to_string(), session_id=self.id;
-                                &mut stream,
-                                NonFatalErrorCode::UnidentifiedError,
-                                "Unexpected device clear complete in synchronous channel"
-                            );
+                            let mut shared = self.shared.lock().await;
+                            let feature_request = FeatureBitmap(control_code);
+                            log::debug!(peer=peer.to_string(), session_id = self.id; "Device clear complete, {}", feature_request);
+
+                            match shared.state() {
+                                SessionState::Handshake | SessionState::Normal => {
+                                    send_nonfatal!(peer=peer.to_string(), session_id=self.id;
+                                        &mut stream,
+                                        NonFatalErrorCode::UnidentifiedError,
+                                        "Unexpected device clear complete in synchronous channel"
+                                    );
+                                }
+                                SessionState::Clear => {
+                                    // Reset state and remove any clear event that might still be in the channel
+                                    let _ = self.clear.try_recv();
+                                    shared.set_state(SessionState::Normal);
+
+                                    // TODO: Support both overlapped and synchronous mode
+                                    shared.mode = SessionMode::Overlapped;
+
+                                    // Agreed features
+                                    let feature_setting = FeatureBitmap::new(
+                                        feature_request.overlapped(),
+                                        false,
+                                        false,
+                                    );
+                                    let sent_message_id = shared.sent_message_id;
+                                    drop(shared);
+
+                                    MessageType::DeviceClearAcknowledge
+                                        .message_params(feature_setting.0, sent_message_id)
+                                        .no_payload()
+                                        .write_to(&mut stream)
+                                        .await?;
+                                }
+                            }
                         }
                         Message {
                             message_type: MessageType::GetDescriptors,
                             ..
                         } => {
-
+                            todo!("Send descriptors")
                         }
                         Message {
                             message_type: MessageType::StartTLS | MessageType::EndTLS,
@@ -321,8 +280,10 @@ where
                             )
                         }
                         Message {
-                            message_type: MessageType::GetSaslMechanismList | MessageType::AuthenticationStart | MessageType::AuthenticationExchange,
-                            payload: data,
+                            message_type:
+                                MessageType::GetSaslMechanismList
+                                | MessageType::AuthenticationStart
+                                | MessageType::AuthenticationExchange,
                             ..
                         } if protocol >= PROTOCOL_2_0 => {
                             log::debug!(peer=peer.to_string(), session_id=self.id; "Authentication Start/Exchange");

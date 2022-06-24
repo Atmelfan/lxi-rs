@@ -27,7 +27,7 @@ pub enum DeviceError {
 
 pub trait Device {
     /// Execute a arbitrary command
-    fn execute(&mut self, cmd: &Vec<u8>) -> Vec<u8>;
+    fn execute(&mut self, cmd: &[u8]) -> Option<Vec<u8>>;
 
     /// Return a current device status (STB) byte
     /// Some flags (such as MAV) will be ignored.
@@ -56,7 +56,7 @@ pub trait Device {
 
 // Blanket proxy implementation for boxed devices
 impl<DEV: Device + ?Sized> Device for Box<DEV> {
-    fn execute(&mut self, cmd: &Vec<u8>) -> Vec<u8> {
+    fn execute(&mut self, cmd: &[u8]) -> Option<Vec<u8>> {
         (**self).execute(cmd)
     }
 

@@ -16,11 +16,9 @@ def test_hislip_idn(hislip_example, resource_manager):
     if resource_manager.visalib.library_path == "py":
         pytest.skip("pyvisa-py does not support HiSLIP", allow_module_level=True)
     inst = resource_manager.open_resource(hislip_example)
-    inst.read_termination = ""
-    inst.write_termination = ""
 
     resp = inst.query("*IDN?")
-    assert resp == "Cyberdyne systems,T800 Model 101,A9012.C,V2.4"
+    assert resp == "Cyberdyne systems,T800 Model 101,A9012.C,V2.4\n"
 
     inst.close()
 

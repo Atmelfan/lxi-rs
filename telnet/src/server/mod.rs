@@ -1,15 +1,10 @@
-use std::fmt::Debug;
-use std::time::Duration;
+use core::fmt::{Debug, Display};
+use core::time::Duration;
 
-use async_std::sync::Arc;
-use async_std::task;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 use futures::lock::Mutex;
-use futures::{AsyncWriteExt, StreamExt};
-
-use async_std::io::{self, Read, ReadExt, Write};
-use async_std::net::{TcpListener, ToSocketAddrs};
-
-use async_listen::ListenExt;
+use futures::task::{LocalSpawn, LocalSpawnExt};
 
 use libtelnet_rs::events::TelnetEvents;
 use libtelnet_rs::{telnet::op_option as options, Parser};
@@ -23,54 +18,72 @@ use lxi_device::{
 pub struct Server(ServerConfig);
 
 impl Server {
-
-    /// Accept client connections
-    pub async fn accept<DEV>(
+    pub async fn bind<DEV, STACK, S>(
         self: Arc<Self>,
-        addr: impl ToSocketAddrs,
+        mut stack: STACK,
+        port: u16,
         shared_lock: Arc<SpinMutex<SharedLock>>,
         device: Arc<Mutex<DEV>>,
-    ) -> io::Result<()>
+        spawner: S,
+    ) -> Result<(), STACK::Error>
     where
-        DEV: Device + Send + 'static,
+        DEV: Device + 'static,
+        STACK: embedded_nal_async::TcpFullStack + Clone + 'static,
+        S: LocalSpawn,
     {
-        let listener = TcpListener::bind(addr).await?;
-        let mut incoming = listener
-            .incoming()
-            .log_warnings(|warn| log::warn!("Listening error: {}", warn))
-            .handle_errors(Duration::from_millis(100))
-            .backpressure(self.0.limit);
-
-        while let Some((token, stream)) = incoming.next().await {
-            let s = self.clone();
-            let peer = stream.peer_addr()?;
-            log::error!("Accepted from: {}", peer);
-
-            let shared_lock = shared_lock.clone();
-            let device = device.clone();
-
-            task::spawn(async move {
-                if let Err(err) = s.process_client(stream, shared_lock, device, peer).await {
-                    log::warn!("Error processing client: {}", err)
-                }
-                drop(token);
-            });
-        }
-        Ok(())
+        let mut socket = stack.socket().await?;
+        stack.bind(&mut socket, port).await?;
+        self.accept(stack, socket, shared_lock, device, spawner)
+            .await
     }
 
-    /// Process a client stream
-    pub async fn process_client<DEV, IO, SA>(
+    pub async fn accept<DEV, STACK, S>(
         self: Arc<Self>,
-        mut stream: IO,
+        mut stack: STACK,
+        mut socket: STACK::TcpSocket,
         shared_lock: Arc<SpinMutex<SharedLock>>,
         device: Arc<Mutex<DEV>>,
-        _peer: SA,
-    ) -> io::Result<()>
+        spawner: S,
+    ) -> Result<(), STACK::Error>
     where
-        DEV: Device + Send,
-        IO: Read + Write + Unpin,
-        SA: Debug,
+        DEV: Device + 'static,
+        STACK: embedded_nal_async::TcpFullStack + Clone + 'static,
+        S: LocalSpawn,
+    {
+        loop {
+            let (s, peer) = stack.accept(&mut socket).await?;
+            log::info!("{peer} connected");
+
+            let client_stack = stack.clone();
+            let client_shared_lock = shared_lock.clone();
+            let client_device = device.clone();
+            let this = self.clone();
+            spawner
+                .spawn_local(async move {
+                    let res = this
+                        .process_client(client_stack, s, client_shared_lock, client_device, peer)
+                        .await;
+                    if let Err(err) = res {
+                        log::error!("{peer} disconnected: {err:?}");
+                    } else {
+                        log::info!("{peer} disconnected")
+                    }
+                })
+                .unwrap();
+        }
+    }
+
+    pub async fn process_client<DEV, STACK>(
+        &self,
+        mut stack: STACK,
+        mut socket: STACK::TcpSocket,
+        shared_lock: Arc<SpinMutex<SharedLock>>,
+        device: Arc<Mutex<DEV>>,
+        peer: impl Display,
+    ) -> Result<(), STACK::Error>
+    where
+        DEV: Device,
+        STACK: embedded_nal_async::TcpFullStack,
     {
         let handle = LockHandle::new(shared_lock, device);
 
@@ -85,14 +98,14 @@ impl Server {
         let prompt = Parser::escape_iac(&b"SCPI> "[..]);
 
         loop {
-            stream.write_all(&prompt).await?;
+            stack.send(&mut socket, &prompt).await?;
             // Send a go ahead
             if !instance.options.get_option(options::SGA).local_state {
-                stream.write_all(b"\xff\x03").await?;
+                stack.send(&mut socket, b"\xff\x03").await?;
             }
 
             // Read a line from stream.
-            let n = stream.read(&mut buf).await?;
+            let n = stack.receive(&mut socket, &mut buf).await?;
 
             let events = instance.receive(&buf[..n]);
             for event in events {
@@ -112,7 +125,7 @@ impl Server {
                         for b in data {
                             // Echo back if enabled
                             if instance.options.get_option(options::ECHO).local_state {
-                                stream.write_all(&[b]).await?;
+                                stack.send(&mut socket, &[b]).await?;
                             }
                             
                             if b == b'\n' {
@@ -126,29 +139,40 @@ impl Server {
                                 cmd.clear();
 
                                 // Send back response if any
-                                if !resp.is_empty() {
-                                    let to_send = Parser::escape_iac(resp);
-                                    stream.write_all(&to_send).await?;
-                                    stream.write_all(b"\r\n").await?;
-                                }
+                                // Write back if response is not empty
+                                if let Some(mut data) = resp {
+                                    // Add termination if response does not contain one
+                                    if !data.as_slice().ends_with(b"\r\n") {
+                                        if data.ends_with(b"\n") {
+                                            data.pop();
+                                        }
+                                        data.extend_from_slice(b"\r\n")
+                                    }
+
+                                    // Write until no more data remains
+                                    while !data.is_empty() {
+                                        let n = stack.send(&mut socket, &data).await?;
+                                        data.drain(..n);
+                                    }
+                                } 
                             } else {
                                 cmd.push(b);
                             }
                         }
                     }
                     TelnetEvents::DataSend(data) => {
-                        stream.write_all(&data).await?;
+                        stack.send(&mut socket, &data).await?;
                     }
                     TelnetEvents::DecompressImmediate(_data) => unreachable!(),
                 }
             }
         }
     }
+
 }
 
 /// Socket server configuration builder
 ///
-#[cfg_attr(feature = "serde", derive(Deserializer, Serializer))]
 pub struct ServerConfig {
     read_buffer: usize,
     limit: usize,

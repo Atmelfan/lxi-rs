@@ -8,3 +8,7 @@ def test_tcpip_socket(socket_example, resource_manager: pyvisa.ResourceManager):
 
     resp = inst.query("*IDN?")
     assert resp == "Cyberdyne systems,T800 Model 101,A9012.C,V2.4"
+
+    resp = inst.query("*IDN?")
+    assert resp == "Cyberdyne systems,T800 Model 101,A9012.C,V2.4"
+

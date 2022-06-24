@@ -18,6 +18,7 @@ use lxi_device::{Device, DeviceError};
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::common::messages::{prelude::*, send_fatal, send_nonfatal};
 use crate::common::{PROTOCOL_2_0, Protocol};
+use crate::server::session::SessionState;
 
 use super::{ServerConfig, SharedSession};
 
@@ -325,11 +326,14 @@ where
                             message_type: MessageType::AsyncDeviceClear,
                             ..
                         } => {
-                            let shared = self.shared.lock().await;
+                            let mut shared = self.shared.lock().await;
 
                             log::debug!(session_id=self.id; "Device clear");
 
-                            // Send a clear event
+                            // Set state to clear and send a clear event
+                            // to wake up the sync channel if it's waiting on a lock
+                            shared.set_state(SessionState::Clear);
+                            drop(shared);
                             let _ = self.clear.try_send(());
 
                             // Announce preferred features
@@ -338,7 +342,6 @@ where
                                 false,
                                 false,
                             );
-                            drop(shared);
 
                             MessageType::AsyncDeviceClearAcknowledge
                                 .message_params(features.0, 0)

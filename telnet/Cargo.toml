@@ -10,19 +10,25 @@ license = "GPL-3.0-or-later"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-std = {version = "1.10.0", features = ["attributes"]}
-async-listen = "0.2.1"
-futures = "0.3.13"
+futures = {version = "0.3.13", default-features = false, features = ["alloc"]}
 log = {version = "0.4.4", features = ["kv_unstable"]}
-pin-project-lite = "0.2"
+embedded-nal-async = "0.1.0"
 
 [dependencies.lxi-device]
 path = "../device"
 version = "0.1.0"
 
 [dependencies.libtelnet-rs]
-version = "2.0.0"
+#version = "2.0.0"
+git = "https://github.com/Atmelfan/libtelnet-rs.git"
 
 [dev-dependencies]
 femme = "2.2"
 clap = { version = "3.1.12", features = ["derive"] }
+
+# Async stuff
+async-std = {version = "1.12.0", features = ["attributes"]}
+embedded-nal-async-std = "0.1.1"
+
+[features]
+std = []

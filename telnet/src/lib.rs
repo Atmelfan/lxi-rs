@@ -1,3 +1,7 @@
+#![no_std]
+
+extern crate alloc;
+
 pub mod server;
 
 pub mod common {}
