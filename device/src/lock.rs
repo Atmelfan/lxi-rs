@@ -4,7 +4,7 @@ use futures::channel::oneshot::{channel, Receiver, Sender};
 pub use futures::lock::{Mutex, MutexGuard};
 pub use spin::Mutex as SpinMutex;
 
-/// A error returned by a locking operation
+/// An error returned by a locking operation
 #[derive(Debug)]
 pub enum SharedLockError {
     /// Already locked
@@ -23,9 +23,12 @@ pub enum SharedLockError {
     Aborted,
 }
 
+/// Is the device exclusively locked or shared?
 #[derive(Debug)]
 pub enum SharedLockMode {
+    /// Shared access by multiple clients
     Shared,
+    /// Exclusive access by one client
     Exclusive,
 }
 
@@ -50,13 +53,13 @@ impl SharedLock {
         }))
     }
 
-    /// Get the shared lock's num shared locks.
+    /// Get the number of clients that share access to this lock.
     #[must_use]
     pub fn num_shared_locks(&self) -> u32 {
         self.num_shared_locks
     }
 
-    /// Get the shared lock's exclusive lock.
+    /// Get if a client has exclusive access to this lock.
     #[must_use]
     pub fn exclusive_lock(&self) -> bool {
         self.exclusive_lock

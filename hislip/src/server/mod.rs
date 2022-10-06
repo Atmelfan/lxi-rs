@@ -4,12 +4,8 @@ use std::io;
 use std::str::from_utf8;
 use std::sync::Weak;
 
-use async_std::channel::{self, Receiver, Sender};
 use async_std::sync::Arc;
-use async_std::{
-    net::{TcpListener, TcpStream, ToSocketAddrs},
-    task,
-};
+use async_std::net::{TcpListener, ToSocketAddrs};
 
 use futures::task::{Spawn, SpawnExt};
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt};
@@ -19,7 +15,7 @@ use lxi_device::Device;
 
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::common::messages::{prelude::*, send_fatal, send_nonfatal};
-use crate::common::{Protocol, PROTOCOL_2_0, SUPPORTED_PROTOCOL};
+use crate::common::{Protocol, SUPPORTED_PROTOCOL};
 use crate::server::session::{SessionState, SharedSession};
 use crate::DEFAULT_DEVICE_SUBADRESS;
 

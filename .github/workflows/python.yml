@@ -53,6 +53,8 @@ jobs:
     
     # HiSLIP isn't supported by pyvisa-py yet
     - name: Test with pytest
+      env:
+        PYVISA_LIBRARY: "@py"
       run: |
         pytest -s -rsx
     

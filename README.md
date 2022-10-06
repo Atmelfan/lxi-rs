@@ -14,18 +14,21 @@ Currently the focus is on implementing HiSLIP/VXI-11/Socket protocols for Unix-l
 # Scope
 This crate does not handle command parsing and/or execution, look at [scpi-rs](https://github.com/Atmelfan/scpi-rs)(:crab:) or [libscpi](https://github.com/j123b567/scpi-parser)(C) for that.
 
+# Examples
+Each protocol includes an example service, you can try them out with `cargo run --example <protocol>` where protocol is either `hislip`,`vxi11`,`raw`, or `telnet`. 
+Run `cargo run --example <protocol> -- --help` for help and specific arguments for each protocol.
 
 # Testing
 This crate uses two types of tests, the cargo test framework and pytest. Cargo test is mostly used for unit-testing while pytest is integration tests against pyvisa.
-
-1. Install [NI-VISA](https://www.ni.com/sv-se/support/downloads/drivers/download.ni-visa.html) for Linux, see [pyvisa guide here](https://pyvisa.readthedocs.io/en/latest/faq/getting_nivisa.html#faq-getting-nivisa) 
-2. Install python requirements: `pip install -r requirements.txt`
+ 
+1. Install python requirements: `pip install -r requirements.txt`
+2. [Optional but required to test HiSLIP] Install [NI-VISA](https://www.ni.com/sv-se/support/downloads/drivers/download.ni-visa.html) for Linux, see [pyvisa guide here](https://pyvisa.readthedocs.io/en/latest/faq/getting_nivisa.html#faq-getting-nivisa) 
 3. Run tests: `cargo test && pytest`
 
 ## Coverage
-
+*TODO*
 
 # Licensing
-Lxi-rs is available under dual Commercial and GPLv3 License, see [LICENSE.txt](./LICENSE.txt).
+Lxi-rs is available under GPLv3 License, see [LICENSE-GPL](./LICENSE-GPL).
 
 Core crates like [lxi-device](device) are licensed under MIT and APACHE version 2.

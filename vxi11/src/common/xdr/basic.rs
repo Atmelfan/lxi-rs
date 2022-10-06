@@ -12,10 +12,10 @@
 //! | unsigned hyper   | u64       |
 //! | float            | f32       |
 //! | double           | f64       |
-//! | opaque[n]        | [u8; N]   |
+//! | opaque\[n\]      | \[u8; N\] |
 //! | opaque<>         | Opaque    |
 //! | string<>         | String    |
-//! | T ident[n]       | [T; N]    |
+//! | T ident\[n\]     | \[T; N\]  |
 //! | T ident<n>       | Vec<T>    |
 //!
 //! Enums and structures are implemented by deriving XdrEncode and XdrDecode.

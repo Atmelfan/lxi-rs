@@ -1,7 +1,6 @@
 from time import time
 import pytest
 import pyvisa
-import pyvisa.util
 
 
 def test_connect(hislip_example, resource_manager):

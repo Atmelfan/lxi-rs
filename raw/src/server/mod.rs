@@ -159,7 +159,6 @@ impl Server {
 
 /// Socket server configuration builder
 ///
-#[cfg_attr(feature = "serde", derive(Deserializer, Serializer))]
 pub struct ServerConfig {
     read_buffer: usize,
     limit: usize,

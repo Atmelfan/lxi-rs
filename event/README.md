@@ -1,4 +1,4 @@
-# lxi-telnet
+# lxi-event
 
 
 

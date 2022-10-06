@@ -1,13 +1,6 @@
 import os
 import pytest
-from pyvisa import ResourceManager
 from xprocess import ProcessStarter
-
-
-@pytest.fixture(scope="session", autouse=True)
-def resource_manager(request):
-    return ResourceManager()
-
 
 @pytest.fixture
 def vxi11_example(xprocess, request):
@@ -38,7 +31,7 @@ def vxi11_example(xprocess, request):
         name = request.function.__name__
         xprocess.ensure(f"vxi11_example-{name}", Starter)
 
-        yield "TCPIP::127.0.0.1::inst0::INSTR"
+        yield "TCPIP::localhost::inst0::INSTR"
 
         # clean up whole process tree afterwards
         xprocess.getinfo(f"vxi11_example-{name}").terminate()

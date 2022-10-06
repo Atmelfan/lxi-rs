@@ -3,6 +3,7 @@ use futures::lock::Mutex;
 
 use crate::{Device, DeviceError, trigger::Source};
 
+/// A device that echoes any command sent to it.
 #[derive(Clone)]
 pub struct EchoDevice;
 
@@ -34,6 +35,8 @@ impl Device for EchoDevice {
     }
 }
 
+/// A device with some simple commands like `*IDN?`, `EVENT` and `QUERY?`.
+/// Useful for debugging
 #[derive(Clone)]
 pub struct SimpleDevice {
     trig: bool,

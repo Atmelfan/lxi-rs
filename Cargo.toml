@@ -1,4 +1,3 @@
-authors = ["Gustav Palmqvist <gustavp@gpa-robotics.com>"]
 license = "GPL-3.0-or-later"
 
 [workspace]
@@ -14,5 +13,8 @@ members = [
 #    "web"
 ]
 
-[workspace.metadata.release]
-pre-release-hook = ['./pre-release-hook.sh']
+[workspace.package]
+version = "0.1.0"
+authors = ["Gustav Palmqvist <gustavp@gpa-robotics.com>"]
+repository = "https://github.com/Atmelfan/lxi-rs"
+edition = "2021"

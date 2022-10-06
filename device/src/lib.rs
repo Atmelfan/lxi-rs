@@ -11,11 +11,17 @@ extern crate alloc;
 use alloc::{boxed::Box, vec::Vec};
 use trigger::Source;
 
+#[cfg(feature = "experimental")]
 pub mod frontpanel;
-pub mod lock;
-pub mod util;
+
+/// Internal device status/SRQ messaging channel
 pub mod status;
+/// Instrument locking infrastructure
+pub mod lock;
+/// Standard trigger sources
 pub mod trigger;
+/// Example/debugging devices
+pub mod util;
 
 #[derive(Debug)]
 #[non_exhaustive]
