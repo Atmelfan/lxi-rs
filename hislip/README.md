@@ -1,6 +1,8 @@
 # lxi-hislip
 
-
+# Limitations
+* Currently only supports overlapped mode
+* Asynchronous commands cannot be aborted
 
 # License
 

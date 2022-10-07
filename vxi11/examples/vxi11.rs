@@ -9,7 +9,7 @@ use futures::{try_join, FutureExt};
 use lxi_device::{
     lock::SharedLock,
     status::Sender as StatusSender,
-    util::{EchoDevice, SimpleDevice},
+    util::SimpleDevice,
 };
 use lxi_vxi11::{
     client::portmapper::prelude::*,

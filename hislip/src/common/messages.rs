@@ -394,14 +394,6 @@ bitfield! {
     pub rmt_delivered, set_rmt_delivered : 0;
 }
 
-impl RmtDeliveredControl {
-    pub(crate) fn new(rmt_delivered: bool) -> Self {
-        let mut x = RmtDeliveredControl(0);
-        x.set_rmt_delivered(rmt_delivered);
-        x
-    }
-}
-
 impl Display for RmtDeliveredControl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "rmt: {}", self.rmt_delivered())

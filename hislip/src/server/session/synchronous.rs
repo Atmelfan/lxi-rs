@@ -200,8 +200,10 @@ where
                             message_type: typ @ MessageType::Data | typ @ MessageType::DataEnd,
                             message_parameter: message_id,
                             payload: data,
+                            control_code,
                             ..
                         } => {
+                            let control = RmtDeliveredControl(control_code);
                             let is_end = matches!(typ, MessageType::DataEnd);
 
                             let mut shared = self.shared.lock().await;
@@ -213,10 +215,8 @@ where
                                     shared.read_message_id = message_id;
                                     buffer.extend_from_slice(&data);
 
-                                    if !is_end {
-                                        log::debug!(peer=peer.to_string(), session_id=self.id, message_id=message_id; "Data");
-                                    } else {
-                                        log::debug!(peer=peer.to_string(), session_id=self.id, message_id=message_id; "Data END");
+                                    if is_end {
+                                        log::debug!(peer=peer.to_string(), session_id=self.id, message_id=message_id; "Data END, {}", control);
                                         let data = dev.execute(&buffer);
                                         buffer.clear();
 
@@ -245,8 +245,8 @@ where
                                                 .write_to(&mut stream)
                                                 .await?;
                                         }
-
-                                        log::trace!("Write")
+                                    } else {
+                                        log::debug!(peer=peer.to_string(), session_id=self.id, message_id=message_id; "Data, {}", control);
                                     }
 
                                     // Do not acknowledge
