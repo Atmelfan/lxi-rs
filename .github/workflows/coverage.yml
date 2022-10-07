@@ -13,6 +13,11 @@ jobs:
       - name: Install Rust
         run: rustup update stable
       
+      - name: Install rpcbind
+        run: |
+          sudo apt-get update
+          sudo apt-get install rpcbind
+      
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       
