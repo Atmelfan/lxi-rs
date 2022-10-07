@@ -70,7 +70,7 @@ async fn main() -> io::Result<()> {
             async move {
                 task::sleep(Duration::from_millis(t)).await;
                 log::warn!("Killing server...");
-                Ok::<(), async_std::io::Error>(())
+                Err::<(), async_std::io::Error>(async_std::io::ErrorKind::TimedOut.into())
             }
             .right_future()
         }

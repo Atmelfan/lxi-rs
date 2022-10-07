@@ -1,3 +1,6 @@
+use std::time::Duration;
+
+use async_std::io::timeout;
 use lxi_device::{lock::SharedLock, util::SimpleDevice};
 use lxi_telnet::{server::ServerConfig, TELNET_STANDARD_PORT};
 
@@ -13,6 +16,10 @@ struct Args {
     /// Number of times to greet
     #[clap(short, long, default_value_t = TELNET_STANDARD_PORT)]
     port: u16,
+
+    /// Kill server after timeout (useful for coverage testing)
+    #[clap(short, long)]
+    timeout: Option<u64>,
 }
 
 #[async_std::main]
@@ -29,5 +36,13 @@ async fn main() -> std::io::Result<()> {
         .accept((&args.ip[..], args.port), shared_lock, device);
 
     log::info!("Running server on port {}:{}...", args.ip, args.port);
-    ipv4_server.await
+    if let Some(t) = args.timeout {
+        timeout(
+            Duration::from_millis(t),
+            ipv4_server
+        )
+        .await
+    } else {
+        ipv4_server.await
+    }
 }

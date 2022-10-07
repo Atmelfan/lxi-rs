@@ -133,7 +133,7 @@ impl Server {
                 break;
             }
 
-            log::trace!("{:?} read {:?}", peer, cmd);
+            log::trace!("{:?} read {} bytes", peer, cmd.len());
 
             let mut resp = {
                 let mut device = handle.async_lock().await.unwrap();
@@ -144,7 +144,7 @@ impl Server {
             // Write back
             if !resp.is_empty() {
                 resp.push(self.0.write_termination);
-                log::trace!("{:?} write {:?}", peer, resp);
+                log::trace!("{:?} write {} bytes", peer, resp.len());
                 writer.write_all(&resp).await?;
                 //writer.flush().await?;
             }

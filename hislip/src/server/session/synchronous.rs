@@ -259,7 +259,6 @@ where
                                         "Attempted use without both channels"
                                     );
                                 }
-                                SessionState::Clear => continue,
                             }
                         }
                         Message {
@@ -288,7 +287,6 @@ where
                                         "Attempted use without both channels"
                                     );
                                 }
-                                SessionState::Clear => continue,
                             }
                         }
                         Message {
@@ -322,7 +320,7 @@ where
                         }
                         Message {
                             message_type: MessageType::GetSaslMechanismList | MessageType::AuthenticationStart | MessageType::AuthenticationExchange,
-                            payload: data,
+                            payload: _data,
                             ..
                         } if protocol >= PROTOCOL_2_0 => {
                             log::debug!(peer=peer.to_string(), session_id=self.id; "Authentication Start/Exchange");

@@ -16,7 +16,6 @@ pub enum SessionMode {
 pub(crate) enum SessionState {
     Handshake,
     Normal,
-    Clear,
 }
 
 pub(crate) struct SharedSession {

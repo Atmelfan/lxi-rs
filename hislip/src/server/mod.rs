@@ -149,7 +149,7 @@ where
 
             let s = self.clone();
             let t = srq.get_new_receiver();
-            let res = spawner.spawn(async move {
+            let _res = spawner.spawn(async move {
                 log::info!("{peer} connected");
                 let res = s.handle_session(peer.to_string(), stream, t).await;
 

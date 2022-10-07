@@ -26,7 +26,8 @@ This crate uses two types of tests, the cargo test framework and pytest. Cargo t
 3. Run tests: `cargo test && pytest`
 
 ## Coverage
-*TODO*
+1. Install `cargo-llvm-cov` and testing dependencies above.
+2. Run `./coverage --open`
 
 # Licensing
 Lxi-rs is available under GPLv3 License, see [LICENSE-GPL](./LICENSE-GPL).
