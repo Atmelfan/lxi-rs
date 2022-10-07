@@ -2,7 +2,6 @@ license = "GPL-3.0-or-later"
 
 [workspace]
 members = [
-    "client",
     "device",
     "event",
     "hislip",
