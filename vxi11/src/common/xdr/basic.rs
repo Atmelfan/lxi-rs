@@ -21,6 +21,9 @@
 //! Enums and structures are implemented by deriving XdrEncode and XdrDecode.
 //!
 
+#![allow(unused_macros)]
+#![allow(dead_code)]
+
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Result, Write};
 

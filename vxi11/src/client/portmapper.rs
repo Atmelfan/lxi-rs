@@ -1,7 +1,6 @@
 use std::io;
 
 use async_std::net::{TcpStream, ToSocketAddrs, UdpSocket};
-use futures::{AsyncRead, AsyncWrite};
 
 use crate::common::{
     onc_rpc::prelude::*,

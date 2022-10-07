@@ -557,7 +557,7 @@ mod tests {
     use super::{LockHandle, SharedLock, SpinMutex};
     use crate::{lock::RemoteLockHandle, util::EchoDevice};
     use async_std::{
-        sync::{Arc, Barrier},
+        sync::{Arc},
         task::yield_now,
     };
     use futures::{join, lock::Mutex};
@@ -708,12 +708,12 @@ mod tests {
 
         handle2.try_acquire_shared(b"foo").unwrap();
 
-        let barrier = Arc::new(Barrier::new(2));
+        //let barrier = Arc::new(Barrier::new(2));
 
-        let c = barrier.clone();
+        //let c = barrier.clone();
         let t1 = async_std::task::spawn(async move {
             // Wait until both tasks are running
-            c.wait().await;
+            //c.wait().await;
             log::info!("t1: Running...");
 
             let d = remote1.async_lock().await;
@@ -722,10 +722,10 @@ mod tests {
             log::info!("t1: locked!");
         });
 
-        let c = barrier.clone();
+        //let c = barrier.clone();
         let t2 = async_std::task::spawn(async move {
             // Wait until both tasks are running
-            c.wait().await;
+            //c.wait().await;
             log::info!("t2: Running...");
             // Let t1 try to get a lock first
             yield_now().await;

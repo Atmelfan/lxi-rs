@@ -2,21 +2,22 @@
 name = "lxi-device"
 description = "LXI common support library"
 license = "MIT OR Apache-2.0"
-version.workspace = true
-authors.workspace = true
-edition.workspace = true
-repository.workspace = true
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+repository = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-futures = {version = "0.3", features = ["alloc"]}
-spin = {version = "0.9.3", default-features = false, features = ["spin_mutex", "mutex"]}
-log = { version = "0.4.17", features = ["kv_unstable"] }
+futures = { workspace = true, features = ["alloc"]}
+spin = { version = "0.9.3", default-features = false, features = ["spin_mutex", "mutex"]}
+log = { workspace = true, features = ["kv_unstable"] }
 
 [dev-dependencies]
-async-std = {version = "1.11", features = ["attributes", "unstable"]}
-femme = "2.2"
+async-std = { workspace = true }
+femme = { workspace = true } 
+clap = { workspace = true }
 
 [features]
 default = []

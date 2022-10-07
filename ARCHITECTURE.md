@@ -7,7 +7,7 @@
     Most notably thee core device trait which executes commands and share lock which handles exclusive/shared locking between the protocols.
 * [lxi-hislip](./hislip/)  
     Server for the [HiSLIP protocol](https://www.ivifoundation.org/specifications/).
-* [lxi-socket](./socket/)  
+* [lxi-socket](./raw/)  
     Server for a simple raw socket protocol.
 * [lxi-vxi11](./vxi11/)  
     Server for the [VXI-11 protocol](https://www.vxibus.org/specifications.html)
