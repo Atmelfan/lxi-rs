@@ -2,9 +2,8 @@ license = "GPL-3.0-or-later"
 
 [workspace]
 members = [
-    "client",
+    "visa",
     "device",
-    "event",
     "hislip",
     "raw",
     "telnet",
