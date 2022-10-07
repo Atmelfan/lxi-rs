@@ -15,7 +15,8 @@
     "python.formatting.provider": "black",
     "files.exclude": {
         "**/__pycache__": true,
-        "**/.pytest_cache": true
+        "**/.pytest_cache": true,
+        "lcov.info": true
     }
 
 }
