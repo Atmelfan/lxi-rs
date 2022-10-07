@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::{
     io::{self, Cursor, Error, ErrorKind, Write},
     sync::Arc,

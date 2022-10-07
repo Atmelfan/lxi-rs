@@ -379,7 +379,7 @@ where
 
 /// A handle to a created active season
 #[derive(Clone)]
-struct SessionHandle<DEV>
+pub(crate) struct SessionHandle<DEV>
 where
     DEV: Device,
 {

@@ -2,19 +2,18 @@
 name = "lxi-socket"
 description = "Raw LXI socket support library"
 license = "GPL-3.0-or-later"
-version.workspace = true
-authors.workspace = true
-edition.workspace = true
-repository.workspace = true
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+repository = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-std = {version = "1.10.0", features = ["attributes"]}
-async-listen = "0.2.1"
-futures = "0.3.13"
-log = {version = "0.4.4", features = ["kv_unstable"]}
-pin-project-lite = "0.2"
+async-std = { workspace = true }
+async-listen = { workspace = true }
+futures = { workspace = true }
+log = { workspace = true, features = ["kv_unstable_std"] }
 
 [dependencies.lxi-device]
 path = "../device"
@@ -24,5 +23,5 @@ version = "0.1.0"
 version = "2.0.0"
 
 [dev-dependencies]
-femme = "2.2"
-clap = { version = "3.1.12", features = ["derive"] }
+femme = { workspace = true } 
+clap = { workspace = true }
