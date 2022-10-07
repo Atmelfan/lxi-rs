@@ -1,4 +1,4 @@
-use std::{io, net::Ipv4Addr, sync::Arc};
+use std::{io, net::Ipv4Addr};
 
 use lxi_vxi11::server::{portmapper::prelude::*, vxi11::prelude::*};
 

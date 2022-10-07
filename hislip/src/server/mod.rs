@@ -383,7 +383,7 @@ pub(crate) struct SessionHandle<DEV>
 where
     DEV: Device,
 {
-    id: u16,
+    _id: u16,
     shared: Weak<Mutex<SharedSession>>,
     device: Weak<SpinMutex<LockHandle<DEV>>>,
 }
@@ -398,7 +398,7 @@ where
         handle: Weak<SpinMutex<LockHandle<DEV>>>,
     ) -> Self {
         Self {
-            id,
+            _id: id,
             shared: session,
             device: handle,
         }

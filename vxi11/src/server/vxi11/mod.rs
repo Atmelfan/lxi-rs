@@ -84,7 +84,6 @@ struct Link<DEV> {
     abort: Receiver<()>,
 
     // Srq
-    srq_enable: bool,
     srq_handle: Option<JoinHandle<Result<(), RpcError>>>,
 
     // Buffers
@@ -102,7 +101,6 @@ impl<DEV> Link<DEV> {
                 abort: receiver,
                 in_buf: Vec::new(),
                 out_buf: Vec::new(),
-                srq_enable: false,
                 srq_handle: None,
             },
             sender,
