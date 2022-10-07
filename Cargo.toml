@@ -2,15 +2,11 @@ license = "GPL-3.0-or-later"
 
 [workspace]
 members = [
-    "client",
     "device",
-    "event",
     "hislip",
     "raw",
     "telnet",
-    "vxi11",
-
-#    "web"
+    "vxi11"
 ]
 
 [workspace.package]
