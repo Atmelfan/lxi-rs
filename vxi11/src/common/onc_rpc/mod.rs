@@ -100,6 +100,19 @@ pub(crate) trait RpcService {
         }
     }
 
+    async fn serve_udp_socket_noreply(self: Arc<Self>, socket: UdpSocket) -> io::Result<()>
+    where
+        Self: Sync,
+    {
+        loop {
+            // Read message
+            let mut buf = vec![0; 1500];
+            let (n, peer) = socket.recv_from(&mut buf).await?;
+
+            let _reply = self.clone().handle_message(buf[..n].to_vec()).await?;
+        }
+    }
+
     async fn handle_message(self: Arc<Self>, data_in: Vec<u8>) -> Result<Vec<u8>, Error>
     where
         Self: Sync,

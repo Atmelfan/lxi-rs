@@ -1,12 +1,46 @@
 [package]
-name = "visa"
+name = "visa-rs"
+description = "VISA library for instrument control"
 license = "MIT OR Apache-2.0"
-publish = false
-version.workspace = true
-authors.workspace = true
-edition.workspace = true
-repository.workspace = true
+version = { workspace = true }
+authors = { workspace = true }
+edition = { workspace = true }
+repository = { workspace = true }
+
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-trait = "0.1"
+document-features = "0.2.6"
+
+lxi-socket = { path = "../raw", optional = true }
+lxi-vxi11 = { path = "../vxi11", optional = true }
+lxi-hislip = { path = "../hislip", optional = true }
+
+rusb = { version = "0.9", optional = true }
+
+[features]
+default = ["serial", "usb", "tcpip"]
+
+#! Features are something
+
+#! ### Local interfaces
+## Enable Serial support
+serial = []
+## Enable USB support
+usb = ["dep:rusb"]
+## Enable GPIB support
+gpib = []
+
+#! ### Network interfaces
+## Enable TCPIP support, enables raw sockets, vxi11, and hislip
+tcpip = ["tcpip-socket", "tcpip-vxi11", "tcpip-hislip"]
+## Enable raw sockets
+tcpip-socket = ["dep:lxi-socket"]
+## Enable VXI11 support
+tcpip-vxi11 = ["dep:lxi-vxi11"]
+## Enable HiSLIP support
+tcpip-hislip = ["dep:lxi-hislip"]
+
+

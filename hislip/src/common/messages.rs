@@ -64,6 +64,8 @@ impl Message {
         let message_parameter = BigEndian::read_u32(&buf[4..8]);
 
         if len > maxlen {
+            // Skip bytes
+            futures::io::copy(&mut reader.take(len), &mut futures::io::sink()).await?;
             Ok(Err(Error::NonFatal(
                 NonFatalErrorCode::MessageTooLarge,
                 "Message payload too large".to_string(),
@@ -309,8 +311,17 @@ bitfield! {
     pub struct InitializeParameter(u32);
     impl Debug;
     // The fields default to u16
-    pub u16, into Protocol, client_protocol, _ : 31, 16;
-    pub u16, client_vendorid, _ : 15, 0;
+    pub u16, from into Protocol, client_protocol, set_client_protocol : 31, 16;
+    pub u16, client_vendorid, ser_client_vendorid : 15, 0;
+}
+
+impl InitializeParameter {
+    pub(crate) fn new(client_protocol: Protocol, client_vendorid: u16) -> Self {
+        let mut x = InitializeParameter(0);
+        x.set_client_protocol(client_protocol);
+        x.ser_client_vendorid(client_vendorid);
+        x
+    }
 }
 
 bitfield! {

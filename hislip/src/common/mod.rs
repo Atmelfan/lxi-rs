@@ -12,6 +12,13 @@ pub const PROTOCOL_2_0: Protocol = Protocol(0x0200);
 /// Highest protocol supported by this crate (2.0)
 pub const SUPPORTED_PROTOCOL: Protocol = PROTOCOL_2_0;
 
+/// Hislip can have two modes, synchronized and overlapped.
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub(crate) enum Mode {
+    Synchronized,
+    Overlapped,
+}
+
 bitfield! {
     #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone)]
     pub struct Protocol(u16);

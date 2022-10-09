@@ -4,17 +4,17 @@ use std::str::from_utf8;
 use async_std::channel::Receiver;
 use async_std::sync::Arc;
 use futures::lock::Mutex;
-use futures::{select, AsyncWriteExt, FutureExt, AsyncRead, AsyncWrite};
+use futures::{select, AsyncRead, AsyncWrite, AsyncWriteExt, FutureExt};
 use lxi_device::lock::RemoteLockHandle;
-use lxi_device::Device;
 use lxi_device::trigger::Source;
+use lxi_device::Device;
 
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::common::messages::{prelude::*, send_fatal, send_nonfatal};
-use crate::common::{PROTOCOL_2_0, Protocol};
+use crate::common::{Mode, Protocol, PROTOCOL_2_0};
 
 use super::{ServerConfig, SharedSession};
-use crate::server::session::{SessionMode, SessionState};
+use crate::server::session::SessionState;
 
 pub(crate) struct SyncSession<DEV>
 where
@@ -60,7 +60,10 @@ where
         mut stream: S,
         peer: String,
         control_code: u8,
-    ) -> Result<(), io::Error> where S: AsyncRead + AsyncWrite + Unpin {
+    ) -> Result<(), io::Error>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
         let mut shared = self.shared.lock().await;
         let feature_request = FeatureBitmap(control_code);
         log::debug!(peer=peer.to_string(), session_id = self.id; "Device clear complete, {}", feature_request);
@@ -69,17 +72,13 @@ where
 
         // Client might prefer overlapped/synch, fine.
         shared.mode = if feature_request.overlapped() {
-            SessionMode::Overlapped
+            Mode::Overlapped
         } else {
-            SessionMode::Synchronized
+            Mode::Synchronized
         };
 
         // Agreed features
-        let feature_setting = FeatureBitmap::new(
-            feature_request.overlapped(),
-            false,
-            false,
-        );
+        let feature_setting = FeatureBitmap::new(feature_request.overlapped(), false, false);
         let sent_message_id = shared.sent_message_id;
         drop(shared);
 
@@ -95,7 +94,10 @@ where
         mut stream: S,
         peer: String,
         mut msg: Result<Message, Error>,
-    ) -> Result<(), io::Error> where S: AsyncRead + AsyncWrite + Unpin {
+    ) -> Result<(), io::Error>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
         loop {
             match msg {
                 Ok(Message {
@@ -133,7 +135,10 @@ where
         mut stream: S,
         peer: String,
         protocol: Protocol,
-    ) -> Result<(), io::Error> where S: AsyncRead + AsyncWrite + Unpin {
+    ) -> Result<(), io::Error>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
         // Data buffer
         let mut buffer: Vec<u8> = Vec::new();
 
@@ -303,9 +308,7 @@ where
                         Message {
                             message_type: MessageType::GetDescriptors,
                             ..
-                        } => {
-
-                        }
+                        } => {}
                         Message {
                             message_type: MessageType::StartTLS | MessageType::EndTLS,
                             ..
@@ -319,7 +322,10 @@ where
                             )
                         }
                         Message {
-                            message_type: MessageType::GetSaslMechanismList | MessageType::AuthenticationStart | MessageType::AuthenticationExchange,
+                            message_type:
+                                MessageType::GetSaslMechanismList
+                                | MessageType::AuthenticationStart
+                                | MessageType::AuthenticationExchange,
                             payload: _data,
                             ..
                         } if protocol >= PROTOCOL_2_0 => {

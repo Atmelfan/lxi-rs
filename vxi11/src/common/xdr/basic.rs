@@ -463,7 +463,7 @@ mod test_xdr_double {
 
 // 4.9 Fixed-Length Opaque Data
 #[derive(Debug, Clone)]
-pub(crate) struct FixedOpaque<const N: usize>(pub(crate) [u8; N]);
+pub struct FixedOpaque<const N: usize>(pub [u8; N]);
 
 impl<const N: usize> Default for FixedOpaque<N> {
     fn default() -> Self {
@@ -545,7 +545,7 @@ mod test_xdr_opaque {
 // 4.10 Variable-Length Opaque Data
 
 #[derive(Debug, Default, Clone)]
-pub(crate) struct Opaque(pub(crate) Vec<u8>);
+pub struct Opaque(pub Vec<u8>);
 
 impl std::ops::Deref for Opaque {
     type Target = Vec<u8>;
@@ -556,11 +556,11 @@ impl std::ops::Deref for Opaque {
 }
 
 impl Opaque {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Opaque(Vec::new())
     }
 
-    pub(crate) fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.0.len()
     }
 }

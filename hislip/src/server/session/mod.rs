@@ -1,16 +1,10 @@
 use async_std::channel::{self, Receiver, Sender};
 
 use super::ServerConfig;
-use crate::common::Protocol;
+use crate::common::{Mode, Protocol};
 
 pub(crate) mod asynchronous;
 pub(crate) mod synchronous;
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum SessionMode {
-    Synchronized,
-    Overlapped,
-}
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub(crate) enum SessionState {
@@ -26,7 +20,7 @@ pub(crate) struct SharedSession {
     state: SessionState,
 
     /// Negotiated session mode
-    mode: SessionMode,
+    mode: Mode,
 
     /// Client max message size
     max_message_size: u64,
@@ -45,7 +39,7 @@ impl SharedSession {
         Self {
             protocol,
             state: SessionState::Handshake,
-            mode: SessionMode::Overlapped,
+            mode: Mode::Overlapped,
             max_message_size: 256,
             clear: channel::bounded(1),
             read_message_id: 0,
