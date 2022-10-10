@@ -8,7 +8,11 @@ use std::{
 use async_listen::ListenExt;
 use async_std::{net::TcpListener, task};
 
-use crate::common::{onc_rpc::prelude::*, vxi11::{self, xdr}, xdr::prelude::*};
+use crate::common::{
+    onc_rpc::prelude::*,
+    vxi11::{self, xdr},
+    xdr::prelude::*,
+};
 
 use futures::{lock::Mutex, StreamExt};
 

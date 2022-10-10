@@ -1,9 +1,9 @@
-use std::{
-    sync::Arc,
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
-use async_std::{io::{self, timeout}, task};
+use async_std::{
+    io::{self, timeout},
+    task,
+};
 use futures::{lock::Mutex, task::Spawn};
 use lxi_device::{
     lock::SharedLock,

@@ -24,6 +24,7 @@ use async_std::os::unix::net::UnixListener;
 pub struct Server(ServerConfig);
 
 impl Server {
+    /// Listen to a socket for clients
     pub async fn accept<DEV>(
         self: Arc<Self>,
         addr: impl ToSocketAddrs,
@@ -64,6 +65,7 @@ impl Server {
         Ok(())
     }
 
+    /// Listen to a unix socket for client
     #[cfg(unix)]
     pub async fn accept_unix<DEV>(
         self: Arc<Self>,
@@ -104,6 +106,7 @@ impl Server {
         Ok(())
     }
 
+    /// Process a generic reader/writer
     pub async fn process_client<DEV, RD, WR, SA>(
         self: Arc<Self>,
         reader: RD,

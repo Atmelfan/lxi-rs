@@ -6,11 +6,7 @@ use async_std::{
     task::{self, spawn},
 };
 use futures::{try_join, FutureExt};
-use lxi_device::{
-    lock::SharedLock,
-    status::Sender as StatusSender,
-    util::SimpleDevice,
-};
+use lxi_device::{lock::SharedLock, status::Sender as StatusSender, util::SimpleDevice};
 use lxi_vxi11::{
     client::portmapper::prelude::*,
     server::{portmapper::prelude::*, vxi11::prelude::*},
@@ -120,7 +116,8 @@ async fn main() -> io::Result<()> {
                 DEVICE_ASYNC_VERSION,
                 PORTMAPPER_PROT_TCP,
                 async_listener.local_addr()?.port() as u32,
-            )]);
+            ),
+        ]);
 
         log::info!("Running portmap ...");
         spawn(async move {

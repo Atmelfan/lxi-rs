@@ -71,10 +71,12 @@ impl Message {
         } else {
             let mut payload = Vec::with_capacity(len as usize);
             reader.take(len).read_to_end(&mut payload).await?;
-            match MessageType::from_message_type(buf[2]).ok_or(Error::NonFatal(
-                NonFatalErrorCode::UnrecognizedMessageType,
-                "Unrecognized message type".to_string(),
-            )) {
+            match MessageType::from_message_type(buf[2]).ok_or_else(|| {
+                Error::NonFatal(
+                    NonFatalErrorCode::UnrecognizedMessageType,
+                    "Unrecognized message type".to_string(),
+                )
+            }) {
                 Ok(message_type) => Ok(Ok(Message {
                     message_type,
                     control_code,

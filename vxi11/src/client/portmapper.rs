@@ -54,7 +54,6 @@ impl PortMapperClient {
         Ok(())
     }
 
-
     pub async fn null(&mut self) -> Result<(), RpcError> {
         self.0.call(PMAPPROC_NULL, ()).await
     }

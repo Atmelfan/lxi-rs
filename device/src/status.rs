@@ -1,15 +1,20 @@
-use alloc::{vec::Vec, sync::Arc};
+use alloc::{sync::Arc, vec::Vec};
 use futures::channel::mpsc;
 use spin::Mutex;
 
-
-/// A mpmc channel where **ALL** receiver receives the sent message (i.e. a broadcast channel). 
+/// A mpmc channel where **ALL** receiver receives the sent message (i.e. a broadcast channel).
 #[derive(Clone)]
 pub struct Sender {
     senders: Arc<Mutex<Vec<mpsc::Sender<u8>>>>,
 }
 
 pub type Receiver = mpsc::Receiver<u8>;
+
+impl Default for Sender {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Sender {
     pub fn new() -> Self {
@@ -54,6 +59,5 @@ mod tests {
 
         assert_eq!(receiver2.try_next().unwrap(), Some(1));
         assert!(receiver2.try_next().is_err());
-
     }
 }

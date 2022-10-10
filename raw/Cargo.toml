@@ -22,3 +22,5 @@ version = "0.1.0"
 [dev-dependencies]
 femme = { workspace = true } 
 clap = { workspace = true }
+mio-serial = "5.0"
+async-io = "1.9.0"

@@ -4,8 +4,8 @@ use std::io;
 use std::str::from_utf8;
 use std::sync::Weak;
 
-use async_std::sync::Arc;
 use async_std::net::{TcpListener, ToSocketAddrs};
+use async_std::sync::Arc;
 
 use futures::task::{Spawn, SpawnExt};
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt};
@@ -42,9 +42,11 @@ impl Default for ServerConfig {
     }
 }
 
+type DeviceMap<DEV> = HashMap<String, (Arc<SpinMutex<SharedLock>>, Arc<Mutex<DEV>>)>;
+
 pub struct ServerBuilder<DEV> {
     config: ServerConfig,
-    devices: HashMap<String, (Arc<SpinMutex<SharedLock>>, Arc<Mutex<DEV>>)>,
+    devices: DeviceMap<DEV>,
 }
 
 impl<DEV> Default for ServerBuilder<DEV> {
@@ -88,7 +90,7 @@ where
 
     pub fn build(self) -> Arc<Server<DEV>> {
         assert!(
-            self.devices.len() > 0,
+            !self.devices.is_empty(),
             "Server must have one or more devices"
         );
         Server::with_config(self.config, self.devices)
@@ -100,7 +102,7 @@ where
     DEV: Device,
 {
     inner: Arc<Mutex<InnerServer<DEV>>>,
-    devices: HashMap<String, (Arc<SpinMutex<SharedLock>>, Arc<Mutex<DEV>>)>,
+    devices: DeviceMap<DEV>,
     config: ServerConfig,
 }
 
@@ -108,9 +110,7 @@ impl<DEV> Server<DEV>
 where
     DEV: Device + Send + 'static,
 {
-    pub fn new(
-        devices: HashMap<String, (Arc<SpinMutex<SharedLock>>, Arc<Mutex<DEV>>)>,
-    ) -> Arc<Self> {
+    pub fn new(devices: DeviceMap<DEV>) -> Arc<Self> {
         let config = ServerConfig::default();
         Arc::new(Server {
             inner: InnerServer::new(config.max_num_sessions),
@@ -119,10 +119,7 @@ where
         })
     }
 
-    pub fn with_config(
-        config: ServerConfig,
-        devices: HashMap<String, (Arc<SpinMutex<SharedLock>>, Arc<Mutex<DEV>>)>,
-    ) -> Arc<Self> {
+    pub fn with_config(config: ServerConfig, devices: DeviceMap<DEV>) -> Arc<Self> {
         Arc::new(Server {
             inner: InnerServer::new(config.max_num_sessions),
             config,
@@ -270,9 +267,9 @@ where
                                                 self.config,
                                                 shared,
                                                 RemoteLockHandle::new(device),
-                                                receiver
+                                                receiver,
                                             )
-                                            .handle_session(stream, peer.clone(), protocol, )
+                                            .handle_session(stream, peer.clone(), protocol)
                                             .await;
                                             log::debug!(peer=peer.to_string(), session_id=id; "Sync session closed: {res:?}");
                                             return res;
@@ -347,7 +344,7 @@ where
                                     self.config,
                                     shared,
                                     device,
-                                    sender
+                                    sender,
                                 )
                                 .handle_session(stream, peer.clone(), srq, protocol)
                                 .await;
@@ -419,6 +416,14 @@ where
     max_num_sessions: usize,
 }
 
+type SessionInfo<DEV> = (Arc<Mutex<SharedSession>>, Arc<SpinMutex<LockHandle<DEV>>>);
+
+type NewSession<DEV> = (
+    u16,
+    Arc<Mutex<SharedSession>>,
+    Arc<SpinMutex<LockHandle<DEV>>>,
+);
+
 impl<DEV> InnerServer<DEV>
 where
     DEV: Device,
@@ -444,8 +449,7 @@ where
                 return Err(Error::Fatal(
                     FatalErrorCode::MaximumClientsExceeded,
                     "Out of session ids".to_string(),
-                )
-                .into());
+                ));
             }
         }
 
@@ -457,14 +461,7 @@ where
         &mut self,
         protocol: Protocol,
         handle: LockHandle<DEV>,
-    ) -> Result<
-        (
-            u16,
-            Arc<Mutex<SharedSession>>,
-            Arc<SpinMutex<LockHandle<DEV>>>,
-        ),
-        Error,
-    > {
+    ) -> Result<NewSession<DEV>, Error> {
         self.gc_sessions();
         if self.sessions.len() >= self.max_num_sessions {
             return Err(Error::Fatal(
@@ -486,10 +483,7 @@ where
 
     /// Get a session
     /// Note: Returns a strong reference which will keep any locks assosciated with session active until dropped
-    fn get_session(
-        &mut self,
-        session_id: u16,
-    ) -> Option<(Arc<Mutex<SharedSession>>, Arc<SpinMutex<LockHandle<DEV>>>)> {
+    fn get_session(&mut self, session_id: u16) -> Option<SessionInfo<DEV>> {
         let tmp = self.sessions.get(&session_id)?;
         let shared = tmp.shared.upgrade()?;
         let dev = tmp.device.upgrade()?;

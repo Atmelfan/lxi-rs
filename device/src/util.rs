@@ -1,7 +1,7 @@
 use alloc::{sync::Arc, vec::Vec};
 use futures::lock::Mutex;
 
-use crate::{Device, DeviceError, trigger::Source};
+use crate::{trigger::Source, Device, DeviceError};
 
 /// A device that echoes any command sent to it.
 #[derive(Clone)]
@@ -44,6 +44,12 @@ pub struct SimpleDevice {
     rmt: bool,
 }
 
+impl Default for SimpleDevice {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SimpleDevice {
     pub fn new() -> Self {
         Self {
@@ -65,9 +71,7 @@ impl Device for SimpleDevice {
             x if x.eq_ignore_ascii_case(b"*IDN?") || x.eq_ignore_ascii_case(b"*IDN?\n") => {
                 Some(b"Cyberdyne systems,T800 Model 101,A9012.C,V2.4".to_vec())
             }
-            x if x.eq_ignore_ascii_case(b"EVENT") || x.eq_ignore_ascii_case(b"EVENT\n") => {
-                None
-            }
+            x if x.eq_ignore_ascii_case(b"EVENT") || x.eq_ignore_ascii_case(b"EVENT\n") => None,
             x if x.eq_ignore_ascii_case(b"QUERY?") || x.eq_ignore_ascii_case(b"QUERY?\n") => {
                 Some(b"RESPONSE".to_vec())
             }

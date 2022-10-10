@@ -37,11 +37,7 @@ async fn main() -> std::io::Result<()> {
 
     log::info!("Running server on port {}:{}...", args.ip, args.port);
     if let Some(t) = args.timeout {
-        timeout(
-            Duration::from_millis(t),
-            ipv4_server
-        )
-        .await
+        timeout(Duration::from_millis(t), ipv4_server).await
     } else {
         ipv4_server.await
     }

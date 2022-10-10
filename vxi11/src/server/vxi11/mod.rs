@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use async_std::{net::ToSocketAddrs, task::JoinHandle};
 
@@ -24,9 +21,9 @@ use crate::{
     },
 };
 
-pub(crate) mod intr_client;
-pub(crate) mod core_service;
 pub(crate) mod abort_service;
+pub(crate) mod core_service;
+pub(crate) mod intr_client;
 
 pub mod prelude {
     pub use super::{abort_service::VxiAsyncServer, core_service::VxiCoreServer, VxiServerBuilder};
@@ -35,7 +32,6 @@ pub mod prelude {
         DEVICE_INTR_VERSION,
     };
 }
-
 
 use prelude::*;
 
@@ -134,13 +130,17 @@ struct VxiInner<DEV> {
 }
 
 impl<DEV> VxiInner<DEV> {
-    fn new(shared: Arc<SpinMutex<SharedLock>>, device: Arc<Mutex<DEV>>, status: StatusSender) -> Arc<Mutex<Self>> {
+    fn new(
+        shared: Arc<SpinMutex<SharedLock>>,
+        device: Arc<Mutex<DEV>>,
+        status: StatusSender,
+    ) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(Self {
             link_id: 0,
             links: HashMap::default(),
             shared,
             device,
-            status
+            status,
         }))
     }
 
@@ -165,19 +165,24 @@ impl<DEV> VxiInner<DEV> {
     }
 }
 
-
 /// Builder used to create a VXI11 server
 pub struct VxiServerBuilder {
     core_port: u16,
     async_port: u16,
 }
 
-impl VxiServerBuilder {
-    pub fn new() -> Self {
+impl Default for VxiServerBuilder {
+    fn default() -> Self {
         Self {
             core_port: 4322,
             async_port: 4323,
         }
+    }
+}
+
+impl VxiServerBuilder {
+    pub fn new() -> Self {
+        Default::default()
     }
 
     /// Set the vxi server core port.
@@ -239,7 +244,7 @@ impl VxiServerBuilder {
                 max_recv_size: 128 * 1024,
             }),
             Arc::new(VxiAsyncServer {
-                inner: inner.clone(),
+                inner,
                 async_port: self.async_port,
             }),
         )

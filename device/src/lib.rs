@@ -1,10 +1,10 @@
 //! This crate contains an abstract device trait and common infrastructure used to create
 //! a LXI device.
-//! 
+//!
 //! The [Device] trait implements an abstract LXI device capable of receiving and excuting a command and some other common LXI tasks.
-//! 
-//! 
-//! 
+//!
+//!
+//!
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
@@ -14,10 +14,10 @@ use trigger::Source;
 #[cfg(feature = "experimental")]
 pub mod frontpanel;
 
-/// Internal device status/SRQ messaging channel
-pub mod status;
 /// Instrument locking infrastructure
 pub mod lock;
+/// Internal device status/SRQ messaging channel
+pub mod status;
 /// Standard trigger sources
 pub mod trigger;
 /// Example/debugging devices

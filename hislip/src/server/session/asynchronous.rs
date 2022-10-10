@@ -9,15 +9,13 @@ use async_std::sync::Arc;
 use byteorder::{ByteOrder, NetworkEndian};
 use futures::future::Either;
 use futures::lock::Mutex;
-use futures::{
-    pin_mut, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt, Stream,
-};
+use futures::{pin_mut, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt, Stream};
 use lxi_device::lock::{LockHandle, SharedLockError, SharedLockMode, SpinMutex};
 use lxi_device::{Device, DeviceError};
 
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::common::messages::{prelude::*, send_fatal, send_nonfatal};
-use crate::common::{PROTOCOL_2_0, Protocol};
+use crate::common::{Protocol, PROTOCOL_2_0};
 
 use super::{ServerConfig, SharedSession};
 
@@ -49,7 +47,7 @@ where
         config: ServerConfig,
         shared: Arc<Mutex<SharedSession>>,
         handle: Arc<SpinMutex<LockHandle<DEV>>>,
-        clear: Sender<()>
+        clear: Sender<()>,
     ) -> Self {
         Self {
             id,
@@ -65,7 +63,7 @@ where
         stream: S,
         peer: String,
         mut srq: SRQ,
-        protocol: Protocol
+        protocol: Protocol,
     ) -> Result<(), io::Error>
     where
         S: AsyncRead + AsyncWrite + Unpin,
@@ -333,11 +331,8 @@ where
                             let _ = self.clear.try_send(());
 
                             // Announce preferred features
-                            let features = FeatureBitmap::new(
-                                self.config.prefer_overlap,
-                                false,
-                                false,
-                            );
+                            let features =
+                                FeatureBitmap::new(self.config.prefer_overlap, false, false);
                             drop(shared);
 
                             MessageType::AsyncDeviceClearAcknowledge
