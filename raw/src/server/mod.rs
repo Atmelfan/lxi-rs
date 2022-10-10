@@ -135,17 +135,17 @@ impl Server {
 
             log::trace!("{:?} read {} bytes", peer, cmd.len());
 
-            let mut resp = {
+            let resp = {
                 let mut device = handle.async_lock().await.unwrap();
                 cmd.pop(); // Remove read_termination
                 device.execute(&cmd)
             };
 
             // Write back
-            if !resp.is_empty() {
-                resp.push(self.0.write_termination);
-                log::trace!("{:?} write {} bytes", peer, resp.len());
-                writer.write_all(&resp).await?;
+            if let Some(mut data) = resp {
+                data.push(self.0.write_termination);
+                log::trace!("{:?} write {} bytes", peer, data.len());
+                writer.write_all(&data).await?;
                 //writer.flush().await?;
             }
 

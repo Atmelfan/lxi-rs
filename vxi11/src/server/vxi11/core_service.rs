@@ -208,9 +208,10 @@ where
                                 resp.size = parms.data.0.len() as u32;
 
                                 if parms.flags.is_end() {
-                                    let v = dev.execute(&link.in_buf);
-                                    //log::debug!(link=parms.lid.0; "Execute {:?} -> {:?}", link.in_buf, v);
-                                    link.out_buf.extend(&v);
+                                    if let Some(v) = dev.execute(&link.in_buf) {
+                                        //log::debug!(link=parms.lid.0; "Execute {:?} -> {:?}", link.in_buf, v);
+                                        link.out_buf.extend(&v);
+                                    }
                                     link.in_buf.clear();
                                 }
                                 xdr::DeviceErrorCode::NoError
@@ -506,7 +507,9 @@ where
                                         log::debug!(link=parms.lid.0; "Sending service request, stb={stb}");
 
                                         // Send SRQ RPC to host
-                                        if let Err(err) = client.device_intr_srq(&parms.handle.0).await {
+                                        if let Err(err) =
+                                            client.device_intr_srq(&parms.handle.0).await
+                                        {
                                             log::error!(link=parms.lid.0; "Failed to send service request: {err:?}");
                                             return Err(err);
                                         }

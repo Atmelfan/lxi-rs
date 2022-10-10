@@ -4,14 +4,14 @@ use std::str::from_utf8;
 use async_std::channel::Receiver;
 use async_std::sync::Arc;
 use futures::lock::Mutex;
-use futures::{select, AsyncWriteExt, FutureExt, AsyncRead, AsyncWrite};
+use futures::{select, AsyncRead, AsyncWrite, AsyncWriteExt, FutureExt};
 use lxi_device::lock::RemoteLockHandle;
-use lxi_device::Device;
 use lxi_device::trigger::Source;
+use lxi_device::Device;
 
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::common::messages::{prelude::*, send_fatal, send_nonfatal};
-use crate::common::{PROTOCOL_2_0, Protocol};
+use crate::common::{Protocol, PROTOCOL_2_0};
 
 use super::{ServerConfig, SharedSession};
 use crate::server::session::{SessionMode, SessionState};
@@ -60,7 +60,10 @@ where
         mut stream: S,
         peer: String,
         control_code: u8,
-    ) -> Result<(), io::Error> where S: AsyncRead + AsyncWrite + Unpin {
+    ) -> Result<(), io::Error>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
         let mut shared = self.shared.lock().await;
         let feature_request = FeatureBitmap(control_code);
         log::debug!(peer=peer.to_string(), session_id = self.id; "Device clear complete, {}", feature_request);
@@ -75,11 +78,7 @@ where
         };
 
         // Agreed features
-        let feature_setting = FeatureBitmap::new(
-            feature_request.overlapped(),
-            false,
-            false,
-        );
+        let feature_setting = FeatureBitmap::new(feature_request.overlapped(), false, false);
         let sent_message_id = shared.sent_message_id;
         drop(shared);
 
@@ -95,7 +94,10 @@ where
         mut stream: S,
         peer: String,
         mut msg: Result<Message, Error>,
-    ) -> Result<(), io::Error> where S: AsyncRead + AsyncWrite + Unpin {
+    ) -> Result<(), io::Error>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
         loop {
             match msg {
                 Ok(Message {
@@ -133,7 +135,10 @@ where
         mut stream: S,
         peer: String,
         protocol: Protocol,
-    ) -> Result<(), io::Error> where S: AsyncRead + AsyncWrite + Unpin {
+    ) -> Result<(), io::Error>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
         // Data buffer
         let mut buffer: Vec<u8> = Vec::new();
 
@@ -220,30 +225,33 @@ where
                                         let data = dev.execute(&buffer);
                                         buffer.clear();
 
-                                        let mut chunks = data
-                                            .chunks(shared.max_message_size as usize)
-                                            .peekable();
-                                        drop(shared);
+                                        // Send back response
+                                        if let Some(data) = data {
+                                            let mut chunks = data
+                                                .chunks(shared.max_message_size as usize)
+                                                .peekable();
+                                            drop(shared);
 
-                                        while let Some(chunk) = chunks.next() {
-                                            // Stop sending if a clear has been received on async channel
-                                            if self.clear.try_recv().is_ok() {
-                                                break;
+                                            while let Some(chunk) = chunks.next() {
+                                                // Stop sending if a clear has been received on async channel
+                                                if self.clear.try_recv().is_ok() {
+                                                    break;
+                                                }
+
+                                                // Peek if next chunk exists, if not, mark data as end
+                                                let end = chunks.peek().is_none();
+                                                let msg = if end {
+                                                    MessageType::DataEnd
+                                                } else {
+                                                    MessageType::Data
+                                                };
+
+                                                // Send message
+                                                msg.message_params(0, message_id)
+                                                    .with_payload(chunk.to_vec())
+                                                    .write_to(&mut stream)
+                                                    .await?;
                                             }
-
-                                            // Peek if next chunk exists, if not, mark data as end
-                                            let end = chunks.peek().is_none();
-                                            let msg = if end {
-                                                MessageType::DataEnd
-                                            } else {
-                                                MessageType::Data
-                                            };
-
-                                            // Send message
-                                            msg.message_params(0, message_id)
-                                                .with_payload(chunk.to_vec())
-                                                .write_to(&mut stream)
-                                                .await?;
                                         }
                                     } else {
                                         log::debug!(peer=peer.to_string(), session_id=self.id, message_id=message_id; "Data, {}", control);
@@ -303,9 +311,7 @@ where
                         Message {
                             message_type: MessageType::GetDescriptors,
                             ..
-                        } => {
-
-                        }
+                        } => {}
                         Message {
                             message_type: MessageType::StartTLS | MessageType::EndTLS,
                             ..
@@ -319,7 +325,10 @@ where
                             )
                         }
                         Message {
-                            message_type: MessageType::GetSaslMechanismList | MessageType::AuthenticationStart | MessageType::AuthenticationExchange,
+                            message_type:
+                                MessageType::GetSaslMechanismList
+                                | MessageType::AuthenticationStart
+                                | MessageType::AuthenticationExchange,
                             payload: _data,
                             ..
                         } if protocol >= PROTOCOL_2_0 => {
