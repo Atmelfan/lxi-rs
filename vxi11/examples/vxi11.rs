@@ -1,12 +1,17 @@
-use std::{io, net::Ipv4Addr, time::Duration};
+use std::{io, net::Ipv4Addr, sync::Arc, time::Duration};
 
 use async_std::{
     future::pending,
     net::TcpListener,
     task::{self, spawn},
 };
-use futures::{try_join, FutureExt};
-use lxi_device::{lock::SharedLock, status::Sender as StatusSender, util::SimpleDevice};
+use futures::{lock::Mutex, try_join, FutureExt};
+use lxi_device::{
+    lock::SharedLock,
+    status::Sender as StatusSender,
+    util::{EchoDevice, SimpleDevice},
+    Device,
+};
 use lxi_vxi11::{
     client::portmapper::prelude::*,
     server::{portmapper::prelude::*, vxi11::prelude::*},
@@ -39,8 +44,12 @@ async fn main() -> io::Result<()> {
     femme::with_level(log::LevelFilter::Debug);
     let args = Args::parse();
 
-    let device = SimpleDevice::new_arc();
-    let shared = SharedLock::new();
+    let shared_lock0 = SharedLock::new();
+    let device0: Arc<Mutex<Box<dyn Device + Send>>> =
+        Arc::new(Mutex::new(Box::new(SimpleDevice::new())));
+
+    let shared_lock1 = SharedLock::new();
+    let device1: Arc<Mutex<Box<dyn Device + Send>>> = Arc::new(Mutex::new(Box::new(EchoDevice)));
 
     let core_listener = TcpListener::bind(args.core_addr).await?;
     let core_port = core_listener.local_addr()?.port();
@@ -76,7 +85,9 @@ async fn main() -> io::Result<()> {
     let (vxi11_core, vxi11_async) = VxiServerBuilder::new()
         .core_port(core_listener.local_addr()?.port())
         .async_port(async_listener.local_addr()?.port())
-        .build(shared, device, srq);
+        .device("inst0".to_string(), device0, shared_lock0)
+        .device("inst1".to_string(), device1, shared_lock1)
+        .build(srq);
 
     if args.register {
         let mut portmap =

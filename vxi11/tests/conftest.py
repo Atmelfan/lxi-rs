@@ -6,7 +6,7 @@ from xprocess import ProcessStarter
 def vxi11_example(xprocess, request):
     target = os.environ.get("DEBUG_TARGET")
     if target is not None:
-        yield f"TCPIP::{target}::inst0::INSTR"
+        yield f"TCPIP::{target}"
     else:
 
         class Starter(ProcessStarter):
@@ -31,7 +31,7 @@ def vxi11_example(xprocess, request):
         name = request.function.__name__
         xprocess.ensure(f"vxi11_example-{name}", Starter)
 
-        yield "TCPIP::localhost::inst0::INSTR"
+        yield "TCPIP::localhost"
 
         # clean up whole process tree afterwards
         xprocess.getinfo(f"vxi11_example-{name}").terminate()

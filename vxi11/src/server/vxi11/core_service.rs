@@ -147,34 +147,35 @@ where
                     max_recv_size: self.max_recv_size,
                 };
 
-                if parms.device.starts_with("inst") {
-                    let (lid, mut link) = {
-                        let mut inner = self.inner.lock().await;
-                        inner.new_link()
-                    };
-                    resp.lid = lid.into();
+                let mut inner = self.inner.lock().await;
+                resp.error = match inner.new_link(&parms.device) {
+                    Ok((lid, mut link)) => {
+                        resp.lid = lid.into();
 
-                    // Try to lock
-                    if parms.lock_device {
-                        let res = timeout(
-                            Duration::from_millis(parms.lock_timeout as u64),
-                            link.handle.async_acquire_exclusive(),
-                        )
-                        .await
-                        .map_or(Err(SharedLockError::Timeout), |f| f);
-                        match res {
-                            Ok(()) => {
-                                log::debug!(peer=format!("{}", self.peer), link=lid; "Exclusive lock acquired")
+                        // Try to lock
+                        if parms.lock_device {
+                            let res = timeout(
+                                Duration::from_millis(parms.lock_timeout as u64),
+                                link.handle.async_acquire_exclusive(),
+                            )
+                            .await
+                            .map_or(Err(SharedLockError::Timeout), |f| f);
+                            match res {
+                                Ok(()) => {
+                                    log::debug!(peer=format!("{}", self.peer), link=lid; "Exclusive lock acquired")
+                                }
+                                Err(err) => resp.error = err.into(),
                             }
-                            Err(err) => resp.error = err.into(),
                         }
+                        log::debug!(peer=format!("{}", self.peer), link=lid; "New link: {}, client_id={}", parms.device, parms.client_id);
+                        self.links.lock().await.insert(lid, link);
+                        xdr::DeviceErrorCode::NoError
                     }
-                    log::debug!(peer=format!("{}", self.peer), link=lid; "New link: {}, client_id={}", parms.device, parms.client_id);
-                    self.links.lock().await.insert(lid, link);
-                } else {
-                    log::debug!(peer=format!("{}", self.peer); "Invalid device address: {}", parms.device);
-                    resp.error = xdr::DeviceErrorCode::InvalidAddress;
-                }
+                    Err(err) => {
+                        log::debug!(peer=format!("{}", self.peer); "Failed to create new link, {:?}: {}", err, parms.device);
+                        xdr::DeviceErrorCode::InvalidAddress
+                    }
+                };
 
                 resp.write_xdr(ret)?;
                 Ok(())
