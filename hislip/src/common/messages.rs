@@ -70,6 +70,12 @@ impl Message {
             )))
         } else {
             let mut payload = Vec::with_capacity(len as usize);
+            if payload.try_reserve_exact(len as usize).is_err() {
+                return Ok(Err(Error::Fatal(
+                    FatalErrorCode::UnidentifiedError,
+                    "Out of memory".to_string(),
+                )));
+            }
             reader.take(len).read_to_end(&mut payload).await?;
             match MessageType::from_message_type(buf[2]).ok_or_else(|| {
                 Error::NonFatal(

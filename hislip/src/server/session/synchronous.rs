@@ -218,6 +218,13 @@ where
                                 // Normal state
                                 SessionState::Normal => {
                                     shared.read_message_id = message_id;
+                                    if buffer.try_reserve_exact(data.len()).is_err() {
+                                        send_fatal!(peer=peer.to_string(), session_id=self.id;
+                                            &mut stream,
+                                            FatalErrorCode::UnidentifiedError,
+                                            "Out of memory"
+                                        );
+                                    }
                                     buffer.extend_from_slice(&data);
 
                                     if is_end {
