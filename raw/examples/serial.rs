@@ -35,7 +35,7 @@ async fn main() -> std::io::Result<()> {
     let (reader, writer) = mio_serial::new(&args.path, args.baudrate)
         .open_native_async()
         .map_err(|e| e.into())
-        .and_then(|port| Async::new(port))
+        .and_then(Async::new)
         .expect("Failed to open port")
         .split();
 

@@ -11,7 +11,10 @@ use lxi_device::{
     util::{EchoDevice, SimpleDevice},
     Device,
 };
-use lxi_hislip::{server::ServerBuilder, STANDARD_PORT};
+use lxi_hislip::{
+    server::{ServerBuilder, ServerConfig},
+    STANDARD_PORT,
+};
 
 use clap::Parser;
 
@@ -66,7 +69,10 @@ async fn main() -> Result<(), io::Error> {
     let shared_lock1 = SharedLock::new();
     let device1: Arc<Mutex<Box<dyn Device + Send>>> = Arc::new(Mutex::new(Box::new(EchoDevice)));
 
-    let server = ServerBuilder::default()
+    let config = ServerConfig::default()
+        .vendor_id(0x1234)
+        .short_idn(b"Vendor,Model,Serial,Version");
+    let server = ServerBuilder::new(config)
         .device("hislip0".to_string(), device0, shared_lock0)
         .device("hislip1".to_string(), device1, shared_lock1)
         .build();

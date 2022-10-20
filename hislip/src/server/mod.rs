@@ -21,14 +21,50 @@ use crate::DEFAULT_DEVICE_SUBADRESS;
 
 pub mod session;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct ServerConfig {
     pub vendor_id: u16,
     /// Maximum server message size
     pub max_message_size: u64,
     /// Prefer overlapped data
     pub prefer_overlap: bool,
+    /// Maximum allowed number of sessions
     pub max_num_sessions: usize,
+    /// Short circuited "*IDN?" response.
+    /// This should be set identical to what a real "*IDN?" command would return.
+    pub short_idn: Option<Vec<u8>>,
+}
+
+impl ServerConfig {
+    pub fn vendor_id(mut self, vendor_id: u16) -> Self {
+        self.vendor_id = vendor_id;
+        self
+    }
+
+    pub fn max_message_size(mut self, max_message_size: u64) -> Self {
+        self.max_message_size = max_message_size;
+        self
+    }
+
+    pub fn short_idn(mut self, short_idn: &[u8]) -> Self {
+        self.short_idn = Some(short_idn.to_vec());
+        self
+    }
+
+    pub fn max_num_sessions(mut self, max_num_sessions: usize) -> Self {
+        self.max_num_sessions = max_num_sessions;
+        self
+    }
+
+    pub fn prefer_overlap(mut self) -> Self {
+        self.prefer_overlap = true;
+        self
+    }
+
+    pub fn prefer_synchronized(mut self) -> Self {
+        self.prefer_overlap = false;
+        self
+    }
 }
 
 impl Default for ServerConfig {
@@ -38,6 +74,7 @@ impl Default for ServerConfig {
             max_message_size: 1024 * 1024,
             prefer_overlap: true,
             max_num_sessions: 64,
+            short_idn: None,
         }
     }
 }
@@ -112,11 +149,7 @@ where
 {
     pub fn new(devices: DeviceMap<DEV>) -> Arc<Self> {
         let config = ServerConfig::default();
-        Arc::new(Server {
-            inner: InnerServer::new(config.max_num_sessions),
-            config,
-            devices,
-        })
+        Self::with_config(config, devices)
     }
 
     pub fn with_config(config: ServerConfig, devices: DeviceMap<DEV>) -> Arc<Self> {
@@ -259,7 +292,7 @@ where
                                             // Continue as sync session
                                             let res = session::synchronous::SyncSession::new(
                                                 id,
-                                                self.config,
+                                                self.config.clone(),
                                                 shared,
                                                 RemoteLockHandle::new(device),
                                                 receiver,
@@ -336,7 +369,7 @@ where
                                 // Continue as async session
                                 let res = session::asynchronous::AsyncSession::new(
                                     id,
-                                    self.config,
+                                    self.config.clone(),
                                     shared,
                                     device,
                                     sender,
