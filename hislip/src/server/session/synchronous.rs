@@ -89,47 +89,6 @@ where
             .await
     }
 
-    async fn clear_buffer<S>(
-        &self,
-        mut stream: S,
-        peer: String,
-        mut msg: Result<Message, Error>,
-    ) -> Result<(), io::Error>
-    where
-        S: AsyncRead + AsyncWrite + Unpin,
-    {
-        loop {
-            match msg {
-                Ok(Message {
-                    message_type: MessageType::DeviceClearComplete,
-                    control_code,
-                    ..
-                }) => {
-                    if self.handle.can_lock().is_ok() {
-                        let mut dev = self.handle.inner_lock().await;
-                        let _res = dev.clear();
-                    }
-
-                    break self
-                        .acknowledge_device_clear(stream, peer, control_code)
-                        .await;
-                }
-                // Ignore other messages
-                Ok(_) => {}
-                // Invalid message
-                Err(err) => {
-                    if err.is_fatal() {
-                        Message::from(err).write_to(&mut stream).await?;
-                        return Err(io::ErrorKind::Other.into());
-                    } else {
-                        Message::from(err).write_to(&mut stream).await?;
-                    }
-                }
-            }
-            msg = Message::read_from(&mut stream, self.config.max_message_size).await?;
-        }
-    }
-
     pub(crate) async fn handle_session<S>(
         self,
         mut stream: S,
@@ -144,26 +103,6 @@ where
 
         loop {
             let msg = Message::read_from(&mut stream, self.config.max_message_size).await?;
-
-            // Check if a clear device is in progress before waiting for a lock
-            if let Ok(_abort) = self.clear.try_recv() {
-                // Clear buffer
-                buffer.clear();
-                self.clear_buffer(&mut stream, peer.clone(), msg).await?;
-                continue;
-            }
-
-            // Wait for device becoming available or a lock is acquired
-            // Abort the lock attempt if a clear device is started
-            let mut dev = select! {
-                res = self.handle.async_lock().fuse() => res.unwrap(),
-                _abort = self.clear.recv().fuse() => {
-                    // Clear buffer
-                    buffer.clear();
-                    self.clear_buffer(&mut stream, peer.clone(), msg).await?;
-                    continue;
-                }
-            };
 
             // Do not read messages unless a loc
             match msg {
@@ -180,26 +119,22 @@ where
                             );
                         }
                         Message {
-                            message_type: MessageType::FatalError,
+                            message_type: typ @ MessageType::Error | typ @ MessageType::FatalError,
                             control_code,
                             payload,
                             ..
                         } => {
-                            log::error!(peer=peer.to_string(), session_id=self.id;
-                                "Client fatal error {:?}: {}", FatalErrorCode::from_error_code(control_code),
-                                from_utf8(&payload).unwrap_or("<invalid utf8>")
-                            );
-                        }
-                        Message {
-                            message_type: MessageType::Error,
-                            control_code,
-                            payload,
-                            ..
-                        } => {
-                            log::warn!(peer=peer.to_string(), session_id=self.id;
-                                "Client error {:?}: {}", NonFatalErrorCode::from_error_code(control_code),
-                                from_utf8(&payload).unwrap_or("<invalid utf8>")
-                            );
+                            if typ == MessageType::FatalError {
+                                log::error!(peer=peer.to_string(), session_id=self.id;
+                                    "Client fatal error {:?}: {}", FatalErrorCode::from_error_code(control_code),
+                                    from_utf8(&payload).unwrap_or("<invalid utf8>")
+                                );
+                            } else {
+                                log::warn!(peer=peer.to_string(), session_id=self.id;
+                                    "Client error {:?}: {}", NonFatalErrorCode::from_error_code(control_code),
+                                    from_utf8(&payload).unwrap_or("<invalid utf8>")
+                                );
+                            }
                         }
                         Message {
                             message_type: typ @ MessageType::Data | typ @ MessageType::DataEnd,
@@ -210,6 +145,13 @@ where
                         } => {
                             let control = RmtDeliveredControl(control_code);
                             let is_end = matches!(typ, MessageType::DataEnd);
+
+                            // Wait for device becoming available or a lock is acquired
+                            // Abort the lock attempt if a clear device is started
+                            let mut dev = select! {
+                                res = self.handle.async_lock().fuse() => res.unwrap(),
+                                _abort = self.clear.recv().fuse() => continue,
+                            };
 
                             let mut shared = self.shared.lock().await;
                             let state = shared.state();
@@ -282,6 +224,13 @@ where
                             control_code,
                             ..
                         } => {
+                            // Wait for device becoming available or a lock is acquired
+                            // Abort the lock attempt if a clear device is started
+                            let mut dev = select! {
+                                res = self.handle.async_lock().fuse() => res.unwrap(),
+                                _abort = self.clear.recv().fuse() => continue
+                            };
+
                             let mut inner = self.shared.lock().await;
                             inner.read_message_id = message_id;
                             let state = inner.state();
@@ -306,19 +255,19 @@ where
                         }
                         Message {
                             message_type: MessageType::DeviceClearComplete,
+                            control_code,
                             ..
                         } => {
-                            // Should've been handled above when AsyncDeviceClear was sent
-                            send_nonfatal!(peer=peer.to_string(), session_id=self.id;
-                                &mut stream,
-                                NonFatalErrorCode::UnidentifiedError,
-                                "Unexpected device clear complete in synchronous channel"
-                            );
+                            buffer.clear();
+                            self.acknowledge_device_clear(&mut stream, peer.clone(), control_code)
+                                .await?;
                         }
                         Message {
                             message_type: MessageType::GetDescriptors,
                             ..
-                        } => {}
+                        } if protocol >= PROTOCOL_2_0 => {
+                            todo!()
+                        }
                         Message {
                             message_type: MessageType::StartTLS | MessageType::EndTLS,
                             ..
@@ -344,7 +293,7 @@ where
                             send_fatal!(
                                 &mut stream,
                                 FatalErrorCode::SecureConnectionFailed,
-                                "Secure connection not supported"
+                                "Authentication not supported"
                             )
                         }
                         msg => {

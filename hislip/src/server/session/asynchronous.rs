@@ -115,27 +115,22 @@ where
                             );
                         }
                         Message {
-                            message_type: MessageType::FatalError,
+                            message_type: typ @ MessageType::Error | typ @ MessageType::FatalError,
                             control_code,
                             payload,
                             ..
                         } => {
-                            log::error!(peer=peer.to_string(), session_id=self.id;
-                                "Client fatal error {:?}: {}", FatalErrorCode::from_error_code(control_code),
-                                from_utf8(&payload).unwrap_or("<invalid utf8>")
-                            );
-                            //break; // Let client close connection
-                        }
-                        Message {
-                            message_type: MessageType::Error,
-                            control_code,
-                            payload,
-                            ..
-                        } => {
-                            log::warn!(peer=peer.to_string(), session_id=self.id;
-                                "Client error {:?}: {}", NonFatalErrorCode::from_error_code(control_code),
-                                from_utf8(&payload).unwrap_or("<invalid utf8>")
-                            );
+                            if typ == MessageType::FatalError {
+                                log::error!(peer=peer.to_string(), session_id=self.id;
+                                    "Client fatal error {:?}: {}", FatalErrorCode::from_error_code(control_code),
+                                    from_utf8(&payload).unwrap_or("<invalid utf8>")
+                                );
+                            } else {
+                                log::warn!(peer=peer.to_string(), session_id=self.id;
+                                    "Client error {:?}: {}", NonFatalErrorCode::from_error_code(control_code),
+                                    from_utf8(&payload).unwrap_or("<invalid utf8>")
+                                );
+                            }
                         }
                         Message {
                             message_type: MessageType::AsyncLock,
