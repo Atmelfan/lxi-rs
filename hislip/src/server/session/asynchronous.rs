@@ -312,7 +312,7 @@ where
 
                             let mut buf = [0u8; 8];
 
-                            NetworkEndian::write_u64(&mut buf, self.config.max_message_size as u64);
+                            NetworkEndian::write_u64(&mut buf, self.config.max_message_size);
                             MessageType::AsyncMaximumMessageSizeResponse
                                 .message_params(0, 0)
                                 .with_payload(buf.to_vec())

@@ -218,6 +218,7 @@ where
                                 // Normal state
                                 SessionState::Normal => {
                                     shared.read_message_id = message_id;
+
                                     if buffer.try_reserve_exact(data.len()).is_err() {
                                         send_fatal!(peer=peer.to_string(), session_id=self.id;
                                             &mut stream,
@@ -229,8 +230,16 @@ where
 
                                     if is_end {
                                         log::debug!(peer=peer.to_string(), session_id=self.id, message_id=message_id; "Data END, {}", control);
-                                        let data = dev.execute(&buffer);
-                                        buffer.clear();
+
+                                        let data = if buffer.eq_ignore_ascii_case(b"*idn?")
+                                            && self.config.short_idn.is_some()
+                                        {
+                                            self.config.short_idn.clone()
+                                        } else {
+                                            let data = dev.execute(&buffer);
+                                            buffer.clear();
+                                            data
+                                        };
 
                                         // Send back response
                                         if let Some(data) = data {
