@@ -1,7 +1,17 @@
+import os
+import subprocess
 import pytest
 from pyvisa import ResourceManager
 import socket
 from contextlib import closing
+
+pytest.fixture(scope='session', autouse=True)
+def prep_cargo(db, data):
+    print("Building...")
+    return_code = subprocess.call("cargo build --examples", shell=True)
+    # yield, to let all tests within the scope run
+    yield 
+
 
 @pytest.fixture
 def free_port(request):

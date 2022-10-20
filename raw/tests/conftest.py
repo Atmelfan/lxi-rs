@@ -10,7 +10,7 @@ def socket_example(xprocess, request, free_port):
 
         yield f"TCPIP::{target}::{port}::SOCKET"
     else:
-        port = free_port
+        port = os.environ.get("SOCKET_PORT", default=str(free_port))
 
         class Starter(ProcessStarter):
             # startup pattern

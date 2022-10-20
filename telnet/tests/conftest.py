@@ -10,7 +10,7 @@ def telnet_example(xprocess, request, free_port):
 
         yield (target, port)
     else:
-        port = free_port
+        port = port = os.environ.get("TELNET_PORT", default=str(free_port))
 
         class Starter(ProcessStarter):
             # startup pattern

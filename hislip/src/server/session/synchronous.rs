@@ -1,7 +1,9 @@
 use std::io;
 use std::str::from_utf8;
+use std::time::Duration;
 
 use async_std::channel::Receiver;
+use async_std::future::timeout;
 use async_std::sync::Arc;
 use futures::lock::Mutex;
 use futures::{select, AsyncRead, AsyncWrite, AsyncWriteExt, FutureExt};
@@ -149,8 +151,21 @@ where
                             // Wait for device becoming available or a lock is acquired
                             // Abort the lock attempt if a clear device is started
                             let mut dev = select! {
-                                res = self.handle.async_lock().fuse() => res.unwrap(),
-                                _abort = self.clear.recv().fuse() => continue,
+                                res = self.handle.async_lock().fuse() => match res{
+                                    Ok(res) => res,
+                                    Err(_) => {
+                                        send_fatal!(peer=peer.to_string(), session_id=self.id;
+                                            &mut stream,
+                                            FatalErrorCode::UnidentifiedError,
+                                            "Internal locking error"
+                                        );
+                                    }
+                                },
+                                _abort = self.clear.recv().fuse() => {
+                                    buffer.clear();
+                                    self.acknowledge_device_clear(&mut stream, peer.clone(), control_code).await?;
+                                    continue;
+                                },
                             };
 
                             let mut shared = self.shared.lock().await;
@@ -160,6 +175,7 @@ where
                                 // Normal state
                                 SessionState::Normal => {
                                     shared.read_message_id = message_id;
+                                    drop(shared); // Drop shared data as to not block async session
 
                                     if buffer.try_reserve_exact(data.len()).is_err() {
                                         send_fatal!(peer=peer.to_string(), session_id=self.id;
@@ -169,22 +185,27 @@ where
                                         );
                                     }
                                     buffer.extend_from_slice(&data);
+                                    log::info!("Buffer={:?}", data);
 
                                     if is_end {
                                         log::debug!(peer=peer.to_string(), session_id=self.id, message_id=message_id; "Data END, {}", control);
 
+                                        // TODO: Replace with .trim_ascii_end() when available
                                         let data = if buffer.eq_ignore_ascii_case(b"*idn?")
-                                            && self.config.short_idn.is_some()
+                                            || buffer.eq_ignore_ascii_case(b"*idn?\n")
+                                                && self.config.short_idn.is_some()
                                         {
                                             self.config.short_idn.clone()
                                         } else {
                                             let data = dev.execute(&buffer);
-                                            buffer.clear();
                                             data
                                         };
+                                        buffer.clear();
 
                                         // Send back response
+                                        let shared = self.shared.lock().await;
                                         if let Some(data) = data {
+                                            log::info!("Sending back");
                                             let mut chunks = data
                                                 .chunks(shared.max_message_size as usize)
                                                 .peekable();
@@ -193,6 +214,8 @@ where
                                             while let Some(chunk) = chunks.next() {
                                                 // Stop sending if a clear has been received on async channel
                                                 if self.clear.try_recv().is_ok() {
+                                                    log::info!("Sending back, clear!");
+
                                                     break;
                                                 }
 
@@ -236,8 +259,21 @@ where
                             // Wait for device becoming available or a lock is acquired
                             // Abort the lock attempt if a clear device is started
                             let mut dev = select! {
-                                res = self.handle.async_lock().fuse() => res.unwrap(),
-                                _abort = self.clear.recv().fuse() => continue
+                                res = self.handle.async_lock().fuse() => match res{
+                                    Ok(res) => res,
+                                    Err(_) => {
+                                        send_fatal!(peer=peer.to_string(), session_id=self.id;
+                                            &mut stream,
+                                            FatalErrorCode::UnidentifiedError,
+                                            "Internal locking error"
+                                        );
+                                    }
+                                },
+                                _abort = self.clear.recv().fuse() => {
+                                    buffer.clear();
+                                    self.acknowledge_device_clear(&mut stream, peer.clone(), control_code).await?;
+                                    continue;
+                                }
                             };
 
                             let mut inner = self.shared.lock().await;
@@ -266,11 +302,31 @@ where
                             message_type: MessageType::DeviceClearComplete,
                             control_code,
                             ..
-                        } => {
-                            buffer.clear();
-                            self.acknowledge_device_clear(&mut stream, peer.clone(), control_code)
+                        } => match timeout(Duration::from_secs(10), self.clear.recv()).await {
+                            Ok(Ok(())) => {
+                                buffer.clear();
+                                self.acknowledge_device_clear(
+                                    &mut stream,
+                                    peer.clone(),
+                                    control_code,
+                                )
                                 .await?;
-                        }
+                            }
+                            Ok(Err(_rerr)) => {
+                                send_fatal!(peer=peer.to_string(), session_id=self.id;
+                                    &mut stream,
+                                    FatalErrorCode::UnidentifiedError,
+                                    "Internal server error"
+                                );
+                            }
+                            Err(_terr) => {
+                                send_fatal!(peer=peer.to_string(), session_id=self.id;
+                                    &mut stream,
+                                    FatalErrorCode::UnidentifiedError,
+                                    "Received device clear complete without a request"
+                                );
+                            }
+                        },
                         Message {
                             message_type: MessageType::GetDescriptors,
                             ..

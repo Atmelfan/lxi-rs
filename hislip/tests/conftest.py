@@ -14,7 +14,7 @@ def hislip_example(xprocess, request, free_port):
             yield f"TCPIP::{target}::hislip0::INSTR"
 
     else:
-        port = free_port
+        port = os.environ.get("HISLIP_PORT", default=str(free_port))
 
         class Starter(ProcessStarter):
             # startup pattern
