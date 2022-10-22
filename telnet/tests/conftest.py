@@ -3,7 +3,7 @@ import pytest
 from xprocess import ProcessStarter
 
 @pytest.fixture
-def telnet_example(xprocess, request, free_port):
+def telnet_example(xprocess, request, pytestconfig, free_port):
     target = os.environ.get("DEBUG_TARGET")
     if target is not None:
         port = os.environ.get("TELNET_PORT", default="5024")
@@ -17,7 +17,7 @@ def telnet_example(xprocess, request, free_port):
             pattern = "Running server"
 
             # Hide warnings
-            env = {"RUSTFLAGS": "-Awarnings", **os.environ}
+            env = {"RUSTFLAGS": "-Awarnings", "CARGO_TARGET_DIR": pytestconfig.cache.mkdir("target"), **os.environ}
 
             # command to start process
             args = [
