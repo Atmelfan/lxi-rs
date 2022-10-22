@@ -1,0 +1,233 @@
+<!-- LXI Identification Schema v2.01, Approved May 24, 2011.  Note that this schema is backward compatible, and will validate both LXI 1.3 and 1.4 identification documents
+    Revision History:
+    2.01 - Corrected comments in the 2.00 version.  Added version number, approval date, and revision history.  No functional changes.  Approved May 24, 2011.  
+    2.00 - Updated to accommodate LXI extended features, deprecate the LXIClass element.  Validates both LXI 1.3 and 1.4 identification documents. Approved May 18, 2011.
+    1.00 - Initial version associated with the LXI 1.2 standard.  Approved April, 2006.
+     -->
+<xs:schema xmlns:lxi="http://www.lxistandard.org/InstrumentIdentification/1.0"
+    xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="http://www.lxistandard.org/InstrumentIdentification/1.0" elementFormDefault="qualified" attributeFormDefault="unqualified">
+
+
+    <xs:element name="LXIDevice">
+        <xs:annotation>
+            <xs:documentation>Identification information for an LXI device.</xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:complexContent>
+                <xs:extension base="lxi:Device">
+                    <xs:sequence>
+                        <xs:element name="LXIClass" minOccurs="0" maxOccurs="1">
+                            <xs:annotation>
+                                <xs:documentation>Deprecated in LXI version 1.4. This element indicates if this device is Class A, B, or C.</xs:documentation>
+                            </xs:annotation>
+                            <xs:simpleType>
+                                <xs:restriction base="xs:string">
+                                    <xs:enumeration value="A" />
+                                    <xs:enumeration value="B" />
+                                    <xs:enumeration value="C" />
+                                </xs:restriction>
+                            </xs:simpleType>
+                        </xs:element>
+                        <xs:element name="Domain" type="xs:unsignedByte" nillable="true" minOccurs="0" maxOccurs="unbounded">
+                            <xs:annotation>
+                                <xs:documentation>The LXI domain(s) this instrument uses for LXI Event Messages. Per LXI Standard 1.4, 4.3 RULE - LXI Event Message Format.</xs:documentation>
+                            </xs:annotation>
+                        </xs:element>
+                        <xs:element name="LXIVersion" type="xs:string">
+                            <xs:annotation>
+                                <xs:documentation>Indicates the latest version of the LXI specification this device complies with.</xs:documentation>
+                            </xs:annotation>
+                        </xs:element>
+                        <xs:element name="LXIExtendedFunctions" minOccurs="0" maxOccurs="1">
+                            <xs:annotation>
+                                <xs:documentation>LXI Extended functions used to describe extended capabilities of the instrument.</xs:documentation>
+                            </xs:annotation>
+                            <xs:complexType>
+                                <xs:sequence maxOccurs="unbounded">
+                                    <xs:element name="Function" minOccurs="0" maxOccurs="unbounded">
+                                        <xs:annotation>
+                                            <xs:documentation>Indicates that an LXI extended function is available, the version of the extended function implemented, and the options associated with it.</xs:documentation>
+                                        </xs:annotation>
+                                        <xs:complexType>
+                                            <xs:sequence maxOccurs="unbounded">
+                                                <xs:any namespace="##any" processContents="lax" minOccurs="0" maxOccurs="unbounded"></xs:any>
+                                            </xs:sequence>
+                                            <xs:attribute name="FunctionName" type="xs:string" use="required" />
+                                            <xs:attribute name="Version" type="xs:string" use="required" />
+                                        </xs:complexType>
+                                    </xs:element>
+                                </xs:sequence>
+                            </xs:complexType>
+                        </xs:element>
+                    </xs:sequence>
+                </xs:extension>
+            </xs:complexContent>
+        </xs:complexType>
+    </xs:element>
+    <xs:complexType name="Device" abstract="false">
+        <xs:annotation>
+            <xs:documentation>Generic Instrument Description</xs:documentation>
+        </xs:annotation>
+        <xs:sequence>
+            <xs:element name="Manufacturer" type="xs:string" nillable="true" minOccurs="0">
+                <xs:annotation>
+                    <xs:documentation>Manufacturer description, should match the manufacturer field in IEEE 488.2 identity query. "Manufacturer" field Per LXI Standard 1.4, 9.2 RULE - Welcome Web Page Display Items.</xs:documentation>
+                </xs:annotation>
+            </xs:element>
+            <xs:element name="Model" type="xs:string" nillable="true" minOccurs="0">
+                <xs:annotation>
+                    <xs:documentation>Instrument model designation, should match the model field in IEEE 488.2 identity query. "Model" field per LXI Standard 1.4, 9.2 RULE - Welcome Web Page Display Items.</xs:documentation>
+                </xs:annotation>
+            </xs:element>
+            <xs:element name="SerialNumber" type="xs:string" nillable="true" minOccurs="0">
+                <xs:annotation>
+                    <xs:documentation>Instrument serial number, should match the serial number field in IEEE 488.2 identity query. "Serial Number" field per LXI Standard 1.4, 9.2 RULE - Welcome Web Page Display Items.</xs:documentation>
+                </xs:annotation>
+            </xs:element>
+            <xs:element name="FirmwareRevision" type="xs:string" nillable="true" minOccurs="0">
+                <xs:annotation>
+                    <xs:documentation>Instrument firmware revision, should match the firmware revision field in IEEE 488.2 identity query. "Firmware and/or Software Revision" field per LXI Standard 1.4, 9.2 RULE - Welcome Web Page Display Items.</xs:documentation>
+                </xs:annotation>
+            </xs:element>
+            <xs:element name="ManufacturerDescription" type="xs:string" nillable="false" minOccurs="0">
+                <xs:annotation>
+                    <xs:documentation>This is the manufacutrers product description such as "Acme 1234A Digital Foozywachit".</xs:documentation>
+                </xs:annotation>
+            </xs:element>
+            <xs:element name="HomepageURL" type="xs:anyURI" minOccurs="0">
+                <xs:annotation>
+                    <xs:documentation>This is the URL for the instrument Manufacturer.</xs:documentation>
+                </xs:annotation>
+            </xs:element>
+            <xs:element name="DriverURL" type="xs:anyURI" minOccurs="0">
+                <xs:annotation>
+                    <xs:documentation>This is the URL where users can go to acquire the latest driver</xs:documentation>
+                </xs:annotation>
+            </xs:element>
+            <xs:element name="ConnectedDevices" minOccurs="0">
+                <xs:annotation>
+                    <xs:documentation>This optional element is used by gateways to advertise information for connected devices, such as GPIB, VXI, USB, PXI, and/or Serial instruments. Per LXI Standard 1.4, 10.2.4 RULE - Connected Device URLs</xs:documentation>
+                </xs:annotation>
+                <xs:complexType>
+                    <xs:sequence>
+                        <xs:element name="DeviceURI" type="xs:anyURI" nillable="false" minOccurs="0" maxOccurs="unbounded">
+                            <xs:annotation>
+                                <xs:documentation>URIs for connected devices represent the base URL for the connected device. Per LXI Standard 1.4, 10.2.4 RULE - Connected Device URLs</xs:documentation>
+                            </xs:annotation>
+                        </xs:element>
+                    </xs:sequence>
+                </xs:complexType>
+            </xs:element>
+            <xs:element name="UserDescription" type="xs:string" minOccurs="0">
+                <xs:annotation>
+                    <xs:documentation>This is a user description for this device, for instance "the Spectrum Analyzer on the Blue Portable Cart". "Description" field per LXI Standard 1.4, 9.2 RULE - Welcome Web Page Display Items.</xs:documentation>
+                </xs:annotation>
+            </xs:element>
+            <xs:element name="IdentificationURL" type="xs:anyURI" minOccurs="0">
+                <xs:annotation>
+                    <xs:documentation>This is the URL from which the instrument will source the identification XML. Per LXI Standard 1.4, 10.2 RULE - XML Identification Document URL.</xs:documentation>
+                </xs:annotation>
+            </xs:element>
+            <xs:element name="Interface" type="lxi:InterfaceInformation" minOccurs="0" maxOccurs="unbounded">
+                <xs:annotation>
+                    <xs:documentation>Interface Information. For instances of LXIDevice, at least one Interface of type "NetworkInformation" must be provided, with an InterfaceType of "LXI". </xs:documentation>
+                </xs:annotation>
+            </xs:element>
+            <xs:element name="IVISoftwareModuleName" nillable="true" minOccurs="0" maxOccurs="unbounded">
+                <xs:annotation>
+                    <xs:documentation>This identifies the IVI driver as specified in the IVI Configuration Store Name field of the Software Module. See Section 2.5.3 IVI Session and IVI Driver Session, in IVI-3.5: Configuration Server Specification. The Comment annotation is used to describe this software module, especially where the driver supports multiple software modules, that is, instrument personalities.</xs:documentation>
+                </xs:annotation>
+                <xs:complexType>
+                    <xs:simpleContent>
+                        <xs:extension base="xs:string">
+                            <xs:attribute name="Comment" type="xs:string" />
+                        </xs:extension>
+                    </xs:simpleContent>
+                </xs:complexType>
+            </xs:element>
+            <xs:element name="Extension" minOccurs="0">
+                <xs:annotation>
+                    <xs:documentation>Vendor specific extensions used to describe the instrument.</xs:documentation>
+                </xs:annotation>
+                <xs:complexType>
+                    <xs:sequence maxOccurs="unbounded">
+                        <xs:any namespace="##any" processContents="lax"></xs:any>
+                    </xs:sequence>
+                </xs:complexType>
+            </xs:element>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:complexType name="InterfaceInformation">
+        <xs:sequence>
+            <xs:element name="InstrumentAddressString" type="xs:string" minOccurs="0" maxOccurs="unbounded">
+                <xs:annotation>
+                    <xs:documentation>This is a VISA-like string to help the driver or a human determine the actual address string. Consistent with the web presentation of an IVI I/O Resource Descriptor string, per LXI Standard 1.4, 9.2.1 RULE - Instrument Address String on Welcome Page. </xs:documentation>
+                </xs:annotation>
+            </xs:element>
+        </xs:sequence>
+        <xs:attribute name="InterfaceType" type="xs:string" use="required">
+            <xs:annotation>
+                <xs:documentation>For LXI devices, this field must contain LXI. This may be used to designate other vendor specified interfaces (e.g., VXI, PXI, GPIB, Serial, USB, etc.). </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="InterfaceName" type="xs:string" use="optional">
+            <xs:annotation>
+                <xs:documentation>This field should contain a logical name for the interface, from the device's perspective. For example, network interfaces may be named "eth0", "eth1", etc. </xs:documentation>
+            </xs:annotation>
+        </xs:attribute>
+    </xs:complexType>
+    <xs:complexType name="NetworkInformation">
+        <xs:complexContent>
+            <xs:extension base="lxi:InterfaceInformation">
+                <xs:annotation>
+                    <xs:documentation>Network connection information. These generally mimic the values presented on the LXI required Welcome Web page.</xs:documentation>
+                </xs:annotation>
+                <xs:sequence>
+                    <xs:element name="Hostname" type="xs:string">
+                        <xs:annotation>
+                            <xs:documentation>This is the hostname used for DNS. "Hostname" field per LXI Standard 1.4, 9.2 RULE - Welcome Web Page Display Items.</xs:documentation>
+                        </xs:annotation>
+                    </xs:element>
+                    <xs:element name="IPAddress" type="xs:string">
+                        <xs:annotation>
+                            <xs:documentation>This is the currently active IP Address. This is represented as a string and can represent IPv4 or IPv6 addresses. "TCP/IP Address" field per LXI Standard 1.4, 9.2 RULE – Welcome Web Page Display Items.</xs:documentation>
+                        </xs:annotation>
+                    </xs:element>
+                    <xs:element name="SubnetMask" type="xs:string">
+                        <xs:annotation>
+                            <xs:documentation>The currently configured subnet mask. "Subnet mask" field per LXI Standard 1.4, 9.5 RULE - LAN Configuration Web Page Contents.</xs:documentation>
+                        </xs:annotation>
+                    </xs:element>
+                    <xs:element name="MACAddress" type="xs:string">
+                        <xs:annotation>
+                            <xs:documentation>This is the MAC address of this interface. "MAC Address" field per LXI Standard 1.4, 9.2 RULE - Welcome Web Page Display Items.</xs:documentation>
+                        </xs:annotation>
+                    </xs:element>
+                    <xs:element name="Gateway" type="xs:string">
+                        <xs:annotation>
+                            <xs:documentation>The IP address of the currently configured gateway. "Default Gateway" field per LXI Standard 1.4, 9.5 RULE - LAN Configuration Web Page Contents.</xs:documentation>
+                        </xs:annotation>
+                    </xs:element>
+                    <xs:element name="DHCPEnabled" type="xs:boolean">
+                        <xs:annotation>
+                            <xs:documentation>Indicates if the instrument is configured to accept configuration from DHCP, per LXI Standard 1.4, 8.6.1 RULE - Options for LAN configuration.</xs:documentation>
+                        </xs:annotation>
+                    </xs:element>
+                    <xs:element name="AutoIPEnabled" type="xs:boolean">
+                        <xs:annotation>
+                            <xs:documentation>Indicates if the instrument is configured to use AutoIP to choose an IP address, per LXI Standard 1.4, 8.6.1 RULE - Options for LAN configuration.</xs:documentation>
+                        </xs:annotation>
+                    </xs:element>
+                </xs:sequence>
+                <xs:attribute name="IPType" use="required">
+                    <xs:simpleType>
+                        <xs:restriction base="xs:string">
+                            <xs:enumeration value="IPv4" />
+                            <xs:enumeration value="IPv6" />
+                        </xs:restriction>
+                    </xs:simpleType>
+                </xs:attribute>
+            </xs:extension>
+        </xs:complexContent>
+    </xs:complexType>
+</xs:schema>

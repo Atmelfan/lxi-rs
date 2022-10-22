@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema targetNamespace="http://lxistandard.org/schemas/LXILiterals/1.0" 
+    xmlns:lxi="http://lxistandard.org/schemas/LXILiterals/1.0" 
+    xmlns:xs="http://www.w3.org/2001/XMLSchema" 
+    elementFormDefault="qualified" 
+    attributeFormDefault="unqualified" 
+    version="1.0">
+
+  <!--This schema defines an method payload with arbitrary parameters -->
+  <xs:element name="LXILiterals" type="lxi:LXILiterals">
+    <xs:annotation>
+      <xs:appinfo>
+        <!-- The following date should be updated whenever this schema is updated!  Including doc changes.-->
+        <editorialdate>June 30, 2022</editorialdate>
+      </xs:appinfo>
+      <xs:documentation>
+        <div>
+          <h2>LXI Literals Schema</h2>
+            <p>
+                The <em>LXILiterals</em> schema contains a single element with optional
+                arbitrary attributes.  It is used to pass arbitrary data to a method.
+                As such, it does not provide syntactic validation of parameters.
+            </p>
+            <p>
+              This schema is intended to be used by methods that require minimal 
+              parameters, and would derive very little benefit from schema-based 
+              syntactic validation.
+            </p>
+            <p>
+              Methods that utilize this schema must document the attribute names
+              and types used.
+            </p>
+        </div>
+      </xs:documentation>
+    </xs:annotation>
+  </xs:element>
+
+  <xs:complexType name="LXILiterals"> 
+    <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>LXILiterals</em> contains arbitrary attributes that can be used to
+            pass parameters of arbitrary types and names to REST methods.
+          </p>
+          <p>
+            Methods that utilize this schema must document the attribute names
+            and types used.
+          </p>
+      </xs:documentation>
+
+    </xs:annotation>
+    <xs:anyAttribute namespace="##any" processContents="lax">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            Each attribute has an arbitrary name with an arbitrarily typed 
+            parameter.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>Must be implemented as required for parameters used in the method for which this is a parameter.</requirement>
+          <lci>NA</lci>
+          <unsecureMode>NA</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:anyAttribute>
+  </xs:complexType>
+
+</xs:schema>

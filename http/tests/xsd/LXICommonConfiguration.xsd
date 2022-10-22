@@ -1,0 +1,2565 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema targetNamespace="http://lxistandard.org/schemas/LXICommonConfiguration/1.0" 
+  xmlns:lxi="http://lxistandard.org/schemas/LXICommonConfiguration/1.0" 
+  xmlns:xs="http://www.w3.org/2001/XMLSchema" 
+  elementFormDefault="qualified" 
+  attributeFormDefault="unqualified" version="1.0">
+
+  <!-- The LXISecurityConfiguration element is the single base element defined in the LXI Secure Settings Schema. An
+instance of this element contains the full device security configuration. -->
+  <xs:element name="LXICommonConfiguration" type="lxi:LXICommonConfiguration">
+    <xs:annotation>
+      <xs:appinfo>
+        <!-- The following date should be updated whenever this schema is updated!  Including doc changes.-->
+        <editorialdate>June 30, 2022</editorialdate>
+      </xs:appinfo>
+      <xs:documentation>
+        <div>
+          <h2>LXI Common Configuration Schema</h2>
+          <p>
+            The LXI Common Configuration XML schema is specified by the LXI Consortium as part of the LXI 
+            Security Extended Function.
+          </p>
+          <p>
+            <em>LXICommonConfiguration</em> contains settings related to the device secure configuration.  
+            This includes the configuration of the network interface, configuration of various network 
+            protocols and client authentication information.
+          </p>
+          <p>
+            This schema is used to:
+          </p>
+          <ul>
+            <li>Configure the security settings of a device</li>
+            <li>Interrogate a device to determine its security settings</li>
+            <li>Interrogate a device to determine its security capabilities</li>
+          </ul>
+          <p>RULE: On an HTTP PUT the device shall go to the state specified in the XML.</p>
+          <p>
+            A device is configured by performing an HTTP PUT of this XML to the LXI-specified endpoint in the device.
+            A successful PUT indicates that the device recognizes the XML and that it will assume the configuration 
+            specified in the XML.  The point in time when the new configuration takes effect is device dependent.
+          </p>
+          <p>
+            If any part of the XML is syntactically invalid or if the XML represents settings 
+            that the device does not support, the device state shall report an HTTP error and not change state.
+          </p>
+          <p>
+            Per the LXI API Specification, the reason for the error shall be elaborated using the 
+            <em>LXIProblemDetails</em> response schema.
+          </p>
+          <p>
+            <b>OBSERVATION: </b><em>The <em>LXICommonConfiguration/@strict</em> attribute 
+              explicitly permits devices to not act on configuration of the listed protocols 
+              if they are not implemented. Thus, an XML that includes the configuration of 
+              an unimplemented protocol is not an error when strict is false.</em>
+          </p>
+        	<p>RULE: The device GET response shall indicate the current state and capabilities of the device.</p>
+          <p>
+            To interrogate a device to determine its settings and capabilities, the client performs an HTTP GET to
+            the LXI-specified endpoint.  The device shall reply with an instance of this XML document that reflects
+            the configuration of the instrument.
+          </p>
+          <p>
+            To determine the capability of the instrument, the client can inspect the XML.  Where optional elements
+            are returned (regardless of if they are enabled or disabled), the device is capable of enabling the
+            corresponding configuration.   For instance, if a device returns a SCPITLS element, regardless of it is 
+            disabled or enabled, the device provides a SCPITLS interface that may be subsequently enabled. If the device
+            does not provide a SCPITLS interface, the optional SCPITLS element shall not be included in the device response.
+          </p>
+          <p>
+            RULE: Devices shall indicate capabilities not apparent from the queried settings
+            using the capability attribute.
+          </p>
+          <p>
+            In some cases, devices may be capable of variations on a capability, such as multiple 
+            instances on different ports. For those cases, devices shall include the <em>capability</em>
+            attribute in the response.  The <em>capability</em> attribute indicates the variations
+            that can be configured, for instance the names of instances that can be created.  
+            When the <em>capability</em> attribute is included in the definition
+            of an element, its use is described.
+          </p>
+        </div>
+      </xs:documentation>
+    </xs:annotation>
+  </xs:element>
+
+  <!-- Complex Type LXICommonConfiguration (root type) -->
+  <xs:complexType name="LXICommonConfiguration">
+    <xs:annotation>
+      <xs:documentation xml:lang="en">
+        <p>
+          <em>LXICommonConfiguration</em> is the root element for the LXI common configuration.
+          It represents the configuration of one or more LXI physical interfaces and user authentication.
+        </p>
+        <p>The configuration in <em>LXICommonConfiguration</em> is generally common to all devices in a system.</p>
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Interface" type="lxi:Interface" maxOccurs="unbounded" minOccurs="1">
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              RULE: Devices shall accept configuration based on an <em>Interface</em> 
+              element for any LXI conformant interface.
+            </p>
+            <p>
+              At least one instance of the Interface element is required.  The device 
+              shall support a PUT that includes an <em>Interface</em> element for any or all 
+              interfaces that are LXI conformant.
+            </p>
+            <p>RULE: Devices shall return an <em>Interface</em> element for each interface.</p>
+            <p>
+              <b>OBSERVATION: </b><em>Interfaces that do not conform with LXI specifications
+              only require the <em>Interface/@Enable</em> attribute.</em>
+            </p>
+            <p>
+              Devices may optionally configure non-LXI conformant interfaces with the Interface 
+              element.
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+
+      <xs:element name="ClientAuthentication" type="lxi:ClientAuthentication" minOccurs="0" maxOccurs="1">
+        <xs:annotation>
+          <xs:documentation>
+            <p>RULE: <em>ClientAuthentication</em> shall be optionally accepted for PUT.</p>
+            <p>
+              RULE: <em>ClientAuthentication</em> without the <em>@passwords</em> or 
+              <em>@APIAccess</em> attributes shall be returned for GET over secure 
+              connections and elided for unsecure connections.
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+    </xs:sequence>
+
+    <xs:attribute name="strict" type="xs:boolean" default="false" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>strict</em> indicates that designated portions of this XML document
+            may not be ignored by the device.  This requirement does not bear on attributes and
+            elements that are explicitly documented to be ignored, for instance,
+            extension attributes.
+          </p>
+          <p>
+            If <em>strict</em> is false, devices shall ignore configuration of 
+            the following if they are not implemented by the device:
+          </p>
+          <ul>
+            <li><em>/LXICommonConfiguration/Network/IPv6</em></li>
+            <li><em>/LXICommonConfiguration/HTTP</em></li>
+            <li><em>/LXICommonConfiguration/SCPIRaw</em></li>
+            <li><em>/LXICommonConfiguration/SCPITLS</em></li>
+            <li><em>/LXICommonConfiguration/Telnet</em></li>
+            <li><em>/LXICommonConfiguration/HiSLIP</em></li>
+            <li><em>/LXICommonConfiguration/VXI11</em></li>
+          </ul>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>Write-only</lci>
+          <unsecureMode>NA</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="HSMPresent" type="xs:boolean" use="required">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>HSMPresent</em> indicates if the device has a hardware security module.
+          </p>
+          <p>
+            True indicates the device has hardware that ensures that the private keys 
+            used to encrypt communication are not stored by the device unless encrypted 
+            by a hardware security module that performs encryption of private keys 
+            and other secrets using encryption keys that are not visible external 
+            from the hardware security module.
+          </p>
+          <p>
+            False indicates the device does not have hardware assistance to protect 
+            private keys.
+          </p>
+          <p>
+            RULE: <em>HSMPresent</em> is a read-only attribute that is true if and only if the 
+            device uses a HSM to protect the private keys used for LXI communication.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>Read-only</lci>
+          <unsecureMode>NA</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+  </xs:complexType>
+
+  <!-- Complex Type Interface -->
+  <xs:complexType name="Interface">
+    <xs:annotation>
+      <xs:documentation>
+        <p>
+          <em>Interface</em> specifies the settings associated with a single device interface
+          including the common aspects of the ethernet configuration and configuration of 
+          protocols served on that interface.
+        </p>
+        <p>
+          <em>LXICommonConfiguration</em> can represent the configuration of multiple 
+          interfaces on a single device, 
+          however, devices that implement multiple interfaces shall allow any subset, or all, 
+          of the interfaces to be configured using a single XML document.  Any LXI Security 
+          conformant interfaces on a device shall permit any interface that complies with LXI 
+          Security to be configured using this element.
+        </p>
+        <p>
+          RULE: Non-LXI interfaces can be disabled using the <em>Interface/@enabled</em> 
+          attribute.
+        </p>
+        <p>
+          RULE: Device network interfaces (including those added dynamically) over which the LXI 
+          device may be controlled that are not LXI Conformant shall at least support this 
+          element with the enabled attribute so that network interfaces that are not LXI 
+          Security capable can be disabled.  
+        </p>
+        <p>
+          RULE: If any unsecure interface is enabled, then 
+          the device shall report that it is unsecure mode.
+        </p>
+        <p>RULE: Absence of optional elements disables them.</p>
+        <p>
+          If an optional element is absent, the device behavior shall be equivalent to including 
+          the element and specifying the enabled attribute of that element to be false. That is, 
+          if an element is absent, the capability is disabled.
+        </p>
+        <p>
+          <b>OBSERVATION:</b><em> All optional elements have an enabled attribute as 
+          required to implement this RULE.</em>
+        </p>
+        <p>
+          RULE: If a device does not implement a capability configured by an XML
+          element within <em>Interface</em>, it shall omit that optional XML element 
+          from its response. If the device does implement the capability, it shall 
+          include the element in the response and indicate the current configuration. 
+          See the details regarding the implementation of 
+          <em>LXICommonConfiguration/@strict</em> attribute regarding how certain protocol
+          configurations are handled.
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+
+    <xs:sequence>
+      <xs:element name="Network" type="lxi:Network" minOccurs="0" maxOccurs="1">
+        <xs:annotation>
+          <xs:documentation>
+            <p>RULE: <em>Network</em> is required.</p>
+            <p>
+              Interfaces that are not LXI Conformant are required to implement this element,
+              however, they are only required to implement the <em>Interface/@Enabled</em> 
+              attribute.
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      
+      <xs:element name="HTTP" type="lxi:HTTP" minOccurs="0" maxOccurs="unbounded">
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              RULE: <em>HTTP</em> is optional, however devices that implement HTTP
+              are require to fully implement this element.
+            </p>
+            <p>
+              RULE: If multiple HTTP elements are present, each shall have a 
+              different port.
+            </p>
+            <p>
+              Additional instances of this element may be used to provide independent
+              control of multiple servers (although each must be on a different port).  
+              This may be useful, for instance, if separate servers are setup for
+              the API and the human interface.
+            </p>
+            <p>
+              <b>OBSERVATION:</b> <em> Multiple services can be enabled on a single port.
+              by including multiple instances of the <em>HTTP/Service</em> element.</em>
+            </p>
+            <p>
+              <b>OBSERVATION:</b> <em>Devices may place restrictions on which services
+              may be enabled or disabled on various ports.  For instance, some devices
+              may require that all API services be enabled or disabled together.  To do
+              so, the <em>HTTP/Service</em> element for each service must be set the 
+              same.</em>
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+
+      <xs:element name="HTTPS" type="lxi:HTTPS" minOccurs="0" maxOccurs="unbounded">
+        <xs:annotation>
+          <xs:documentation>
+            <p>RULE: <em>HTTPS</em> is required.</p>
+            <p>
+              RULE: If multiple HTTPS elements are present, each shall have a 
+              different port.
+            </p>
+            <p>
+              Additional instances of this element may be used to provide independent
+              control of multiple servers (although each must be on a different port).  
+              This may be useful, for instance, if separate servers are setup for
+              the API and the human interface.
+            </p>
+            <p>
+              <b>OBSERVATION:</b><em> Multiple services can be enabled on a single port.
+              by including multiple instances of the <em>HTTPS/Service</em> element.</em>
+            </p>
+            <p>
+              <b>OBSERVATION:</b><em> Devices may place restrictions on which services
+              may be enabled or disabled on various ports.  For instance, some devices
+              may require that all API services be enabled or disabled together.  To do
+              so, the <em>HTTPS/Service</em> element for each service must be set the same.</em>
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+
+      <xs:element name="SCPIRaw" type="lxi:SCPIRaw" minOccurs="0" maxOccurs="unbounded">
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              RULE: At least one instance of <em>SCPIRaw</em> shall be accepted by devices that 
+              implement a SCPIRaw Command and Control connection.
+            </p>
+            <p>
+              A separate instance of <em>SCPIRaw</em> is used for each port at which 
+              a SCPIRaw server is running.
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+
+      <xs:element name="Telnet" type="lxi:Telnet" minOccurs="0" maxOccurs="unbounded">
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              RULE: At least one instance of <em>Telnet</em> shall be accepted by 
+              devices that implement the Telnet
+              Command and Control connection.
+            </p>
+            <p>
+              A separate instance of <em>Telnet</em> is used for each port at which 
+              a Telnet server is running.  
+            </p>
+            <p>
+              <b>OBSERVATION:</b><em>
+              This may be useful, for instance, if 
+              one server provides access to a SCPI parser, and another to the device 
+              operating system shell.</em>
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+
+      <xs:element name="SCPITLS" type="lxi:SCPITLS" minOccurs="0" maxOccurs="unbounded">
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              RULE: At least one instance of <em>SCPITLS</em> shall be accepted by devices 
+              that implement a SCPITLS Command and Control connection.
+            </p>
+            <p>
+              A separate instance of <em>SCPITLS</em> is provided for each port at which 
+              a SCPITLS server is running.
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+
+      <xs:element name="HiSLIP" type="lxi:HiSLIP" minOccurs="0" maxOccurs="1">
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              RULE: <em>HiSLIP</em> shall be accepted by devices that implement 
+              the LXI HiSLIP extended function.</p>
+            <p>
+              Only a single instance of <em>HiSLIP</em> is permitted because a single 
+              instance of the protocol supports an arbitrary number of instances of
+              servers at an arbitrary number of subaddresses.
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+            
+      <xs:element name="VXI11" type="lxi:VXI11" minOccurs="0" maxOccurs="1">
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              RULE: <em>VXI11</em> shall be accepted by devices that implement a VXI-11 
+              Command and Control connection.
+            </p>
+            <p>
+              Only a single instance of the VXI-11 protocol can be created on an 
+              interface.
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      
+      <xs:any namespace="##other" processContents="lax" minOccurs="0" maxOccurs="unbounded">
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              Arbitrary subelements may be included in the <em>Interface</em> element.  This
+              enables devices to represent configuration capabilities not
+              included in this XML.
+            </p>
+            <p>
+              RULE: If a device receives a well-formed extension element it does not recognize, it shall
+              ignore it. 
+            </p>
+            <p>
+              RULE: On a GET, devices are permitted to express arbitrary configuration 
+              with extension elements, however such a device shall accept configuration 
+              using those elements.
+            </p>
+            <p>
+              RULE: Any element that controls a protocol that impacts the unsecure mode 
+              shall include an <em>unsecureEnabled</em> attribute. Setting this false shall 
+              disable the protocol or disable the unsecure behavior. The device shall 
+              report UnsecureMode true, when any protocol has <em>unsecureEnabled</em> true.
+            </p>
+            <p>
+              <b>OBSERVATION:</b> <em>It is possible that other configurations in
+              the extension protocol make it secure in reality, however, setting 
+              the <em>unsecureEnabled</em> attribute true shall make the device report 
+              UnsecureMode true.</em>
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:any>
+    </xs:sequence>
+
+    <!-- Interface attributes -->
+    <xs:attribute name="name" type="xs:string" default="LXI" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>name</em>
+            identifies this physical network interface within the device.  It differentiates
+            the interfaces in devices that have multiple interfaces.
+          </p>
+          <p>
+            If <em>name</em> is omitted, the behaviors is the same as if the
+            name were included with the value "LXI".
+          </p>
+          <p>
+            Some settings may be coupled between interfaces. That is the settings on separate 
+            physical interfaces may be required to be the same.
+          </p>
+          <p>RULE: Devices with a single interface shall treat the <em>Interface</em> element 
+            with the name "LXI" (the default name) to configure the single interface.  Devices
+            with multiple interfaces shall assign one of them the name "LXI" (the default name).
+          </p>
+          <p>
+            <b>OBSERVATION:</b> <em>Devices may have multiple network interface and choose 
+            to configure them all identically and bridge traffic internally.
+            </em>
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>NA</lci>
+          <unsecureMode>NA</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+    <xs:attribute name="LXIConformant" type="xs:string" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>LXIConformant</em>
+            is a read-only attribute that indicates the LXI specifications
+            this device complies with. If this interface does not
+            comply with the LXI Device specification, an empty string is 
+            used.
+          </p>
+          <p>
+            The returned string is a comma separated list of the LXI 
+            specifications this interface complies with. The individual
+            substrings are
+            the same as those defined for the Identification schema.
+          </p>
+          <p>
+            <b>OBSERVATION: </b><em>Clients should ignore white space
+              in these strings.</em>
+          </p>
+          <p>
+            <b>OBSERVATION: </b><em>An empty string indicates that
+              the interface is not LXI compliant. However, an interface 
+              that does not comply with LXI is not required to implement 
+              this attribute. </em>
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE: (read-only)</requirement>
+          <lci>Read-only</lci>
+          <unsecureMode>NA</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+    
+    <xs:attribute name="enabled" type="xs:boolean" default="true" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>enabled</em>
+            indicates if this physical network interface is enabled.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>RULE: At LCI, all LXI conformant interfaces shall be enabled, others may be enabled.</lci>
+          <unsecureMode>device dependent</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+    
+    <xs:attribute name="unsecureMode" type="xs:boolean" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>unsecureMode</em>
+            is a read-only attribute that indicates that one 
+            or more configurations in this XML do not meet
+            the LXI minimum requirements for secure device operation.
+          </p>
+          <p>
+            See the LXI Security Extended Function for the criteria to 
+            determine if a device is in unsecureMode.  Several 
+            configurations within the API schemas are documented as placing 
+            the instrument into Unsecure Mode, however, the overall determination
+            shall be done by the instrument per the requirement in the 
+            LXI Security Extended function.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE: (read-only)</requirement>
+          <lci>Read-only</lci>
+          <unsecureMode>NA</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+    
+    <xs:attribute name="otherUnsecureProtocolsEnabled" type="xs:boolean" default="true" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>otherUnsecureProtocolsEnabled</em> represents the state of 
+            various device-specific protocols that are beyond the scope of 
+            LXI.  As a group, controllable unsecure protocols beyond the scope
+            of the LCI Common Configuration including: 1) LXI specified instrument 
+            Common Configuration API, 2) Device specific extensions to the 
+            instrument Common Configuration are reflected by the state 
+            of this attribute.
+          </p>
+          <p>
+            If <em>otherUnsecureProtocolsEnabled</em> is true, various device 
+            unsecure protocols beyond the scope of the LXI Common Configuration 
+            are permitted to be enabled. 
+          </p>
+          <p>
+            If <em>otherUnsecureProtocolsEnabled</em> is false, all controllable unsecure 
+            protocols not enabled by the LXI Common Configuration.  
+          </p>
+          <p>
+            For the purpose of <em>otherUnsecureProtocolsEnabled</em>, a secure protocol 
+            is a protocol that authenticates the server and encrypts data.  Client 
+            authentication is not required.
+          </p>
+          <p>
+            RULE: LXI Secure devices shall document the protocols that are controlled by 
+            this attribute.
+          </p>
+          <p>
+            RULE: If the device does not implement any other unsecure protocols, 
+            then on a GET, <em>otherUnsecureProtocolsEnabled</em> shall return false. However,
+            if written true, such a device shall either fail the PUT or indicate unsecure mode 
+            is True.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change, unless the protocol represented must be enabled to re-establish ethernet communication.</lci>
+          <unsecureMode>Unsecure when the attribute is True. Device determined when the attribute is false</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:anyAttribute namespace="##any" processContents="lax">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            Arbitrarily typed elements may be included for devices to represent device-specific 
+            configuration.
+          </p>
+          <p>
+            RULE: The impact of these configurations on the device secure mode are determined by the
+            device vendor.  However, if unsecure protocols are enabled, the device shall 
+            indicate it is in unsecure mode.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>No</requirement>
+          <lci> <p>
+            RULE: Those settings necessary to re-establish ethernet communication with the 
+            instrument shall be enabled.
+          </p></lci>
+          <unsecureMode><p>
+            For the purpose of the unsecure determination, a secure protocol is a protocol that
+            authenticates the server and encrypts data.  Client authentication is not required.
+          </p></unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:anyAttribute>
+  </xs:complexType>
+
+  <!-- Complex Type Network -->
+  <xs:complexType name="Network">
+    <xs:annotation>
+      <xs:documentation>
+        <p>
+          <em>Network</em>
+          contains various settings associated with the Ethernet interface.
+        </p>
+        <p>
+          The settings in <em>Network</em> generally may be common
+          to all instruments in a system.  Settings that are generally device
+          specific or are automatically configured such as the device 
+          Ethernet address are in the LXI Device
+          Specific Configuration.
+        </p>
+        <p>
+          See the LXI Device specification for details about the management 
+          of various Ethernet settings.
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="IPv4" type="lxi:IPv4" minOccurs="0" maxOccurs="1">
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              RULE: <em>IPv4</em> is required.
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+
+      <xs:element name="IPv6" type="lxi:IPv6" minOccurs="0" maxOccurs="1">
+        <xs:annotation>
+          <xs:documentation>
+            <p>RULE: <em>IPv6</em> is required by devices that implement the IPv6 Extended Function.</p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Complex Type IPv4 -->
+  <xs:complexType name="IPv4">
+    <xs:annotation>
+      <xs:documentation>
+        <p><em>IPv4</em> represents the state of the IP version 4 capabilities of the device.</p>
+      </xs:documentation>
+    </xs:annotation>
+
+    <xs:attribute name="enabled" type="xs:boolean" default="true" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p><em>enabled</em> generally enables or disables IPv4 operation.</p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>True</lci>
+          <unsecureMode>Does not impact unsecure mode</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="autoIPEnabled" type="xs:boolean" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>autoIPEnabled</em> represents the state of the Link Local Addressing 
+            capability in the device.  If enabled, the device may acquire an address
+            using Link Local Address. Link Local addresses supersede static values
+            configured in the LXI Device Specific Configuration.
+          </p>
+          <p>
+            RULE: If omitted, and <em>DHCPEnabled</em> is present, the device uses the same 
+            state as <em>DHCPEnabled</em>.
+          </p>
+          <p>
+            <b>OBSERVATION: </b><em>If a device has no static IP address configured 
+            and both autoIPEnabled and DHCPEnabled are disabled, the device could be 
+            no longer reachable via IPv4 on this interface.  Devices may either permit 
+            this case, generate an error and reject the schema, or leave the configuration 
+            pending till a static address is provided.</em>
+          </p>
+          <p>
+            <b>OBSERVATION: </b><em>
+            In some implementations <em>autoIPEnabled</em> and 
+            <em>DHCPEnabled</em> are coupled, that is, both must be enabled or disabled.</em>
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>True</lci>
+          <unsecureMode>Does not impact unsecure mode</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="DHCPEnabled" type="xs:boolean" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>DHCPEnabled</em> represents the state of the device DHCP protocol.
+            If True, configuration is accepted via the DHCP protocol.
+          </p>
+          <p>
+            If DHCP is enabled, the device will accept IPv4 configuration from a DHCP 
+            server. DHCP configuration supersedes static values configured in the LXI 
+            Device Specific Configuration.
+          </p>
+          <p>
+            RULE: If omitted, and <em>autoIPEnabled</em> is present, the device uses the 
+            same state as <em>autoIPEnabled</em>.
+          </p>
+          <p>
+            <b>OBSERVATION: </b><em>If a device has no static IP address configured 
+            and both autoIPEnabled and DHCPEnabled are disabled, the device could be 
+            no longer reachable via IPv4 on this interface.  Devices may either permit 
+            this case, generate an error and reject the schema, or leave the configuration 
+            pending till a static address is provided.</em>
+          </p>
+          <p>
+            <b>OBSERVATION: </b><em>
+            In some implementations <em>autoIPEnabled</em> and <em>DHCPEnabled</em>
+            are coupled, that is, both must be enabled or disabled.</em>
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>True</lci>
+          <unsecureMode>Does not impact unsecure mode</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="mDNSEnabled" type="xs:boolean" default="true" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p><em>mDNSEnabled</em> represents the state of the multicast DNS 
+            responder in the device.
+          </p>
+          <p>
+            The multicast DNS responder permits the 
+            device to be discovered and identified by clients.
+          </p>
+          <p>
+            In some implementations the mDNS capability is coupled between
+            IPv4 and IPv6. For those devices, the configuration of the 
+            <em>IPv4/@mDNSEnabled</em> and the <em>IPv6/@mDNSEnabled</em> must 
+            be the same.
+          </p>
+          <p>
+            If <em>mDNSEnabled</em> is absent, and <em>IPv6/@mDNSEnabled</em> is present, 
+            then <em>mDNSEnabled</em> takes on the same value as <em>IPv6/@mDNSEnabled</em>. 
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>True</lci>
+          <unsecureMode>Does not impact unsecure mode</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="dynamicDNSEnabled" type="xs:boolean" default="true" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>dynamicDNSEnabled</em> represents the state of the dynamic DNS
+             capability.  Dynamic DNS is used to publish the hostname of the 
+             device to DNS.
+          </p>
+          <p>
+            If <em>dynamicDNSEnabled</em> is absent, and <em>IPv6/@dynamicDNSEnabled</em> is present, 
+            then <em>dynamicDNSEnabled</em> takes on the same value as <em>IPv6/@dynamicDNSEnabled</em>. 
+          </p>
+          <p>
+            RULE: Dynamic DNS is optional for LXI devices.  Therefore, if not implemented,
+            the device shall ignore this attribute on a PUT. 
+          </p>
+          <p>
+            RULE: Devices that do not 
+            implement dynamic DNS shall omit this attribute on a GET.
+          </p>
+          <p>
+            RULE: The <em>dynamicDNSEnabled</em> attribute shall be implemented irrespective of 
+            if IPv6 dynamic DNS is implemented.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>True</lci>
+          <unsecureMode>Does not impact unsecure mode</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="pingEnabled" type="xs:boolean" default="true" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>pingEnabled</em> represents the state of the IPv4 ICMP ping responder.
+          </p>
+          <p>
+            In some IPv6 implementation the ICMPv4 ping capability is coupled to the 
+            ICMPv6 ping.  For those devices, the configuration of the <em>IPv4/@PingEnable</em>
+            and the <em>IPv6/@PingEnabled</em> must be the same.
+          </p>
+          <p>
+            If <em>pingEnabled</em> is absent, and <em>IPv6/@pingEnabled</em> is present, 
+            then <em>pingEnabled</em> takes on the same value as <em>IPv6/@pingEnabled</em>. 
+          </p>
+
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>True</lci>
+          <unsecureMode>Does not impact unsecure mode</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:anyAttribute namespace="##any" processContents="lax">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            Arbitrary extension attributes may be included to provide device-specific 
+            IPv4 configuration that is beyond the scope of the LXI requirements.
+          </p>
+          <p>RULE: LXI devices shall ignore extension attributes they do not recognize.</p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>No</requirement>
+          <lci>No change unless the configured attribute is necessary to re-establish ethernet communication.</lci>
+          <unsecureMode>Vendor determined</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:anyAttribute>
+  </xs:complexType>
+
+  <!-- Complex Type IPv6 -->
+  <xs:complexType name="IPv6">
+    <xs:annotation>
+      <xs:documentation>
+        <p><em>IPv6</em> represents the state of the IP version 6 capabilities of the device.</p>
+        <p>RULE: Since <em>IPv6</em> is required in devices that implement
+          the LXI IP Version 6 Extended Function, the required attributes are only
+          required in implementations that implement <em>IPv6.</em>
+        </p>
+        <p>
+          RULE: Devices shall implement <em>IPv6/@enabled</em>.  If the device does not 
+          implement IPv6 it shall always return false.  If 
+          <em>LXICommonConfiguration/@strict</em>
+          attribute is false such a device ignores the <em>IPv6</em> element on a PUT.  
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+    <xs:attribute name="enabled" type="xs:boolean" default="true" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>enabled</em> generally enables or disables IPv6 capability.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>True</lci>
+          <unsecureMode>Does not impact unsecure mode</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="DHCPEnabled" type="xs:boolean" default="true" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>DHCPEnabled</em> represents the state of the device IPv6 DHCP protocol. 
+            If True, configuration is accepted via the DHCP protocol.
+          </p>
+          <p>
+            If DHCP is enabled, the device will accept IPv6 configuration from a 
+            DHCP server, which supercedes static values configured in the 
+            LXI Device Specific Configuration.
+          </p>
+          <p>
+            See the note on IPv6 autoconfiguration under <em>Network/IPv6</em>.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>True</lci>
+          <unsecureMode>Does not impact unsecure mode</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="RAEnabled" type="xs:boolean" default="true" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>RAEnabled</em>
+            represents the state of address generation based on the router
+            advertisement.
+          </p>
+          <p>
+            See the note on IPv6 autoconfiguration under <em>Network/IPv6</em>.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>True</lci>
+          <unsecureMode>See <em>@privacyModeEnabled</em>.</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="staticAddressEnabled" type="xs:boolean" default="true" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>staticAddressEnabled</em>
+            indicates if the device uses the static address configured with 
+            <em>LXIDeviceSpecificConfiguration/IPv6/StaticAddress</em>.
+          </p>
+          <p>
+            <b>OBSERVATION:</b> <em> There might not be a static address
+              configured.
+            </em>
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>True</lci>
+          <unsecureMode>Does not impact unsecure mode.</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="privacyModeEnabled" type="xs:boolean" default="true" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>privacyModeEnabled</em> indicates if the MAC
+            address is included in the IPv6 address 
+            generation.
+          </p>
+          <p>
+            When <em>privacyModeEnabled</em> is enabled, neither the 
+            link local address, unique local address nor the 
+            SLAAC-generated addresses include the device 
+            MAC address.
+          </p>
+          <p>
+            See the <em>Observation</em> on IPv6 autoconfiguration under <em>Network/IPv6</em>.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>True</lci>
+          <unsecureMode>If False the device is in unsecure mode.</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="mDNSEnabled" type="xs:boolean" default="true" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>mDNSEnabled</em>
+            represents the state of the IPv6 multicast DNS responder in the device.
+          </p>
+          <p>
+            The multicast DNS responder permits the device to be discovered and 
+            identified by clients.
+          </p>
+          <p>
+            In some implementations the mDNS capability is coupled between
+            IPv4 and IPv6. For those devices, the configuration of the 
+            <em>IPv4/@mDNSEnabled</em> and the <em>IPv6/@mDNSEnabled</em> must 
+            be the same.
+          </p>
+          <p>
+            If <em>mDNSEnabled</em> is absent, and <em>IPv4/@mDNSEnabled</em> is present, 
+            then <em>mDNSEnabled</em> takes on the same value as <em>IPv4/@mDNSEnabled</em>. 
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>True</lci>
+          <unsecureMode>Does not impact unsecure mode</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="dynamicDNSEnabled" type="xs:boolean" default="true" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>dynamicDNSEnabled</em>
+            represents the state of the IPv6 dynamic DNS capability used to publish
+             the hostname of the device.
+          </p>
+          <p>
+            If <em>dynamicDNSEnabled</em> is absent, and <em>IPv4/@dynamicDNSEnabled</em> 
+            is present, then <em>dynamicDNSEnabled</em> takes on the same value as 
+            <em>IPv4/@dynamicDNSEnabled</em>. 
+          </p>
+          <p>
+            RULE: Dynamic DNS is optional for LXI devices.  Therefore, if not implemented,
+            the device shall ignore this attribute on a PUT. 
+          </p>
+          <p>
+            RULE: Devices that do not implement dynamicDNS shall omit this attribute on a GET.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>
+            <p>
+              RULE: Attribute shall be implemented irrespective of 
+              if IPv4 dynamic DNS is implemented.
+            </p>
+          </requirement>
+          <lci>True</lci>
+          <unsecureMode>Does not impact unsecure mode</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="pingEnabled" type="xs:boolean" default="true" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p><em>pingEnabled</em> represents the state of the IPv6 ICMP ping function.</p>
+          <p>
+            If <em>pingEnabled</em> is absent, and <em>IPv4/@pingEnabled</em> is present, 
+            then <em>pingEnabled</em> takes on the same value as <em>IPv4/@pingEnabled</em>. 
+          </p>
+          <p>
+            <b>OBSERVATION:</b><em> The common IPv4 practice of blocking ICMP packets as 
+            a supposed security measure is not recommended on IPv6, as IPv6 functioning 
+            depends on ICMPv6 for error messages, path MTU discovery, multicast group 
+            management and Neighbor Discovery. IPv6 also relies upon multicast 
+            availability, which impacts firewalls, intrusion detection and 
+            access control rules.</em>
+          </p>
+          <p>
+            <b>OBSERVATION: </b><em>
+            On some devices <em>IPv6/@pingEnabled</em> must match the 
+            <em>IPv4/@pingEnabled</em> state.</em>
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>True</lci>
+          <unsecureMode>Does not impact unsecure mode</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:anyAttribute namespace="##any" processContents="lax">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            Arbitrary extension attributes may be included to provide device specific 
+            IPv6 configuration that is beyond the
+            scope of the LXI requirements.
+          </p>
+          <p>RULE: LXI devices shall ignore extension attributes they do not recognize.</p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>No</requirement>
+          <lci>
+            <p>
+              No change unless changing the configured attribute is necessary 
+              to re-establish ethernet communication.
+            </p>
+          </lci>
+          <unsecureMode>Vendor determined</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:anyAttribute>
+  </xs:complexType>
+  
+  <!-- HTTP Complex Type  -->
+  <xs:complexType name="HTTP">
+    <xs:annotation>
+      <xs:documentation>
+        <p>
+          <em>HTTP</em> represents the configuration of the unsecure HTTP server including
+          general behavior and the services available on the server.
+        </p>
+        <p>
+          Additional instances of the <em>HTTP</em> element are used to configure additional
+          servers on other ports, however, a single <em>HTTP</em> element configures all servers
+          on a given port.
+        </p>
+        <p>
+          Some endpoints may be used by multiple services.  If so, 
+          those endpoints are enabled if any service requiring them is enabled.
+        </p>
+        <p>
+          RULE: If no services are specified  the server at this port is disabled.
+        </p>
+        <p>
+          RULE: If any service is enabled that permits changing the device
+          configuration over an unencrypted connection the device is in unsecure mode.
+        </p>
+        <p>
+          <b>OBSERVATION:</b> <em>Since the normal behavior of HTTP is to forward
+          secure URLS to HTTPS, it is not common for enabling HTTP to put the 
+          device into unsecure mode.</em>
+        </p>
+        <p>
+          RULE: Devices that implement the optional unsecure HTTP interface shall 
+          not change the HTTP/@operation state nor the enabled services on LCI 
+          unless necessary to re-establish communication.
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+
+    <xs:sequence>
+      <xs:element name="Service" type="lxi:Service" minOccurs="0" maxOccurs="unbounded">
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              Each <em>Service</em> element indicates the state of the HTTP service 
+              indicated by the <em>Service/@name</em> attribute.  Only those services
+              with the <em>Service/@enabled</em> attribute set to <em>true</em> are enabled on
+              this HTTP server. 
+            </p>
+            <p>
+              <em>Service</em> elements with the <em>Service/@enabled</em> attribute set to 
+              false indicate the service is disabled.
+            </p>
+            <p>
+              <b>OBSERVATION:</b><em>
+              Users should be cautious emnabling authentication over HTTP since it may 
+              expose unencrypted credentials.</em>
+            </p>
+            <p>
+              <b>OBSERVATION:</b><em>
+              Any service not explicitly enabled is disabled.</em>
+            </p>
+            <p>
+              RULE: When the device is queried, it shall provide a <em>Service</em>
+              element for each service provided by the device, with the 
+              <em>Service/@enable</em> attribute indicating those that are 
+              currently enabled.
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+    </xs:sequence>
+
+    <xs:attribute name="operation" use="optional" default="enable" >
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>operation</em> controls if the HTTP server is enabled, disabled, or if it 
+            forwards all requests to HTTPS.
+          </p>
+          <p>
+            <table>
+              <tr><td><b>enable</b></td>      <td>Enables the HTTP server, although secure pages
+                                                  shall redirect to HTTPS.
+                                              </td></tr>
+              <tr><td><b>disable</b></td>     <td>Disables the HTTP server irrespective of the
+                                                  enabled services.  No forwarding
+                                                  function is active.
+                                              </td></tr>
+              <tr><td><b>redirectAll</b></td> <td>All accesses to the HTTP server are 
+                                                  redirected to HTTPS.
+                                              </td></tr>
+            </table>
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>
+            <p>
+              RULE: Devices that implement the unsecure HTTP protocol
+              shall implement at least the <em>disable</em> and <em>redirectAll</em>
+              settings of <em>@operation</em>.
+            </p>
+          </requirement>
+          <lci>No change unless changing the configured attribute is necessary to re-establish ethernet communication.  For instance, to enable the LXI API.</lci>
+          <unsecureMode>True if access to instrument configuration is enabled via any HTTP service.</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+      <xs:simpleType>
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="enable" />
+            <xs:enumeration value="disable" />
+            <xs:enumeration value="redirectAll" />
+        </xs:restriction>
+      </xs:simpleType>
+    </xs:attribute>
+
+    <xs:attribute name="port" type="xs:int" use="optional" default="80">
+      <xs:annotation>
+        <xs:documentation>
+          <p>TCP port of the HTTP server.</p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>RULE: The LCI HTTP port for the LXI Web interface and the LXI API services shall be 80.</lci>
+          <unsecureMode>Does not impact unsecure mode.</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>    
+  </xs:complexType>
+
+  <!-- Complex Type HTTPS -->
+  <xs:complexType name="HTTPS">
+    <xs:annotation>
+      <xs:documentation>
+        <p>
+          <em>HTTPS</em> configures the secure HTTPS server.  That is, the 
+          HTTP server that serves content using TLS.
+        </p>
+        <p>
+          Some endpoints may be used  by multiple services.  If so, 
+          they are enabled when any service that requires the endpoint is enabled.
+        </p>
+        <p>
+          Disabled elements are used on a read to indicate the schemes implemented by the device.
+        </p>
+        <p>
+          Disabled elements on a write explicitly indicate that the corresponding scheme is 
+          disabled. However, omitting the element indicating the schema has the same affect.
+        </p>
+        <p>
+          If a device is configured
+          to require application-level authentication it may report the connection is not unsecure.
+        </p>
+        <p>
+          RULE: The HTTPS web human interface content served by LXI Secure devices shall be a 
+          superset of the content available via HTTP.  That is, a device is not permitted 
+          to only offer a subset of the HTTP human interface over the secure HTTPS connection.
+        </p>
+        <p>
+          RULE: If no services are enabled, then the HTTPS server is disabled.
+        </p>
+        <p>
+          In addition to the LXI-required HTTP client authentication, LXI devices should 
+          provide application-level authentication.
+        </p>
+        <p>
+          RULE: If the device is using application-level client authentication, none 
+          of the subelements indicating HTTP client authentication
+          need to be enabled in the <em>HTTPS</em> element.
+        </p>
+        <p>
+          RULE: When returning the LXI Common Configuration, if a scheme is implemented, then 
+          the element representing that scheme shall be present.  This permits clients to 
+          determine what schemes are available on the device.
+        </p>
+        <p>
+          RULE: After an LCI, the security scheme is not changed.
+        </p>
+        <p>
+          RULE: On LCI the LXI Web interface and the LXI API services shall be enabled. 
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+
+    <xs:element name="Service" type="lxi:Service" minOccurs="0" maxOccurs="unbounded">
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              A <em>Service</em> element with the <em>Service/@enabled</em> attribute
+              set to true is included for each service enabled on 
+              this HTTP(S) server. 
+            </p>
+            <p>
+              RULE: When the device is queried, it shall provide a <em>Service</em>
+              element for each service provided by the device, with the 
+              <em>Service/@enable</em> attribute indicating those that are 
+              currently enabled.
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+    </xs:sequence>
+
+    <xs:attribute name="port" type="xs:int" use="optional" default="443">
+      <xs:annotation>
+        <xs:documentation>
+          <p>TCP port of the HTTPS server.</p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>RULE: The default HTTPS port shall be 443 for the Human Interface and the LXI API Service.</lci>
+          <unsecureMode>Does not impact unsecure mode</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="clientAuthenticationRequired" type="xs:boolean" use="optional" default="false">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>clientAuthenticationRequired</em> indicates if clients are required
+            to authenticate as configured in this element.
+          </p>
+          <p>
+            <em>clientAuthenticationRequired</em> does not impact the API-LXISecurity
+            service which always requires client authentication.  Note that client's 
+            presenting the API Key are regarded as authentic.
+          </p>
+          <p><b>OBSERVATION: </b><em>If the service is using application level authentication, 
+            this attribute may be the only indication in the schema that the HTTPS server 
+            communication is secure.</em>
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change</lci>
+          <unsecureMode>Does not impact unsecure mode.</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+  </xs:complexType>
+
+  <!-- Complex Type Service -->
+  <xs:complexType name="Service">
+    <xs:annotation>
+      <xs:documentation>
+        <p>
+          The <em>Service</em> element is used with the <em>HTTP</em> and
+          <em>HTTPS</em> elements to indicate the services available on a device
+          and if they are currently enabled.
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+
+    <xs:sequence>
+
+      <xs:element name="Basic" type="lxi:AuthenticationMechanism" minOccurs="0" maxOccurs="1" >
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              <em>Basic</em> indicates HTTPS Basic authentication per RFC7617 is enabled.  
+            </p>
+            <p>
+              RULE: Devices shall implement <em>Basic.</em>
+            </p>
+            <p>
+              When <em>Basic</em> is configured, devices are permitted to not be in unsecure mode.
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+
+      <xs:element name="Digest" type="lxi:AuthenticationMechanism" minOccurs="0" maxOccurs="1" >
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              <em>Digest</em> indicates Digest authentication per RFC7616 is enabled.  
+            </p>
+            <p>
+              RULE: Devices are permitted to not implement <em>Digest</em>, however
+              this syntax shall be accepted and produce an error if turned on and not
+              implemented.
+            </p>
+            <p>
+              When <em>Digest</em> is configured, devices are permitted to not be in unsecure mode.
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+
+      <xs:any namespace="##other" processContents="lax" minOccurs="0" maxOccurs="unbounded">
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              This element is provided to enable devices to extend the list of 
+              HTTP authentication schemes with additional elements
+              to configure capabilities not included in the definition of the LXI 
+              Common Configuration.
+            </p>
+
+            <p>
+              <b>OBSERVATION:</b> <em> The rules in the lxi:AuthenticationMechanism 
+              element section require the type of these extension elements to be either 
+              lxi:AuthenticationMechanism or an extension of lxi:AuthenticationMechanism. 
+              </em>
+            </p>
+            <p>
+              RULE: The default value of the <em>enabled</em> attribute of extension 
+              elements shall be <em>True</em> so that the presence of the element without 
+              a value indicates the mechanism is enabled.
+            </p>
+            <p>
+              The element name should match the authentication scheme in the IANA HTTP 
+              Authentication Schemes Registry.
+            </p>
+            <p>
+              RULE: Any extension HTTPS client-authentication scheme is permitted 
+              with unsecure mode false.
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:any>
+
+    </xs:sequence>
+
+    <xs:attribute name="name" type="xs:string" use="required">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>name</em> indicates the name of the service.
+          </p>
+          <p>
+            RULE: LXI Service names are case sensitive. LXI Security specifies the
+            following services:
+            <table>
+              <tr><td>Human-Interface</td>    <td>
+                                                <p>
+                                                  Indicates the endpoints required
+                                                  to serve a human interface to a browser
+                                                </p>
+                                                <p>
+                                                  Required of all LXI Security Devices.
+                                                </p>
+                                              </td></tr>
+              <tr><td>API-LXISecurity</td>    <td>
+                                                <p>
+                                                  Indicates the LXI API Extended function
+                                                  endpoints required by the LXI Security
+                                                  extended function.
+                                                </p>
+                                                <p>
+                                                  Required of all  LXI Security Devices.
+                                                </p>
+                                              </td></tr>
+              <tr><td>API-Device</td>         <td>
+                                                <p>
+                                                  Indicates the endpoints used to 
+                                                  implement various device-specific
+                                                  APIs.
+                                                </p>
+                                                <p>
+                                                  <em>API-Device</em> is required of all 
+                                                  LXI Security devices
+                                                  that provide a device-specific API on this 
+                                                  protocol. More fine-grained device-specific 
+                                                  control is permitted as well.
+                                                </p>
+                                              </td></tr>
+              <tr><td><em>other</em></td>     <td>
+                                                <p>
+                                                  Devices may define additional 
+                                                  services that provide more granular
+                                                  control of enabled services or specify
+                                                  additional services.
+                                                </p>
+                                                <p>
+                                                  <em>other</em> service declarations
+                                                  are optional.
+                                                </p>
+                                                <p>
+                                                  <b>OBSERVATION: </b> <em>clients can
+                                                  discover the available services by
+                                                  reading back the LXI Common Configuration.
+                                                  Although documentation of the device
+                                                  behavior is in product-specific documents.</em>
+                                                </p>
+                                                <p>
+                                                  <b>OBSERVATION: </b> <em> where servers
+                                                    define granular services that are a 
+                                                    subset of other services, the presence
+                                                    of the less granular service enables all
+                                                    of the subset services.
+                                                  </em>
+                                                </p>
+                                              </td></tr>
+            </table>
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>NA</lci>
+          <unsecureMode>None</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="enabled" type="xs:boolean" use="required">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>enabled</em> indicates if the designated service is enabled.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE: Note this attribute is syntactically required.</requirement>
+          <lci>NA</lci>
+          <unsecureMode>Device determined</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+    
+    <xs:anyAttribute namespace="##any" processContents="lax">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            Devices may include attributes to further configure the service.
+          </p>
+          <p>
+            RULE: Devices that do not understand additional attributes shall ignore them.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>No</requirement>
+          <lci> <p>NA</p></lci>
+          <unsecureMode>Device determined</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:anyAttribute>
+  </xs:complexType>
+
+  <!-- Complex Type SCPIRaw -->
+  <xs:complexType name="SCPIRaw">
+    <xs:annotation>
+      <xs:documentation>
+        <p>
+          <em>SCPIRaw</em> configures a single SCPIRaw connection.  Additional 
+          instances of <em>SCPIRaw</em> may be used to configure additional SCPIRaw servers
+          at different TCP ports.
+        </p>
+        <p>
+          SCPIRaw refers to a TCP port that accepts SCPI commands and queries 
+          without IEEE 488.2 meta-messages.
+        </p>
+        <p>
+          Devices are permitted to enable an arbitrary number of SCPIRaw ports, however,
+          each must have a different port number and an additional <em>SCPIRaw</em> element
+          to describe it.
+        </p>
+        <p>
+          RULE: When the device receives an LXI Common Configuration, only those SCPIRaw ports
+          indicated and enabled shall be available on the device.
+        </p>
+        <p>
+          RULE: When the device reports its configuration, an instance of <em>SCPIRaw</em> shall be provided
+          for each active SCPIRaw connection.
+        </p>
+        <p>
+          Devices should permit multiple clients to connect to a single SCPIRaw port.
+        </p>
+        <p>
+          RULE: <em>SCPIRaw</em> is required if the device implements
+          SCPIRaw connections.
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+    
+    <xs:attribute name="enabled" type="xs:boolean" use="optional" default="true">
+      <xs:annotation>
+        <xs:documentation>
+          <p><em>enabled</em> enables the SCPIRaw server at this address.</p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change</lci>
+          <unsecureMode>RULE: The device is operating in unsecure  mode if SCPIRaw is enabled.</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="port" type="xs:int" use="optional" default="5025">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>port</em> specifies the port of this SCPIRaw server.
+          </p>
+          <p>
+            The IANA registered port of 5025 is preferred for SCPI traffic.  If additional
+            instances of SCPIRaw are enabled by default on the device, their ports are 
+            device-specific.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change</lci>
+          <unsecureMode>Does not impact unsecure mode</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="capability" type="xs:int" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>capability</em> is a read-only attribute that indicates the approximate 
+            number of SCPIRaw ports that the client may configure.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement><em>capability</em> is required on a read.</requirement>
+          <lci>Read-only</lci>
+          <unsecureMode>NA</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+  </xs:complexType>
+
+
+  <!-- Complex Type SCPITLS -->
+  <xs:complexType name="SCPITLS">
+    <xs:annotation>
+      <xs:documentation>
+        <p>
+          <em>SCPITLS</em> describes a single secure raw SCPI connection over TLS.  Additional 
+          instances of <em>SCPITLS</em> may be used to configure additional secure raw SCPI servers
+          at different TCP (TLS) ports.
+        </p>
+        <p>
+          Devices are permitted to enable an arbitrary number of secure raw SCPI ports using
+          <em>SCPITLS</em>, however,
+          each must have a different port number.
+        </p>
+        <p>
+          Devices should permit multiple clients to connect to a single secure raw SCPI port.
+        </p>
+        <p>
+          RULE: When the device receives an LXI Common Configuration, only those secure raw SCPI ports
+          indicated and enabled shall be available on the device.
+        </p>
+        <p>
+          RULE: When the device reports its configuration, an instance of <em>SCPITLS</em> shall be included
+          for each configured secure raw SCPI connection.  If none are enabled, a single disabled <em>SCPITLS</em> 
+          element shall be returned to indicate to the client that the capability is available.
+        </p>
+        <p>
+          RULE: <em>SCPITLS</em> is required by LXI Security if the device implements
+          secure raw SCPI connections.
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+
+    <xs:attribute name="enabled" type="xs:boolean" use="optional" default="true">
+      <xs:annotation>
+        <xs:documentation>
+          <p><em>enabled</em> enables the secure raw SCPI server at this port.</p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change</lci>
+          <unsecureMode>Does not impact unsecure mode</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="port" type="xs:int" use="required">
+      <xs:annotation>
+        <xs:documentation>
+          <p><em>port</em> specifies the port of this secure raw SCPI server.</p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change</lci>
+          <unsecureMode>Does not impact unsecure mode</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="clientAuthenticationRequired" type="xs:boolean" use="optional" default="false">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>clientAuthenticationRequired</em> indicates if client authentication is required. Secure
+            raw SCPI connections use mutual TLS (mTLS) for client authentication. 
+          </p>
+          <p>
+            The client certificate is authenticated 
+            based on the <em>Interface/ClientAuthentication/ClientCertAuthentication</em> element which 
+            must be configured if an active secure raw SCPI connection requires client authentication.
+          </p>
+          <p>
+            If false, the device accepts SCPITLS connections without client authentication, although
+            mTLS connections may still be supported.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>
+            <p>
+              RULE: If secure raw SCPI client authentication is implemented it 
+              shall use <em>ClientAuthentication</em> configuration.
+            </p>
+          </requirement>
+          <unsecureMode>Does not impact unsecure mode</unsecureMode>
+          <lci>No change</lci>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+    <xs:attribute name="capability" type="xs:int" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>capability</em> is a read-only attribute.  It indicates the 
+            approximate number of SCPITLS ports that the client may configure.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>Read-only</lci>
+          <unsecureMode>NA</unsecureMode> 
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+  </xs:complexType>
+
+  <!-- Complex Type Telnet -->
+  <xs:complexType name="Telnet">
+    <xs:annotation>
+      <xs:documentation>
+        <p>
+          <em>Telnet</em> indicates the telnet connection. Telnet is commonly used for 
+          either Command and Control traffic or an operating system shell.
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+    <xs:attribute name="enabled" type="xs:boolean" use="optional" default="true">
+      <xs:annotation>
+        <xs:documentation>
+          <p><em>enabled</em> indicates if the Telnet server is enabled.</p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change</lci>
+          <unsecureMode>
+            If Telnet is enabled without requiring TLS (<em>Telnet/@TLSRequired</em>) the device is 
+            in unsecure mode.
+          </unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+    <xs:attribute name="port" type="xs:int" use="optional" default="5024">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>port</em> specifies the Telnet server port.
+          </p>
+          <p>
+            For Command and Control traffic, the 
+            IANA assigned port of 5024 should be used.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change</lci>
+          <unsecureMode>Does not impact unsecure mode</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+    <xs:attribute name="TLSRequired" type="xs:boolean" use="optional" default="false">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>TLSRequired</em> indicates that telnet requires a secure TLS connection instead of TCP.
+          </p>
+          <p>
+            <b>OBSERVATION:</b><em> TLS only guarantees server (device) authentication. To require client 
+            authentication, <em>@clientAuthenticationRequired</em> must be true as well.</em>
+          </p>
+          <p>
+            RULE: If the device implements TLS on Telnet it shall include the <em>TLSRequired</em> 
+            attribute in the query response regardless of the state of <em>Telnet/@enabled</em>.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>
+            RULE: <em>TLSRequired</em> shall be implemented if the device Telnet implementation 
+            supports TLS.
+          </requirement>
+          <lci>No change</lci>
+          <unsecureMode>The device is in unsecure mode unless enabled.</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+    <xs:attribute name="clientAuthenticationRequired" type="xs:boolean" use="optional" default="false">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>clientAuthenticationRequired</em> indicates that telnet 
+            exclusively uses mTLS.
+          </p>
+          <p>
+            <b>OBSERVATION:</b><em>
+            If <em>clientAuthenticationRequired</em> is enabled, <em>Telnet/@TLSRequired</em> 
+            must be enabled as well. The unsecure Telnet USER and PASS are not used.</em>
+          </p>
+          <p>
+            RULE: The mTLS client certificate authentication configured in 
+            <em>Interface/ClientAuthentication/ClientCertAuthentication</em> shall be used.
+          </p>
+          <p>
+            RULE: If the device implements mTLS (client authentication) on telnet it 
+            shall include the <em>clientAuthenticationRequired</em> attribute in the 
+            query response regardless of the state of <em>Telnet/@enabled</em>.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE: <em>clientAuthenticationRequired</em> shall be implemented if the device Telnet implementation supports TLS.</requirement>
+          <lci>No change</lci>
+          <unsecureMode>Does not impact unsecure mode</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="capability" type="xs:int" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>capability</em> is a read-only attribute.  It indicates the 
+            approximate number of Telnet ports that the client may configure.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>Read-only</lci>
+          <unsecureMode>NA</unsecureMode> 
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:anyAttribute namespace="##any" processContents="lax">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            Devices may further describe the telnet port, perhaps
+            indicating if this server is SCPI or a command shell.
+          </p>
+          <p>
+            RULE: Devices that do not understand additional attributes 
+            shall ignore them.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>No</requirement>
+          <lci> <p>NA</p></lci>
+          <unsecureMode>Device determined</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:anyAttribute>
+
+  </xs:complexType>
+
+  <!-- Complex Type HiSLIP -->
+  <xs:complexType name="HiSLIP">
+    <xs:annotation>
+      <xs:documentation>
+        <p>
+          <em>HiSLIP</em> contains the configuration of the HiSLIP protocol. HiSLIP 
+          supports multiple servers on a port, each at a 
+          different subaddress.  Therefore, this element contains the configuration 
+          of the only device HiSLIP port.
+        </p>
+        <p>
+          All HiSLIP servers, regardless of their subaddress use the 
+          configuration in this element.
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="ClientAuthenticationMechanisms" type="lxi:ClientAuthenticationMechanisms" minOccurs="0" maxOccurs="1">
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              RULE: Devices that support the LXI Security Extended Function and the 
+              LXI HiSLIP Extended function shall support Client Authentication.
+            </p>
+            <p>
+              A device may optionally provide client authentication using a higher 
+              protocol layer (for example, SCPI) to provide authentication when using 
+              ANONYMOUS.
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+    </xs:sequence>
+
+    <xs:attribute name="enabled" type="xs:boolean" default="true" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>enabled</em> indicates if the HiSLIP server is enabled. 
+          </p>
+          <p>
+            <b>OBSERVATION:</b><em>
+            Disabling this server disables all the HiSLIP servers at every
+            HiSLIP subaddress since they are all served from this port 
+            at the various subaddresses.
+            </em>
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change</lci>
+          <unsecureMode>RULE:The device is in unsecure mode unless both 
+            <em>HiSLIP/@mustStartEncrypted</em> and
+            <em>HiSLIP/@encryptionMandatory</em> are true.</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="port" type="xs:int" default="4880" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p><em>port</em> indicates the TCP port from which the HiSLIP server is served.</p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change</lci>
+          <unsecureMode>Does not impact unsecure mode</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+
+    <xs:attribute name="mustStartEncrypted" type="xs:boolean" use="optional" default="false">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            mustStartEncrypted controls the initial encryption. If enabled, a secure 
+            connection must be initially made to this server. It can be subsequently 
+            stepped down to an unsecure connection if encryptionMandatory is not true.
+          </p>
+          <p>
+            It is erroneous to have <em>mustStartEncrypted</em> False and 
+            <em>HiSLIP/@encryptionMandatory</em> True.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change</lci>
+          <unsecureMode>
+            RULE: The device is in unsecure mode if <em>mustStartEncrypted</em> 
+            is false.
+          </unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="encryptionMandatory" type="xs:boolean" use="optional" default="false">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>encryptionMandatory</em> indicates that this HiSLIP Server must 
+            always have encryption on. That is, the connection must be started 
+            securely, and the encryption may not be subsequently turned off.
+          </p>
+          <p>
+            It is erroneous to have <em>encryptionMandatory</em> True and 
+            <em>HiSLIP/@mustStartEncrypted</em> False.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change</lci>
+          <unsecureMode>
+            RULE: The device is in unsecure mode if <em>encryptionMandatory</em>
+            is false for any enabled HiSLIP servers.
+          </unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+  </xs:complexType>
+
+  <!-- Complex Type ClientAuthenticationMechanisms -->
+  <xs:complexType name="ClientAuthenticationMechanisms">
+    <xs:annotation>
+      <xs:documentation>
+        <p>
+          <em>ClientAuthenticationMechanisms</em> identifies the SASL mechanisms that are
+          enabled for secure HiSLIP connections. The default of the <em>enabled</em> attribute for each 
+          element is true, therefore, its presence with no attributes enables the mechanism.  
+          The absence of an element disables the corresponding mechanism.
+        </p>
+        <p>
+          <b>OBSERVATION:</b><em> ClientAuthenticationMechanisms does not affect the 
+            behavior of unsecure HiSLIP connections which may be enabled using 
+            HiSLIP/@mandatoryEncryption and HiSLIP/@mustStartEncrypted</em>.
+        </p>
+        <p>
+          <b>OBSERVATION:</b><em> Client credentials are shared amongst the mechanisms and are
+          described in the root <em>ClientAuthentication</em> element.</em>
+        </p>
+        <p>
+          RULE: the device shall include in its response each element that it implements, 
+          indicating a false enable attribute where disabled.  Devices shall omit the 
+          elements that represent mechanisms they do not support.
+        </p>
+        <p>
+          RULE: Devices that implement device-specific SASL mechanisms shall follow the
+          pattern of defining additional elements that enable and configure those mechanisms
+          using the <em>AuthenticationMechanism</em> complex type, or types derived from it.
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+
+    <xs:sequence>
+     
+      <xs:element name="ANONYMOUS" type="lxi:AuthenticationMechanism" minOccurs="0" maxOccurs="1" >
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              <em>ANONYMOUS</em> indicates that clients can authenticate
+              using the SASL anonymous mechanism.
+            </p>
+            <p>
+              RULE: Devices that support LXI Security and the LXI HiSLIP Extended function shall support
+              <em>ANONYMOUS.</em>
+            </p>
+            <p>
+              <b>OBSERVATION:</b><em> A device can optionally provide client authentication using 
+              a higher protocol layer (e.g., SCPI) when using ANONYMOUS.</em>
+            </p>
+            <p>
+              Configuring <em>ANONYMOUS</em> does not put the device into unsecure mode.
+            </p>
+            <p>
+              RULE: The IVI-6.5 SASL Mechanism Specification details specific requirements for 
+              SASL mechanisms. Devices shall comply with the IVI device requirements. 
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+
+      <xs:element name="PLAIN" type="lxi:AuthenticationMechanism" minOccurs="0" maxOccurs="1" >
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              <em>PLAIN</em> indicates that clients can authenticate using
+              the SASL PLAIN mechanism.
+            </p>
+            <p>
+              RULE: The IVI-6.5 SASL Mechanism Specification details the specific device 
+              and client requirements for the generation of usernames and passwords. 
+              Devices shall comply with the IVI device requirements. 
+            </p>
+            <p>
+              RULE: Devices that support LXI Security and the LXI HiSLIP 
+              Extended function shall support <em>PLAIN.</em>
+            </p>
+            <p>
+              Configuring <em>PLAIN</em> does not put the device into unsecure mode.
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+
+      <xs:element name="SCRAM" type="lxi:AuthenticationMechanism" minOccurs="0" maxOccurs="1" >
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              <em>SCRAM</em> indicates that clients can authenticate using
+              the SASL SCRAM (Salted Challenge 
+              Response Authentication Mechanism) 
+              mechanism.
+            </p>
+            <p>
+              Two attributes that are used to configure the SCRAM mechanism 
+              are located on the element LXICommonConfiguration/ClientAuthentication.  
+              See them for additional details.
+            </p>
+            <p>
+              RULE: The IVI 6.5 SASL Mechanism Specification details the 
+              specific device and client requirements for the use of the 
+              SASL SCRAM mechanism with HiSLIP. Devices shall comply with 
+              the IVI device requirements.
+            </p>
+            <p>
+              RULE: Devices that support LXI Security and the LXI HiSLIP 
+              Extended function shall support <em>SCRAM.</em>
+            </p>
+            <p>
+              Configuring <em>SCRAM</em> does not put the device into unsecure mode.
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+
+      <xs:element name="MTLS" type="lxi:AuthenticationMechanism" minOccurs="0" maxOccurs="1" >
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              <em>MTLS</em> indicates that devices authenticates TLS clients using TLS mutual
+              authentication (mTLS).
+            </p>
+            <p>
+              <b>OBSERVATION:</b><em> mTLS connections provide client authentication outside of the 
+              SASL mechanisms, therefore SASL refers to mTLS as an EXTERNAL mechanism.</em>
+            </p>
+            <p>
+              Configuring <em>MTLS</em> does not put the device into unsecure mode.
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+
+      <xs:any namespace="##other" processContents="lax" minOccurs="0" maxOccurs="unbounded">
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              Other extension elements may be included to configure authentication
+              mechanisms that are beyond the scope of the LXI specification.
+            </p>
+            <p>
+              Where registered SASL mechanisms are used, the IANA designation for those 
+              mechanisms should be used in the XML.
+            </p>
+            <p>
+              RULE: Devices shall ignore mechanisms that they do not implement.
+            </p>
+            <p>
+              Devices that implement extension mechanisms per this attribute 
+              shall include them in the response. 
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:any>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Complex Type AuthenticationMechanism -->
+  <xs:complexType name="AuthenticationMechanism">
+    <xs:annotation>
+      <xs:documentation>
+        <p>
+          <em>AuthenticationMechanism</em> specifies a type of client authentication.
+          It is used for both HiSLIP SASL mechanisms and HTTPS security schemes.</p>
+        <p>
+          <em>AuthenticationMechanism/@enabled</em> indicates if the mechanism is 
+          currently enabled. The tag for the element indicates the specific mechanism
+          or scheme.
+        </p>
+        <p>
+          HTTP client authentication is described in RFC7235. IANA maintains a list of 
+          HTTP authentication schemes, the IANA names of those schemes are generally
+          used as the tag name of the element used to enable the HTTP authentication scheme.
+        </p>
+        <p>
+          SASL mechanisms are generally specified using the registered SASL mechanism names. 
+          For instance, the <em>PLAIN</em> SASL mechanism is controlled with an element
+          with the tag (name) <em>PLAIN</em>, and the type <em>AuthenticationMechanism</em>.  The 
+          <em>PLAIN</em> mechanism is enabled if <em>PLAIN/@enabled</em> attribute is <em>true</em>.
+        </p>
+        <p>
+          RULE: Where possible, additional client authentication capabilities 
+          beyond the scope of the LXI Security
+          Extended Function shall be created using this type.  However, if those 
+          capabilities require additional configuration, they shall define their 
+          own type by extending the <em>AuthenticationMechanism</em> ComplexType.
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+
+    <xs:attribute name="enabled" type="xs:boolean" default="true" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>enabled</em> indicates that the SASL mechanism or HTTP scheme is enabled.
+          </p>
+          <p>
+            RULE: On LCI, the enabled mechanisms do not change.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change</lci>
+          <unsecureMode>NA</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+    <xs:anyAttribute namespace="##any" processContents="lax" >
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            Additional attributes that define SASL mechanisms or HTTPS schemas 
+            beyond the scope of LXI may include additional attributes to define them.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>Not required.</requirement>
+          <lci> <p>
+            See the usage of the defined mechanism.
+          </p></lci>
+          <unsecureMode><p>
+            NA
+          </p></unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:anyAttribute>
+  </xs:complexType>
+
+  <!-- Complex Type VXI-11 -->
+  <xs:complexType name="VXI11">
+    <xs:annotation>
+      <xs:documentation>
+        <p>
+          <em>VXI11</em> configures the VXI-11 protocol.
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+    <xs:attribute name="enabled" type="xs:boolean" use="optional" default="true">
+      <xs:annotation>
+        <xs:documentation>
+          <p><em>enabled</em> state of the VXI11 server at this address.</p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>Not required.</requirement>
+          <lci>No change</lci>
+          <unsecureMode>RULE: The device is in unsecure mode if VXI-11 is enabled.</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+  </xs:complexType>
+
+
+  <!-- Complex Type Client Authentication -->
+  <xs:complexType name="ClientAuthentication">
+    <xs:annotation>
+      <xs:documentation>
+        <p>
+          <em>ClientAuthentication</em> contains client authentication information.  
+          That is, information used by the device to determine if the identity proffered 
+          by clients attempting to connect to it is authentic.
+        </p>
+        <p>
+          RULE: Information in <em>ClientAuthentication</em> shall be used by 
+          all protocols that provide client authentication. For instance, a certificate 
+          thumbprint that the device accepts for HiSLIP EXTERNAL authentication, will 
+          also be accepted for telnet mTLS.
+        </p>
+        <p>
+          <b>OBSERVATION:</b> <em> Devices may require that all ClientCredentials are 
+            re-sent when the @scramHashCount is changed. Because of this requirement, 
+            although this attribute is most closely associated with 
+            LXICommonConfiguration/HiSLIP/ClientAuthentication/SCRAM, it is located here 
+            so that changes to the @scramHashCount are directly associated with the 
+            credentials that must be hashed.</em>
+        </p>
+        <p>
+          <em>In addition, @scramChannelBindingRequired is located on this element 
+          to retain its association with the @scramHashIterationCount.</em>
+        </p>
+        <p><b>OBSERVATION:</b> <em> Devices may also have mechanisms beyond the scope
+          of the LxiCommonConfiguration to manage the passwords.</em>
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+
+    <xs:sequence>
+      <xs:element name="ClientCredential" type="lxi:ClientCredential" minOccurs="0" maxOccurs="unbounded">
+        <xs:annotation>
+          <xs:documentation>
+            <p>RULE: Required.</p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+
+      <xs:element name="ClientCertAuthentication" type="lxi:ClientCertAuthentication" minOccurs="0" maxOccurs="1">
+        <xs:annotation>
+          <xs:documentation>
+            <p>RULE: Required.</p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+
+      <xs:any namespace="##other" processContents="lax" minOccurs="0" maxOccurs="unbounded">
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              Extension elements may be included to enable devices to specify types of 
+              ClientAuthentication beyond the scope of LXI.
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:any>
+    </xs:sequence>
+
+    <xs:attribute name="scramHashIterationCount" type="xs:int" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>scramHashIterationCount</em> sets the minimum iteration count 
+            that SCRAM uses to hash the client credentials.  The default value 
+            of this is device dependent, but should be chosen sufficiciently 
+            high that clients cannot successfully perform brute force attacks.
+          </p>
+          <p>
+            At the time of this writing RFC 7677 recommends a minimum of 4096 
+            for SHA-256, although much larger values are reasonable for LXI 
+            devices.
+          </p>
+          <p> <b>OBSERVATION: </b> <em> Devices are permitted to use a higher 
+            value for <em>scramHashIterationCount</em>.  The actual iteration 
+            count used by the device is indicated in the SCRAM protocol.</em>
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>
+            <p>
+              RULE: Required for devices that support the SCRAM SASL 
+              mechanism via the LXICommonConfiguration.
+            </p>
+          </requirement>
+          <lci>No change</lci>
+          <unsecureMode>NA</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="scramChannelBindingRequired" type="xs:boolean" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>scramChannelBindingRequired</em> specifies if the device permits the
+            client to connect with a non-channel-bound version of SCRAM.
+          </p>
+          <p>
+            For instance, for a device that supports SCRAM with SHA-256 hashes: if false, 
+            then SCRAM-SHA-256 would be accepted in addition to SCRAM-SHA-256-PLUS.  If
+            true, only SCRAM-SHA-256-PLUS would be accepted by the device.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>
+            <p>
+              RULE: Required for devices that support the SCRAM SASL 
+              mechanism via the LXICommonConfiguration.
+            </p>
+          </requirement>
+          <lci>No change</lci>
+          <unsecureMode>NA</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+  </xs:complexType>
+
+  <!-- Complex Type ClientCredential -->
+  <xs:complexType name="ClientCredential">
+    <xs:annotation>
+      <xs:documentation>
+        <p>
+          <em>ClientCredential</em> contains an individual user with an optional password 
+          and an indication if this used has API Access rights.
+        </p>
+        <p>
+          <em>@password</em> and <em>@APIAccess</em> are optional since they are 
+          write-only fields and are not included in device responses for reasons of secrecy.
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+
+    <xs:attribute name="user" type="xs:string">
+      <xs:annotation>
+        <xs:documentation>
+          <p><em>user</em> that may be authenticated on the device.</p>
+          <p>
+            RULE: LXI devices shall accept <em>user</em> names composed of alpha-numeric strings. 
+            User names shall be case-sensitive.
+          </p>
+          <p>
+            RULE: The IVI-6.5 SASL Mechanism Specification details the specific device 
+            and client requirements for the generation of usernames and passwords. 
+            Devices shall comply with the IVI device requirements. 
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change</lci>
+          <unsecureMode>NA</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="password" type="xs:string" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>password</em> contains the password associated with this user name.
+          </p>
+          <p>
+            <em>password</em> is a write-only attribute.  On a write, the absence 
+            of a password indicates that no change is to be made to the devices 
+            stored password.  If the user has not already defined a password and 
+            the password is absent, then the user is not authenticated until a 
+            password is configured.  The password may be configured using this 
+            mechanism or other device-specific mechanisms beyond the scope of 
+            LXI Security.
+          </p>
+          <p>
+            RULE: The IVI-6.5 SASL Mechanism Specification details the specific device 
+            and client requirements for the generation of usernames and passwords. 
+            Devices shall comply with the IVI device requirements. 
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change</lci>
+          <unsecureMode>NA</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="APIAccess" type="xs:boolean" default="false" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>APIAccess</em> indicates if this user is authorized to 
+            use the API.  If <em>true</em>, this user credential permits
+            the client to use the API.
+          </p>
+          <p>
+            If <em>APIAccess</em> is <em>false</em>, this credential
+            is not sufficient to permit the client to use the API.
+          </p>
+          <p>
+            On a write, the absence <em>APIAccess</em> indicates that 
+            no change is to be made to the users stored <em>APIAccess</em> 
+            value.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change</lci>
+          <unsecureMode>NA</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+  </xs:complexType>
+
+  <!-- Complex Type ClientCertAuthentication -->
+  <xs:complexType name="ClientCertAuthentication">
+    <xs:annotation>
+      <xs:documentation>
+        <p>
+          Configures client certificate authentication.
+        </p>
+        <p>
+          RULE: Devices shall accept client certificates as valid if they are signed by a root 
+          certificate specified in this element, or if they have a thumbprint that matches 
+          a thumbprint specified in this element.
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="RootCertPEM" type="xs:string" minOccurs="0" maxOccurs="unbounded">
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              <em>RootCertPEM</em> has a single root certificate the device shall use to validate
+              client certificates.  Any client certificate that is signed by a trust authority 
+              described in one of these root certificates shall be treated as authentic by the device.
+            </p>
+            <p>
+              Certificates are in PEM format, represented in XML as strings.  PEM format is a Base64 
+              ASCII encoding of the binary certificate. PEM Format is described in RFC 7468.
+            </p>
+            <p>
+              RULE: Root certification PEMs shall be semantically validated. For instance, 
+              expired root certificates shall not be used.
+            </p>
+            <p>
+              RULE: <em>RootCertPEM</em> shall be supported.
+            </p>
+          </xs:documentation>
+          </xs:annotation>
+      </xs:element>
+    
+      <xs:element name="CertThumbprint" type="lxi:CertThumbprint" minOccurs="0" maxOccurs="unbounded">
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              Each instance of this element has the thumbprint of a client certificate. Client 
+              certificates with this thumbprint shall be treated as authentic by the device.
+              Authenticated certificates still require semantic validation, for instance, expired
+              certificates shall not be used.
+            </p>
+            <p>
+              The thumbprint is a hash of the full binary device certificate. The hash function 
+              is specified in the CertThumbprint element.
+            </p>
+            <p>
+              RULE: <em>CertThumbprint</em> shall be supported.
+            </p>
+              </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Complex Type CertThumbprint -->
+  <xs:complexType name="CertThumbprint">
+    <xs:annotation>
+      <xs:documentation>
+        <p>
+          <em>CertThumbprint</em> contains a certificate thumbprint.  A certificate 
+          thumbprint is a hash of a DER encoded X.509 certificate that is used to 
+          recognize a specific certificate.
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+    <xs:attribute name="hash" type="xs:string" use="optional" default="SHA-256">
+          <xs:annotation>
+            <xs:documentation>
+              <p>
+                <em>hash</em> indicates the hash function used to create this thumbPrint.
+              </p>
+            </xs:documentation>
+            <xs:appinfo>
+              <requirement>RULE:</requirement>
+              <lci>No change</lci>
+              <unsecureMode>NA</unsecureMode>
+            </xs:appinfo>
+          </xs:annotation>
+        </xs:attribute>
+        <xs:attribute name="thumbPrint" type="xs:base64Binary" use="required" >
+          <xs:annotation>
+            <xs:documentation>
+              <p>
+                <em>thumbPrint</em> contains the certificate thumbPrint.
+              </p>
+            </xs:documentation>
+            <xs:appinfo>
+              <requirement>RULE:</requirement>
+              <lci>No change</lci>
+              <unsecureMode>NA</unsecureMode>
+            </xs:appinfo>
+          </xs:annotation>
+        </xs:attribute>
+  </xs:complexType>
+
+</xs:schema>

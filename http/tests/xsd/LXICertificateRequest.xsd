@@ -1,0 +1,323 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema xmlns:lxi="http://lxistandard.org/schemas/LXICertificateRequest/1.0" 
+		xmlns:xs="http://www.w3.org/2001/XMLSchema" 
+		targetNamespace="http://lxistandard.org/schemas/LXICertificateRequest/1.0" 
+		elementFormDefault="qualified" 
+		attributeFormDefault="unqualified" version="1.0">
+
+	<!--This schema defines the payload for the LXI Certificate List API -->
+	<xs:element name="LXICertificateRequest" type="lxi:LXICertificateRequest">
+		<xs:annotation>
+			<xs:appinfo>
+				<!-- The following date should be updated whenever this schema is updated!  Including doc changes.-->
+				<editorialdate>June 30, 2022</editorialdate>
+			  </xs:appinfo>
+			<xs:documentation>
+				<div>
+					<h2>LXI Certificate Request Schema</h2>
+					<p>
+                        The LXI Certificate Request schema is used by both the
+                        <em>getCSR</em> and <em>createCertificate</em> APIs
+                        for the client to specify attributes
+            			of the certificate it is requesting.
+                    </p>
+				</div>
+			</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+
+	<!-- Complex Type LXICertificateRequest (root type) -->
+	<xs:complexType name="LXICertificateRequest">
+		<xs:annotation>
+			<xs:documentation>
+				<p>
+					<em>LXICertificateRequest</em> contains attributes that a 
+                    client may request be used for a device certificate. 
+                </p>
+			</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="SubjectName" type="lxi:SubjectName" minOccurs="0" maxOccurs="1"> 
+				<xs:annotation>
+					<xs:documentation>
+						<p>
+							<em>SubjectName</em> specifies the attributes of the distinguished name 
+							to be used in the subject of the certificate.
+						</p>
+						<p>
+							The subject of the certificate indicates the identity of the LXI device.
+						</p>
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+
+			<xs:element name="AltDnsName" type="xs:string" minOccurs="0" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>
+						<p>
+							<em>AltDnsName</em> specifies the alternate DNS  name to be used in the certificate.
+						</p>
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+
+			<xs:element name="AltIPAddress" type="xs:string" minOccurs="0" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>
+						<p>
+							<em>AltIPAddress</em> specifies the alternate IP Address to be used in the certificate.
+						</p>
+						<p>
+							Multiple IP addresses may be specified as a comma separated list.
+						</p>
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+
+			<xs:element name="ExpirationDateTime" type="xs:string" minOccurs="0" maxOccurs="1">
+				<xs:annotation>
+					<xs:documentation>
+						<p>
+							<em>ExpirationDateTime</em> indicates the time at which the requested
+							certificate will expire.
+						</p>
+						<p>
+							RULE: The expiration date and time shall be expressed in ASN.1 format 
+							using ASN.1 GeneralizedTime per RFC5280.
+						</p> 
+						<p>
+							<b>OBSERVATION: </b><em> The device will need to convert GeneralizedTime 
+							to UTC time if the year is between 1950 and 2050.</em>
+						</p>
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+
+			<xs:element name="SignatureAlgorithm" type="xs:string" minOccurs="0" maxOccurs="1">
+				<xs:annotation>
+					<xs:documentation>
+						<p>
+							<em>SignatureAlgorithm</em> specifies the signature algorithm that the certificate
+							keyset should use.  The string is the OID string specified in RFC 3279 or its hierarchy 
+							of successors.  If absent the signature algorithm is device dependent.
+						</p>
+						<p>
+							RULE: If the device does not support the requested signature algorithm, then the 
+							certificate request shall fail. The returned  
+							LXIProblemDetails/Title element shall contain an indication that the 
+							SignatureAlgorithm was invalid. The LXIProblemDetails/Instance shall have 
+							a comma separated list of accepted values.
+						</p>
+						<p>
+							<b>OBSERVATION: </b><em> Clients can determine the supported signature algorithms by 
+							sending the SignatureAlgorithm element with an empty string for the 
+							SignatureAlgorithm. </em>
+						</p>
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			
+
+			<xs:element name="CertificateExtension" type="lxi:CertificateExtension" minOccurs="0" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>
+						<p>
+							<em>CertificateExtension</em> permits the user to request arbitrary certificate fields 
+							based on the object identifier and field values.
+						</p>
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+
+		</xs:sequence>
+	</xs:complexType>
+	
+	<!-- Complex Type SubjectName -->
+	<xs:complexType name="SubjectName">
+		<xs:annotation>
+			<xs:documentation>
+				<p>
+					<em>SubjectName</em>
+                    contains the various attributes of the 
+            	    requested certificate subject.
+                </p>
+				<p>
+					RULE: The default fields for the subject name shall be the values used 
+					in the device IDevID.
+				</p>
+			</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="CommonName" type="xs:string" minOccurs="0" maxOccurs="1">
+				<xs:annotation>
+					<xs:documentation>
+						<p>
+							<em>CommonName</em> specifies the common name subject attribute.
+						</p>
+					</xs:documentation>
+				</xs:annotation>			
+			</xs:element>
+
+			<xs:element name="Organization" type="xs:string" minOccurs="0" maxOccurs="1">
+				<xs:annotation>
+					<xs:documentation>
+						<p>
+							<em>Organization</em> specifies the organization subject attribute.
+						</p>
+					</xs:documentation>
+				</xs:annotation>			
+			</xs:element>
+			
+			<xs:element name="OrganizationalUnit" type="xs:string" minOccurs="0" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>
+						<p>
+							<em>OrganizationUnit</em> specifies the organization unit subject attribute.
+						</p>
+					</xs:documentation>
+				</xs:annotation>			
+			</xs:element>
+			
+			<xs:element name="Locality" type="xs:string" minOccurs="0" maxOccurs="1">
+				<xs:annotation>
+					<xs:documentation>
+						<p>
+							<em>Locality</em> specifies the locality subject attribute.
+						</p>
+					</xs:documentation>
+				</xs:annotation>			
+			</xs:element>
+			
+			<xs:element name="State" type="xs:string" minOccurs="0" maxOccurs="1">
+				<xs:annotation>
+					<xs:documentation>
+						<p>
+							<em>State</em> specifies the state subject attribute.
+						</p>
+					</xs:documentation>
+				</xs:annotation>			
+			</xs:element>
+			
+			<xs:element name="Country" type="xs:string" minOccurs="0" maxOccurs="1">
+				<xs:annotation>
+					<xs:documentation>
+						<p>
+							<em>Country</em> specifies the country subject attribute.
+						</p>
+					</xs:documentation>
+				</xs:annotation>			
+			</xs:element>
+			
+			<xs:element name="SerialNumber" type="xs:string" minOccurs="0" maxOccurs="1">
+				<xs:annotation>
+					<xs:documentation>
+						<p>
+							<em>SerialNumber</em> specifies the serial number subject attribute.
+						</p>
+					</xs:documentation>
+				</xs:annotation>			
+			</xs:element>
+
+			<xs:element name="ExtraSubjectAttribute" type="lxi:ExtraSubjectAttribute" minOccurs="0" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>
+						<p>
+							<em>ExtraSubjectAttribute</em> specifies additional subject attributes not
+							included in LXICertificateRequest using the Object ID and value.
+						</p>
+					</xs:documentation>
+				</xs:annotation>			
+			</xs:element>
+
+		</xs:sequence>
+	</xs:complexType>
+
+	<!-- Complex Type ExtraSubjectAttribute -->
+	<xs:complexType name="ExtraSubjectAttribute">
+		<xs:annotation>
+			<xs:documentation>
+				<em>ExtraSubjectAttribute</em> specifies an individual subject attribute.
+			</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="ObjectID" type="xs:string" minOccurs="1" maxOccurs="1">
+				<xs:annotation>
+					<xs:documentation>
+						<p>
+							<em>ObjectID</em> is the object ID that
+							indicates the subject attribute as specified by the OpenGroup.
+						</p>
+						<p>
+							The format of this string is a series of dot-separated integers.
+						</p>
+						<p>
+							RULE: <em>ObjectID shall be included.</em>
+						</p>
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="ObjectValue" type="xs:string" minOccurs="1" maxOccurs="1">
+				<xs:annotation>
+					<xs:documentation>
+						<p>
+							<em>ObjectValue</em> is the subject value associated with the 
+							specified attribute.
+						</p>
+						<p>
+							RULE: <em>ObjectValue shall be included.</em>
+						</p>
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="CertificateExtension">
+		<xs:annotation>
+			<xs:documentation>
+				<p>
+
+				</p>
+			</xs:documentation>
+		</xs:annotation>
+		<xs:sequence>
+			<xs:element name="ObjectID" type="xs:string">
+				<xs:annotation>
+					<xs:documentation>
+						<p>
+							<em>ObjectID</em> is the object ID that
+							indicates the certificate extension as specified by the OpenGroup.
+						</p>
+						<p>
+							The format of this string is a series of dot-separated integers.
+						</p>
+						<p>
+							RULE: <em>ObjectID shall be included.</em>
+						</p>
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="Critical" type="xs:boolean" default="false" minOccurs="0" maxOccurs="1">
+				<xs:annotation>
+					<xs:documentation>
+						<p>
+							<em>Critical</em> indicates that this certificate extension is critical.
+						</p>
+					</xs:documentation>
+				</xs:annotation>	
+			</xs:element>
+			<xs:element name="ObjectValue" type="xs:base64Binary">
+				<xs:annotation>
+					<xs:documentation>
+						<p>
+							<em>ObjectValue</em> is the subject value associated with the 
+							certificate field.
+						</p>
+						<p>
+							RULE: <em>ObjectValue shall be included.</em>
+						</p>
+					</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+</xs:schema>

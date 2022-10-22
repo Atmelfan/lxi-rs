@@ -4,7 +4,8 @@ members = [
     "hislip",
     "raw",
     "telnet",
-    "vxi11"
+    "vxi11",
+    "http",
 ]
 
 [workspace.package]

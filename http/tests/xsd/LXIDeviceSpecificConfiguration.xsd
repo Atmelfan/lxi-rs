@@ -1,0 +1,392 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema targetNamespace="http://lxistandard.org/schemas/LXIDeviceSpecificConfiguration/1.0" 
+  xmlns:lxi="http://lxistandard.org/schemas/LXIDeviceSpecificConfiguration/1.0" 
+  xmlns:xs="http://www.w3.org/2001/XMLSchema" 
+  elementFormDefault="qualified" 
+  attributeFormDefault="unqualified" version="1.0">
+
+  <!--This schema defines the payload for the LXI Device-specific network configuration API -->
+  <xs:element name="LXIDeviceSpecificConfiguration" type="lxi:LXIDeviceSpecificConfiguration">
+    <xs:annotation>
+      <xs:appinfo>
+        <!-- The following date should be updated whenever this schema is updated!  Including doc changes.-->
+        <editorialdate>June 30, 2022</editorialdate>
+      </xs:appinfo>
+      <xs:documentation>
+        <h2>LXI Device Specific Configuration Schema</h2>
+        <div>
+          <p>
+            The LXI Device Specific Configuration represents device-specific or automatically
+            configured network settings of the device network interface.
+            If the device configuration enables automatic 
+            configuration, such as DHCP, any configuration
+            specified in the LXI Device Specific Configuration Schema may be superseded.
+          </p>
+          <p>
+            RULE: Devices shall retain the LXI Device Specific configuration and only utilize 
+            it when automatic configuration is disabled.  Thus, writing the LXI Device Specific
+            Configuration while 
+            automatic configuration is active then 
+            disabling automatic configuration will result in the device using the 
+            configuration specified in LXI Device Specific Configuration.
+          </p>
+          <p>
+            Reading the LXI Device Specific Configuration from the device always returns 
+            the current settings of the interface over which it is read, regardless of 
+            if the settings were statically configured or received from automatic configuration.
+          </p>
+          <p>
+            To determine if automatic configuration is enabled read the LXI Common Configuration.
+          </p>
+        </div>
+      </xs:documentation>
+    </xs:annotation>
+  </xs:element>
+
+  <!-- Complex Type LXIDeviceNetworkConfiguration -->
+  <xs:complexType name="LXIDeviceSpecificConfiguration">
+    <xs:annotation>
+      <xs:documentation>
+        <p>
+          <em>LXIDeviceSpecificConfiguration</em> contains various settings
+          associated with the network interface that are potentially device 
+          specific.
+        </p>
+        <p>
+          For details on the various settings, see the LXI Device specification.
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="IPv4Device" type="lxi:IPv4Device" minOccurs="0" maxOccurs="1">
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              <em>IPv4Device</em> contains the device-specific configuration
+              related to IPv4.
+            </p>
+            <p>RULE: LXI Devices shall accept <em>IPv4Device</em>.</p>
+            <p>
+              RULE: If IPv4Device is absent, and the LXI Common Configuration 
+              does not specify automatic configuration, the
+              IPv4 capability is disabled.
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+
+      <xs:element name="IPv6Device" type="lxi:IPv6Device" minOccurs="0" maxOccurs="1">
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              <em>IPv6Device</em> contains the device-specific configuration
+              related to IPv6.
+            </p>
+            <p>RULE: LXI Devices shall accept <em>IPv6Device</em></p>
+            <p>
+              RULE: If <em>IPv6Device</em> is absent, and the LXI Common Configuration 
+              does not specify any automatic configuration, the
+              IPv6 capability is disabled.
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+
+      <xs:any namespace="##other" processContents="lax" minOccurs="0" maxOccurs="unbounded">
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              Extension elements may be use to provide arbitrary interface 
+              configuration. 
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:any>
+    </xs:sequence>
+
+    <xs:attribute name="name" type="xs:string" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>name</em> indicates the name of the interface described by
+            this document.  
+          </p>
+          <p>
+            <em>name</em> is required on a GET and shall indicate the name
+            used for the interface in the <em>LXICommonConfiguration</em> 
+            <em>Interface/@name</em> attribute.  Devices with a single
+            interface shall use the name "LXI".
+          </p>
+          <p>
+            <em>name</em> is optional on a PUT.  If absent, the interface 
+            over which this XML is delivered is configured.
+          </p>
+          <p>
+            <b>OBSERVATION: </b>providing the <em>LXICommonConfiguration</em>
+            <em>Interface/@name</em> here permits the client to associate the 
+            device specific IP configuration with the configuration in the
+            <em>LXICommonConfiguration</em>.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>NA</lci>
+          <unsecureMode>NA</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+  </xs:complexType>
+
+  <!-- Complex Type IPv4Device -->
+  <xs:complexType name="IPv4Device">
+    <xs:annotation>
+      <xs:documentation>
+        <p>
+          <em>IPv4Device</em> represents the device-specific state 
+          of the IP version 4 capabilities of the device that are 
+          potentially device-specific.
+        </p>
+        <p>
+          When <em>IPv4Device</em> is written, the point in time at which it takes 
+          affect is device dependent.
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+    
+    <xs:attribute name="address" type="xs:string" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>address</em> contains the IPv4 address of the device.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change</lci>
+          <unsecureMode>Any</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="subnetMask" type="xs:string" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>subnetMask</em> contains the subnet mask to use.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change</lci>
+          <unsecureMode>any</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="gateway" type="xs:string" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>gateway</em> contains the gateway address.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change</lci>
+          <unsecureMode>any</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="dns1" type="xs:string" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>dns1</em> is the address of the first DNS server.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change</lci>
+          <unsecureMode>any</unsecureMode>
+        </xs:appinfo>
+
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="dns2" type="xs:string" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>dns2</em> is the address of the second (alternate) DNS server.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>No change</lci>
+          <unsecureMode>any</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:anyAttribute namespace="##any" processContents="lax">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+          Arbitrary extension attributes may be included to provide device-specific IPv4 
+          configuration that is beyond the scope of the LXI requirements.
+          </p>
+          <p>RULE: LXI devices shall ignore extension attributes they do not recognize.</p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>No</requirement>
+          <lci>NA</lci>
+          <unsecureMode>NA</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:anyAttribute>
+  </xs:complexType>
+
+  <!-- Complex Type IPv6Device -->
+  <xs:complexType name="IPv6Device">
+    <xs:annotation>
+      <xs:documentation>
+        <p>
+          <em>IPv6Device</em> represents the device-specific state 
+          of the IP version 6 capabilities of the device that are 
+          potentially device-specific.
+        </p>
+        <p>
+          When <em>IPv6Device</em> is written, the point in time at which it takes 
+          affect is device dependent.
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+
+    <xs:sequence>
+      <xs:element name="StaticAddress" type="lxi:IPv6Address" minOccurs="0" maxOccurs="unbounded" >
+        <xs:annotation>
+          <xs:documentation>
+            <p><em>StaticAddress</em> is optional and contains the device static 
+              address.
+            </p>
+            <p><b>OBSERVATION:</b> <em> If the 
+              LXICommonConfiguration/Network/IPv6/@staticAddressEnabled is false,
+              the static addresses are not used.</em>
+            </p>
+            <p>RULE: Devices shall accept at least one <em>StaticAddress</em>.</p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="LinkLocalAddress" type="lxi:IPv6Address" minOccurs="0" maxOccurs="1" >
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              <em>LinkLocalAddress</em> is a read-only field that contains the 
+              devices current link local address.
+            </p>
+            <p>RULE: LXI Devices shall include the link local address in responses.</p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="GlobalAddress" type="lxi:IPv6Address" minOccurs="0" maxOccurs="unbounded" >
+        <xs:annotation>
+          <xs:documentation>
+            <p>
+              <em>GlobalAddress</em> is a read-only element that contains the 
+              addresses provided to the device via router advertisement or DHCP.
+            </p>
+            <p>
+              RULE: A <em>GlobalAddress</em> element shall be included in the response 
+              for every device global address.
+            </p>
+            <p>
+              <b>OBSERVATION: </b><em>Since unique-local may be determined by router 
+              advertisement or stateful DHCPv6 it is returned using a GlobalAddress 
+              element.</em>
+            </p>
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+    </xs:sequence>
+    
+    <xs:anyAttribute namespace="##any" processContents="lax">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+          Arbitrary extension attributes may be included to provide device-specific IPv6 configuration that is beyond the
+          scope of the LXI requirements.
+          </p>
+          <p>RULE: LXI devices shall ignore extension attributes they do not recognize.</p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>No</requirement>
+          <lci>NA</lci>
+          <unsecureMode>NA</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:anyAttribute>
+    
+  </xs:complexType>
+
+  <xs:complexType name="IPv6Address" >
+    <xs:annotation>
+      <xs:documentation>
+        <p>
+          <em>IPv6Address</em> contains an IPv6 address.
+        </p>
+      </xs:documentation>
+    </xs:annotation>
+
+    <xs:attribute name="address" type="xs:string" use="required">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>address</em> contains the IPv6 address in CIDR notation.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>NA</lci>
+          <unsecureMode>NA</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+
+    <xs:attribute name="router" type="xs:string" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>router</em> contains the router IPv6 address if this
+            <em>IPv6Address</em> has an associated router.  The address is 
+            in CIDR notation.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>NA</lci>
+          <unsecureMode>NA</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+    
+    <xs:attribute name="dns" type="xs:string" use="optional">
+      <xs:annotation>
+        <xs:documentation>
+          <p>
+            <em>dns</em> contains the address of the IPv6 domain
+            name server if this <em>IPv6Address</em> has an associated 
+            dns.  The address is in CIDR notation.
+          </p>
+        </xs:documentation>
+        <xs:appinfo>
+          <requirement>RULE:</requirement>
+          <lci>NA</lci>
+          <unsecureMode>NA</unsecureMode>
+        </xs:appinfo>
+      </xs:annotation>
+    </xs:attribute>
+    
+  </xs:complexType>
+
+</xs:schema>

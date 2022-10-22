@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema targetNamespace="http://lxistandard.org/schemas/LXICertificateRef/1.0" 
+    xmlns:lxi="http://lxistandard.org/schemas/LXICertificateRef/1.0" 
+    xmlns:xs="http://www.w3.org/2001/XMLSchema" 
+    elementFormDefault="qualified" 
+    attributeFormDefault="unqualified" 
+    version="1.0">
+
+  <!--This schema defines the payload for LXI Certificate APIs the reference certificates -->
+  <xs:element name="LXICertificateRef" type="lxi:LXICertificateRef">
+    <xs:annotation>
+      <xs:appinfo>
+        <!-- The following date should be updated whenever this schema is updated!  Including doc changes.-->
+        <editorialdate>June 30, 2022</editorialdate>
+      </xs:appinfo>
+      <xs:documentation>
+        <div>
+          <h2>LXI Certificate Reference Schema</h2>
+            <p>
+                The LXI Certificate schema indicates a single X.509 certificate,
+                certificate chain, or CSR (Certificate Signing Request) that is on the device.
+            </p>
+            <p>
+                The certificate is not included in this schema, rather the entity
+                on the device is identified using a GUID.  The GUID is assigned by
+                the device and is returned by the Certificate List API.
+            </p>
+        </div>
+      </xs:documentation>
+    </xs:annotation>
+  </xs:element>
+
+  <!-- Complex Type LXICertificateRef -->
+  <xs:complexType name="LXICertificateRef"> 
+    <xs:attribute name="GUID" type="xs:string" use="required">
+        <xs:annotation>
+            <xs:documentation>
+                <p>
+                    The GUID identifies the certificate, certificate list, or 
+                    CSR.  The GUID is returned by the 
+                    Certificate List API.
+                </p>
+            </xs:documentation>
+            <xs:appinfo>
+                <requirement>RULE:</requirement>
+                <lci>NA</lci>
+                <unsecureMode>NA</unsecureMode>
+            </xs:appinfo>
+        </xs:annotation>
+    </xs:attribute>
+  </xs:complexType>
+
+</xs:schema>

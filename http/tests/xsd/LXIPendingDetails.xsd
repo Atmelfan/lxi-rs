@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema targetNamespace="http://lxistandard.org/schemas/LXIPendingDetails/1.0" 
+    xmlns:lxi="http://lxistandard.org/schemas/LXIPendingDetails/1.0" 
+    xmlns:xs="http://www.w3.org/2001/XMLSchema" 
+    elementFormDefault="qualified" 
+    attributeFormDefault="unqualified" 
+    version="1.0">
+
+    <xs:element name="LXIPendingDetails" type="lxi:LXIPendingDetails">
+    <xs:annotation>
+        <xs:appinfo>
+            <!-- The following date should be updated whenever this schema is updated!  Including doc changes.-->
+            <editorialdate>June 30, 2022</editorialdate>
+        </xs:appinfo>
+        <xs:documentation>
+            <h2>LXI Pending Details Schema</h2>
+            <div>
+                <p>
+                    The LXI Pending Details schema provides detailed explanation from
+                    the server regarding HTTP operations that return an HTTP status of
+                    202. The HTTP status of 202 indicates that the operation is pending.
+                </p>
+                <p>
+                    RULE: Schema-valid XML responses, as defined by this schema, shall 
+                    be returned by devices to indicate pending operations.
+                </p>
+                <p>
+                    <b>OBSERVATION:</b> Other sections of this specification require
+                    that devices return the <em>LXIPendingDetails</em> whenever
+                    an LXI API method returns a status of 202.
+                </p>
+            </div>
+        </xs:documentation>
+    </xs:annotation>
+  </xs:element>
+
+  <xs:complexType name="LXIPendingDetails"> 
+    <xs:annotation>
+        <xs:documentation>
+            <p>
+                The LXI PendingDetails element contains the details related to why
+                an operation is pending and permits the client to determine
+                when it is completed.
+            </p>
+          </xs:documentation>
+    </xs:annotation>
+
+    <xs:sequence>
+        <xs:element name="URL" type="xs:anyURI" minOccurs="1" maxOccurs="1">
+            <xs:annotation>
+                <xs:documentation>
+                    <p>
+                        <em>URL</em> provides a URL at which the client can 
+                        perform a GET to determine the status of the pending 
+                        operation.
+                    </p>
+                    <p>
+                        RULE: <em>URL</em> shall be included.
+                    </p>
+                    <p>
+                        <b>OBSERVATION:</b> <em>When querying the URL the client 
+                        will either receive another operation pending response with 
+                        another instance of this XML or a status of OK that indicates
+                        the operation is complete.</em> 
+                    </p>
+
+                </xs:documentation>
+            </xs:annotation>
+        </xs:element>
+        <xs:element name="UserActionRequired" type="xs:boolean"  minOccurs="1" maxOccurs="1">
+            <xs:annotation>
+                <xs:documentation>
+                    <p>
+                        <em>UserActionRequired</em> indicates if the operation
+                        is blocked waiting for a user action.  For instance, a 
+                        front panel operation or a device reboot.
+                    </p>
+                </xs:documentation>
+            </xs:annotation>
+        </xs:element>
+        <xs:element name="EstimatedTimeToComplete" type="xs:integer"  minOccurs="0" maxOccurs="1">
+            <xs:annotation>
+                <xs:documentation>
+                    <p> 
+                        <em>EstimatedTimeToComplete</em> indicates the amount of 
+                        time in seconds to complete the operation.
+                    </p>
+                    <p>
+                        <em>EstimatedTimeToComplete</em> shall be included if 
+                        <em>@UserActionRequired</em> is false.
+                    </p>
+                    <p>
+                        <em>EstimatedTimeToComplete</em> shall be omitted if 
+                        the device is awaiting a user action and the device  
+                        does not know when it will occur.
+                    </p>
+                </xs:documentation>
+            </xs:annotation>
+        </xs:element>
+        <xs:element name="Details" type="xs:string"  minOccurs="0" maxOccurs="1">
+            <xs:annotation>
+                <xs:documentation>
+                    <p>
+                        <em>Details</em> provides an explanation of the operation
+                        that is pending, or why it is pending.
+                    </p>
+                </xs:documentation>
+            </xs:annotation>
+        </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+</xs:schema>

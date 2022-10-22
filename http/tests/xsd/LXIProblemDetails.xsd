@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema targetNamespace="http://lxistandard.org/schemas/LXIProblemDetails/1.0" 
+    xmlns:lxi="http://lxistandard.org/schemas/LXIProblemDetails/1.0" 
+    xmlns:xs="http://www.w3.org/2001/XMLSchema" 
+    elementFormDefault="qualified" 
+    attributeFormDefault="unqualified" 
+    version="1.0">
+
+    <xs:element name="LXIProblemDetails" type="lxi:LXIProblemDetails">
+    <xs:annotation>
+        <xs:appinfo>
+            <!-- The following date should be updated whenever this schema is updated!  Including doc changes.-->
+            <editorialdate>June 30, 2022</editorialdate>
+        </xs:appinfo>
+        <xs:documentation>
+            <h2>LXI Problem Details Schema</h2>
+            <div>
+                <p>
+                    The LXI Problem Details schema provides detailed explanation from
+                    the device regarding HTTP operations that do not have an implicit response.
+                    Further detail could be an explanation of error conditions, or other device 
+                    status regarding the invoked method.
+                </p>
+                <p>
+                    If the HTTP response is OK (200), the <em>LXIProblemDetails</em> response 
+                    is not required.
+                </p>
+                <p>
+                    For some use cases, such as determining authentication requirements, it may
+                    be appropriate for a client to intentionally generate an HTTP error then
+                    use this structure and the response headers to determine the requirements
+                    to access the designated resource.
+                </p>
+                <p>
+                    In such cases, the information in this element may be redundant with information
+                    also available from response headers.
+                </p>
+                <p>
+                    RULE: Devices shall return the <em>LXIProblemDetails</em> when 
+                    the LXI API generates 40X errors.
+                </p>
+            </div>
+        </xs:documentation>
+    </xs:annotation>
+  </xs:element>
+
+  <xs:complexType name="LXIProblemDetails"> 
+    <xs:annotation>
+        <xs:documentation>
+            <p>
+                The LXI ProblemDetails element contains the details related to an HTTP error.
+            </p>
+          </xs:documentation>
+    </xs:annotation>
+
+    <xs:sequence>
+        <xs:element name="Title" type="xs:string" minOccurs="1" maxOccurs="1">
+            <xs:annotation>
+                <xs:documentation>
+                    <p>
+                        High level description of the method result, consistent with the HTTP status code
+                        returned.
+                    </p>
+                    <p>
+                        RULE: <em>Title</em> shall be included.
+                    </p>
+
+                </xs:documentation>
+            </xs:annotation>
+        </xs:element>
+        <xs:element name="Detail" type="xs:string"  minOccurs="0" maxOccurs="1">
+            <xs:annotation>
+                <xs:documentation>
+                    <p>
+                        Detail regarding the specific method status, for instance, the nature of
+                        a syntactic error.
+                    </p>
+                </xs:documentation>
+            </xs:annotation>
+        </xs:element>
+        <xs:element name="Instance" type="xs:string"  minOccurs="0" maxOccurs="1">
+            <xs:annotation>
+                <xs:documentation>
+                    <p>
+                        Detail specific to the issue.
+                    </p>
+                    <p> 
+                        For instance, for a syntax error this could contain details used
+                        to isolate and correct the problem, such as the line number
+                        or specific reference to a flawed syntactic element.
+                    </p>
+                </xs:documentation>
+            </xs:annotation>
+        </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+</xs:schema>
