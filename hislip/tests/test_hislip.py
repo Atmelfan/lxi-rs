@@ -2,7 +2,7 @@ from time import time
 import pytest
 import pyvisa
 
-IDN_RESPONSE = "GPA-Robotics,hislip-demo,0,0"
+IDN_RESPONSE = "Cyberdyne systems,T800 Model 101,A9012.C,V2.4"
 
 def test_connect(hislip_example, resource_manager):
     if resource_manager.visalib.library_path == "py":
@@ -21,19 +21,6 @@ def test_hislip_idn(hislip_example, resource_manager):
     assert resp == IDN_RESPONSE
 
     inst.close()
-
-# TODO: VISA refuses to even send the query when locked making us unable to test if the short-circuit works
-# def test_hislip_idn_short(hislip_example, resource_manager):
-#     if resource_manager.visalib.library_path == "py":
-#         pytest.skip("pyvisa-py does not support HiSLIP", allow_module_level=True)
-#     inst1 = resource_manager.open_resource(hislip_example, read_termination = "", write_termination = "")
-#     inst2 = resource_manager.open_resource(hislip_example, read_termination = "", write_termination = "")
-
-#     inst1.lock(requested_key="foo", timeout=0)
-#     assert inst2.query("*IDN?") == IDN_RESPONSE
-
-#     inst1.close()
-#     inst2.close()
 
 
 def test_clear(hislip_example, resource_manager: pyvisa.ResourceManager):

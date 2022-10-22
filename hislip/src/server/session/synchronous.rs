@@ -190,16 +190,7 @@ where
                                     if is_end {
                                         log::debug!(peer=peer.to_string(), session_id=self.id, message_id=message_id; "Data END, {}", control);
 
-                                        // TODO: Replace with .trim_ascii_end() when available
-                                        let data = if buffer.eq_ignore_ascii_case(b"*idn?")
-                                            || buffer.eq_ignore_ascii_case(b"*idn?\n")
-                                                && self.config.short_idn.is_some()
-                                        {
-                                            self.config.short_idn.clone()
-                                        } else {
-                                            let data = dev.execute(&buffer);
-                                            data
-                                        };
+                                        let data = dev.execute(&buffer);
                                         buffer.clear();
 
                                         // Send back response

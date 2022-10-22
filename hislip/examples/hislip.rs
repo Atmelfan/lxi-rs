@@ -70,7 +70,6 @@ async fn main() -> Result<(), io::Error> {
     let device1: Arc<Mutex<Box<dyn Device + Send>>> = Arc::new(Mutex::new(Box::new(EchoDevice)));
 
     let config = ServerConfig::default().vendor_id(0x1234);
-    //.short_idn(b"GPA-Robotics,hislip-demo,0,0");
     let server = ServerBuilder::new(config)
         .device("hislip0".to_string(), device0, shared_lock0)
         .device("hislip1".to_string(), device1, shared_lock1)
