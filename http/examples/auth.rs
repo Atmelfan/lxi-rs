@@ -1,3 +1,4 @@
+use http::server::lxi::api::Permission;
 use http::server::lxi::api::auth::{
     BasicAuthRequest, LxiApiAuthRequest, LxiApiAuthScheme, Storage,
 };
@@ -16,19 +17,14 @@ struct User {
     // illustrative purposes only.
     password: String,
 
-    api_permission: Option<Permission>,
-}
-
-#[derive(Clone, Default)]
-struct Permission {
-    do_stuff: bool,
+    api_access: bool,
 }
 
 // We're creating an in-memory map of usernames to users.
 #[derive(Clone)]
 struct ExampleState {
     users: HashMap<String, User>,
-    api_permissions: HashMap<String, Permission>,
+    apikeys: Vec<String>,
 }
 
 impl ExampleState {
@@ -38,14 +34,9 @@ impl ExampleState {
             users.insert(user.username.to_owned(), user);
         }
 
-        let mut api_permissions = HashMap::new();
-        for key in apikeys {
-            api_permissions.insert(key, Permission::default());
-        }
-
         ExampleState {
             users,
-            api_permissions,
+            apikeys,
         }
     }
 }
@@ -83,7 +74,11 @@ impl Storage<Permission, BasicAuthRequest> for ExampleState {
                     return Ok(None);
                 }
 
-                Ok(user.api_permission.clone())
+                if user.api_access {
+                    Ok(Some(Permission))
+                } else {
+                    Ok(None)
+                }
             }
             None => Ok(None),
         }
@@ -95,9 +90,10 @@ impl Storage<Permission, BasicAuthRequest> for ExampleState {
 impl Storage<Permission, LxiApiAuthRequest> for ExampleState {
     async fn get_user(&self, request: LxiApiAuthRequest) -> tide::Result<Option<Permission>> {
         // Token should be stored with some kind of hashing
-        match self.api_permissions.get(&request.token) {
-            Some(perms) => Ok(Some(perms.clone())),
-            None => Ok(None),
+        if self.apikeys.contains(&request.token) {
+            Ok(Some(Permission))
+        } else {
+            Ok(None)
         }
     }
 }
@@ -125,13 +121,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             username: "Basil".to_string(),
             favorite_food: "Cat food".to_string(),
             password: "cool meow time".to_string(),
-            api_permission: Default::default(),
+            api_access: true,
         },
         User {
             username: "Fern".to_string(),
             favorite_food: "Human food".to_string(),
             password: "hunter2 am I doing this right".to_string(),
-            api_permission: Default::default(),
+            api_access: false,
         },
     ];
 
@@ -194,7 +190,7 @@ async fn secure<State>(req: tide::Request<State>) -> tide::Result<tide::Response
         )
         .into())
     } else if let Some(perms) = req.ext::<Permission>() {
-        Ok(format!("API key do_stuf={}.", perms.do_stuff).into())
+        Ok(format!("API key ok").into())
     } else {
         let mut response: tide::Response = "howdy stranger".to_string().into();
         response.set_status(tide::http::StatusCode::Unauthorized);

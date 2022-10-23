@@ -5,7 +5,7 @@ mod common_configuration {
 
     pub use crate::common::lxi::identification::*;
 
-    use super::Permissions;
+    use super::Permission;
 
     pub async fn get<S>(req: Request<S>) -> tide::Result {
         let response: tide::Response = "howdy stranger".to_string().into();
@@ -13,7 +13,7 @@ mod common_configuration {
     }
 
     pub async fn put<S>(req: Request<S>) -> tide::Result {
-        if let Some(_perms) = req.ext::<Permissions>() {
+        if let Some(_perms) = req.ext::<Permission>() {
             Ok(format!(
                 "API key ok"
             )
@@ -28,6 +28,10 @@ mod common_configuration {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Permissions {
+pub struct Permission;
 
-}
+
+pub trait UserCredentials {
+    fn get_username(&self);
+    fn set_password(&mut self);
+} 
