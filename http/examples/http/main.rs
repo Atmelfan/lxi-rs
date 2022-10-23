@@ -23,10 +23,8 @@ struct Args {
 }
 
 mod state {
-    use http::lxi::identification::{
-        functions::{Function, Subaddress},
-        xml::{InstrumentAddressString, Interface, IpType},
-        IdentityProvider,
+    use http::server::lxi::identification::{
+        Function, IdentityProvider, InstrumentAddressString, Interface, IpType, Subaddress, IVISoftwareModuleName,
     };
 
     #[derive(Clone)]
@@ -67,11 +65,14 @@ mod state {
             "https://github.com/Atmelfan/lxi-rs".to_string()
         }
 
-        fn host(&self) -> String {
-            "localhost".to_string()
+        fn ivisoftware_module_name(&self) -> Option<IVISoftwareModuleName> {
+            Some(IVISoftwareModuleName {
+                comment: Some("A comment".to_string()),
+                name: "Module name".to_string(),
+            })
         }
 
-        fn extended_functions(&self) -> Vec<http::lxi::identification::functions::Function> {
+        fn extended_functions(&self) -> Vec<http::common::lxi::identification::Function> {
             vec![
                 Function::Hislip {
                     version: "2.0".to_string(),
@@ -87,11 +88,7 @@ mod state {
             ]
         }
 
-        fn user_description(&self) -> String {
-            "User description".to_string()
-        }
-
-        fn interfaces(&self) -> Vec<http::lxi::identification::xml::Interface> {
+        fn interfaces(&self) -> Vec<http::common::lxi::identification::Interface> {
             vec![
                 Interface::NetworkInformation {
                     interface_type: "LXI".to_string(),
@@ -126,6 +123,67 @@ mod state {
                 },
             ]
         }
+
+        fn user_description(&self) -> String {
+            self.user_description.clone()
+        }
+
+        fn domain(&self) -> Option<u8> {
+            Some(1)
+        }
+
+        fn host(&self) -> String {
+            "localhost".to_string()
+        }
+
+        fn connected_devices(&self) -> Option<Vec<String>> {
+            Some(vec![
+                "/devices/device0".to_string()
+            ])
+        }
+
+        fn get_identification(
+            &self,
+            host: Option<&str>,
+            scheme: &str,
+        ) -> http::server::lxi::identification::Identification {
+            let backup = self.host();
+            let host = host.unwrap_or(&backup);
+            http::server::lxi::identification::Identification {
+                xmlns: "http://www.lxistandard.org/InstrumentIdentification/1.0".to_string(),
+                xmlns_xsi: "http://www.w3.org/2001/XMLSchema-instance".to_string(),
+                xsi_schema_location: format!(
+                    "http://www.lxistandard.org/InstrumentIdentification/1.0 {}",
+                    Self::xsi_schema_location()
+                ),
+                manufacturer: self.manufacturer(),
+                model: self.manufacturer(),
+                serial_number: self.serial_number(),
+                firmware_revision: self.firmware_revision(),
+                manufacturer_description: self.manufacturer_description(),
+                homepage_url: self.homepage_url(),
+                driver_url: self.driver_url(),
+                connected_devices: self.connected_devices().map(|devices| {
+                    http::server::lxi::identification::ConnectedDevices {
+                        devices: devices
+                            .iter()
+                            .map(|s| http::server::lxi::identification::DeviceUri {
+                                device_uri: format!("{scheme}://{host}/{s}"),
+                            })
+                            .collect(),
+                    }
+                }),
+                user_description: self.user_description(),
+                identification_url: format!("{scheme}://{host}/lxi/identification"),
+                interfaces: self.interfaces(),
+                ivisoftware_module_name: self.ivisoftware_module_name(),
+                domain: self.domain(),
+                lxi_version: Self::lxi_version(),
+                extended_functions: http::server::lxi::identification::ExtendedFunctions {
+                    extended_functions: self.extended_functions(),
+                },
+            }
+        }
     }
 }
 
@@ -141,7 +199,7 @@ async fn main() -> tide::Result<()> {
     // lxi pages
     let mut lxi = app.at("/lxi");
     lxi.at("/identification")
-        .get(http::lxi::identification::handler);
+        .get(http::server::lxi::identification::handler);
 
     let mut api = lxi.at("/api");
     // api.at("common-configuration").get(ep).put(ep);

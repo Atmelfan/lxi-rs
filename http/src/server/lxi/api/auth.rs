@@ -1,6 +1,6 @@
-use tide_http_auth::{Scheme, Storage};
+use tide_http_auth::Scheme;
 
-pub use tide_http_auth::{BasicAuthRequest, BasicAuthScheme};
+pub use tide_http_auth::{BasicAuthRequest, Storage};
 
 #[derive(Debug, Default)]
 pub struct LxiApiAuthScheme;
@@ -12,12 +12,12 @@ pub struct LxiApiAuthRequest {
 }
 
 #[async_trait::async_trait]
-impl<User: Send + Sync + 'static> Scheme<User> for LxiApiAuthScheme {
+impl<Permissions: Send + Sync + 'static> Scheme<Permissions> for LxiApiAuthScheme {
     type Request = LxiApiAuthRequest;
 
-    async fn authenticate<S>(&self, state: &S, auth_param: &str) -> http_types::Result<Option<User>>
+    async fn authenticate<S>(&self, state: &S, auth_param: &str) -> http_types::Result<Option<Permissions>>
     where
-        S: Storage<User, Self::Request> + Send + Sync + 'static,
+        S: Storage<Permissions, Self::Request> + Send + Sync + 'static,
     {
         if !auth_param.is_ascii() {
             // This is invalid. Fail the request.
@@ -36,13 +36,13 @@ impl<User: Send + Sync + 'static> Scheme<User> for LxiApiAuthScheme {
         let (prefix, token) = (parts[0], parts[1]);
 
         // TODO: validate that the auth_param (sans the prefix) is a valid uuid.
-        let user = state
+        let perms = state
             .get_user(LxiApiAuthRequest {
                 prefix: prefix.to_owned(),
                 token: token.to_owned(),
             })
             .await?;
-        Ok(user)
+        Ok(perms)
     }
 
     fn scheme_name() -> &'static str {

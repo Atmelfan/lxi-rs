@@ -1,7 +1,5 @@
 use serde::Serialize;
 
-use super::functions::Function;
-
 #[derive(Debug, Serialize)]
 #[serde(rename = "LXIDevice")]
 pub struct Identification {
@@ -35,10 +33,10 @@ pub struct Identification {
     #[serde(rename = "Interface")]
     pub interfaces: Vec<Interface>,
     #[serde(
-        rename = "$unflatten=IVISoftwareModuleName",
+        rename = "IVISoftwareModuleName",
         skip_serializing_if = "Option::is_none"
     )]
-    pub ivisoftware_module_name: Option<String>,
+    pub ivisoftware_module_name: Option<IVISoftwareModuleName>,
     #[serde(rename = "$unflatten=Domain", skip_serializing_if = "Option::is_none")]
     pub domain: Option<u8>,
     #[serde(rename = "$unflatten=LXIVersion")]
@@ -66,6 +64,15 @@ impl Identification {
 pub struct ConnectedDevices {
     #[serde(rename = "DeviceURI")]
     pub devices: Vec<DeviceUri>,
+}
+
+
+#[derive(Debug, serde::Serialize)]
+pub struct IVISoftwareModuleName {
+    #[serde(rename = "Comment")]
+    pub comment: Option<String>,
+    #[serde(rename = "$value")]
+    pub name: String,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -178,3 +185,55 @@ mod tests {
         assert_eq!(xml, "<Interface xsi:type=\"NetworkInformation\" InterfaceType=\"LXI\" IPType=\"IPv4\" InterfaceName=\"eth0\"><InstrumentAddressString>TCPIP::10.1.2.32::INSTR</InstrumentAddressString><InstrumentAddressString>TCPIP::10.1.2.32::5000::SOCKET</InstrumentAddressString><InstrumentAddressString>TCPIP::10.1.2.32::hislip0::INSTR</InstrumentAddressString><Hostname>10.1.2.32</Hostname><IPAddress>10.1.2.32</IPAddress><SubnetMask>255.255.255.0</SubnetMask><MACAddress>00:3F:F8:6A:1A:3A</MACAddress><Gateway>10.1.2.1</Gateway><DHCPEnabled>true</DHCPEnabled><AutoIPEnabled>true</AutoIPEnabled></Interface>")
     }
 }
+
+/// LXI extended functions
+#[derive(Debug, Serialize)]
+#[serde(tag = "FunctionName")]
+pub enum Function {
+    /// [LXI HiSLIP](https://lxistandard.org/members/Adopted%20Specifications/Latest%20Version%20of%20Standards_/LXI%20Version%201.6/LXI_HiSLIP_Extended_Function_1.3_2022-05-26.pdf)
+    #[serde(rename = "LXI HiSLIP")]
+    Hislip {
+        #[serde(rename = "Version")]
+        version: String,
+        #[serde(rename = "$unflatten=Port")]
+        port: u16,
+        #[serde(rename = "Subaddress")]
+        subaddresses: Vec<Subaddress>,
+    },
+    #[serde(rename = "LXI VXI-11 Discovery and Identification")]
+    Vxi11DiscoveryAndIdentification {
+        #[serde(rename = "Version")]
+        version: String,
+    },
+    #[serde(rename = "LXI API")]
+    Api {
+        #[serde(rename = "Version")]
+        version: String,
+    },
+    #[serde(rename = "LXI IPv6")]
+    Ipv6 {
+        #[serde(rename = "Version")]
+        version: String,
+    },
+    #[serde(rename = "LXI Event Messaging")]
+    EventMessaging {
+        #[serde(rename = "Version")]
+        version: String,
+    },
+    #[serde(rename = "LXI Event Log")]
+    EventLog {
+        #[serde(rename = "Version")]
+        version: String,
+    },
+    #[serde(rename = "LXI Security")]
+    Security {
+        #[serde(rename = "Version")]
+        version: String,
+        #[serde(rename = "$unflatten=CryptoSuites")]
+        crypto_suites: String,
+    },
+    
+}
+
+#[derive(Debug, Serialize)]
+pub struct Subaddress(pub String);

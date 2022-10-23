@@ -1,12 +1,6 @@
 use tide::{Request, Response};
 
-use self::{
-    functions::Function,
-    xml::{ConnectedDevices, DeviceUri, ExtendedFunctions, Identification, Interface},
-};
-
-pub mod functions;
-pub mod xml;
+pub use crate::common::lxi::identification::*;
 
 pub async fn handler<S>(req: Request<S>) -> tide::Result
 where
@@ -25,6 +19,11 @@ where
 pub trait IdentityProvider {
     fn lxi_version() -> String;
 
+    /// Location of the LXI InstrumentIdentification schema
+    fn xsi_schema_location() -> String {
+        "http://www.lxistandard.org/InstrumentIdentification/1.0/LXIIdentification.xsd".to_string()
+    }
+
     /// Information about the device
     fn manufacturer(&self) -> String;
     fn model(&self) -> String;
@@ -33,16 +32,20 @@ pub trait IdentityProvider {
     fn manufacturer_description(&self) -> String;
     fn homepage_url(&self) -> String;
     fn driver_url(&self) -> String;
-
-    fn ivisoftware_module_name(&self) -> Option<String> {
+    fn ivisoftware_module_name(&self) -> Option<IVISoftwareModuleName> {
         None
     }
 
+    /// List implemented extended functions
     fn extended_functions(&self) -> Vec<Function>;
+
+    /// List attached interfaces
     fn interfaces(&self) -> Vec<Interface>;
 
-    /// User configurable
+    /// User description. Should as the name suggest be configurable by the user.
     fn user_description(&self) -> String;
+
+    /// Domain
     fn domain(&self) -> Option<u8> {
         None
     }
@@ -51,10 +54,7 @@ pub trait IdentityProvider {
     fn host(&self) -> String;
 
     fn connected_devices(&self) -> Option<Vec<String>> {
-        Some(vec![
-            "devices/device0/".to_string(),
-            "devices/device1/".to_string(),
-        ])
+        None
     }
 
     fn get_identification(&self, host: Option<&str>, scheme: &str) -> Identification {
@@ -63,9 +63,10 @@ pub trait IdentityProvider {
         Identification {
             xmlns: "http://www.lxistandard.org/InstrumentIdentification/1.0".to_string(),
             xmlns_xsi: "http://www.w3.org/2001/XMLSchema-instance".to_string(),
-            xsi_schema_location:
-                "http://www.lxistandard.org/InstrumentIdentification/1.0/LXIIdentification.xsd"
-                    .to_string(),
+            xsi_schema_location: format!(
+                "http://www.lxistandard.org/InstrumentIdentification/1.0 {}",
+                Self::xsi_schema_location()
+            ),
             manufacturer: self.manufacturer(),
             model: self.manufacturer(),
             serial_number: self.serial_number(),
