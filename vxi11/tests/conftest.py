@@ -2,6 +2,7 @@ import os
 import pytest
 from xprocess import ProcessStarter
 
+
 @pytest.fixture
 def vxi11_example(xprocess, request, pytestconfig):
     target = os.environ.get("DEBUG_TARGET")
@@ -14,7 +15,11 @@ def vxi11_example(xprocess, request, pytestconfig):
             pattern = "Running server"
 
             # Hide warnings
-            env = {"RUSTFLAGS": "-Awarnings", "CARGO_TARGET_DIR": pytestconfig.cache.mkdir("target"), **os.environ}
+            env = {
+                "RUSTFLAGS": "-Awarnings",
+                # "CARGO_TARGET_DIR": pytestconfig.cache.mkdir("target"),
+                **os.environ,
+            }
 
             # command to start process
             args = [

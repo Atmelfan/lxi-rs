@@ -1,62 +1,55 @@
 use serde::Serialize;
 
+pub const SCHEMA: &'static str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/schemas/LXIIdentification.xsd"
+));
+
 #[derive(Debug, Serialize)]
 #[serde(rename = "LXIDevice")]
-pub struct Identification {
-    #[serde(rename = "xmlns")]
+pub struct LXIIdentification {
+    #[serde(rename = "@xmlns")]
     pub xmlns: String,
-    #[serde(rename = "xmlns:xsi")]
+    #[serde(rename = "@xmlns:xsi")]
     pub xmlns_xsi: String,
-    #[serde(rename = "xsi:schemaLocation")]
+    #[serde(rename = "@xsi:schemaLocation")]
     pub xsi_schema_location: String,
 
-    #[serde(rename = "$unflatten=Manufacturer")]
+    #[serde(rename = "Manufacturer")]
     pub manufacturer: String,
-    #[serde(rename = "$unflatten=Model")]
+    #[serde(rename = "Model")]
     pub model: String,
-    #[serde(rename = "$unflatten=SerialNumber")]
+    #[serde(rename = "SerialNumber")]
     pub serial_number: String,
-    #[serde(rename = "$unflatten=FirmwareRevision")]
+    #[serde(rename = "FirmwareRevision")]
     pub firmware_revision: String,
-    #[serde(rename = "$unflatten=ManufacturerDescription")]
+    #[serde(rename = "ManufacturerDescription")]
     pub manufacturer_description: String,
-    #[serde(rename = "$unflatten=HomepageURL")]
+    #[serde(rename = "HomepageURL")]
     pub homepage_url: String,
-    #[serde(rename = "$unflatten=DriverURL")]
+    #[serde(rename = "DriverURL")]
     pub driver_url: String,
-    #[serde(rename = "ConnectedDevices", skip_serializing_if = "Option::is_none")]
-    pub connected_devices: Option<ConnectedDevices>,
-    #[serde(rename = "$unflatten=UserDescription")]
+    #[serde(rename = "ConnectedDevices", skip_serializing_if = "ConnectedDevices::is_empty")]
+    pub connected_devices: ConnectedDevices,
+    #[serde(rename = "UserDescription")]
     pub user_description: String,
-    #[serde(rename = "$unflatten=IdentificationURL")]
+    #[serde(rename = "IdentificationURL")]
     pub identification_url: String,
     #[serde(rename = "Interface")]
     pub interfaces: Vec<Interface>,
-    #[serde(
-        rename = "IVISoftwareModuleName",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub ivisoftware_module_name: Option<IVISoftwareModuleName>,
-    #[serde(rename = "$unflatten=Domain", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "IVISoftwareModuleName")]
+    pub ivisoftware_module_name: Vec<IVISoftwareModuleName>,
+    #[serde(rename = "Domain", skip_serializing_if = "Option::is_none")]
     pub domain: Option<u8>,
-    #[serde(rename = "$unflatten=LXIVersion")]
+    #[serde(rename = "LXIVersion")]
     pub lxi_version: String,
     #[serde(rename = "LXIExtendedFunctions")]
     pub extended_functions: ExtendedFunctions,
 }
 
-impl Identification {
+impl LXIIdentification {
     pub fn to_xml(&self) -> Result<String, quick_xml::DeError> {
-        let mut buffer = Vec::new();
-        let mut writer = quick_xml::Writer::new(&mut buffer);
-
-        // Declaration
-        let decl = quick_xml::events::BytesDecl::new("1.0", Some("UTF-8"), None);
-        writer.write_event(quick_xml::events::Event::Decl(decl))?;
-
-        let mut ser = quick_xml::se::Serializer::with_root(writer, Some("LXIDevice"));
-        self.serialize(&mut ser)?;
-        Ok(String::from_utf8(buffer).unwrap())
+        quick_xml::se::to_string(self)
     }
 }
 
@@ -66,10 +59,15 @@ pub struct ConnectedDevices {
     pub devices: Vec<DeviceUri>,
 }
 
+impl ConnectedDevices {
+    pub fn is_empty(&self) -> bool {
+        self.devices.is_empty()
+    }
+}
 
 #[derive(Debug, serde::Serialize)]
 pub struct IVISoftwareModuleName {
-    #[serde(rename = "Comment")]
+    #[serde(rename = "@Comment")]
     pub comment: Option<String>,
     #[serde(rename = "$value")]
     pub name: String,
@@ -89,40 +87,38 @@ pub struct ExtendedFunctions {
 }
 
 #[derive(Debug, serde::Serialize)]
-#[serde(untagged)]
+#[serde(tag = "@xsi:type")]
 pub enum Interface {
     InterfaceInformation {
-        #[serde(rename = "InterfaceType")]
+        #[serde(rename = "@InterfaceType")]
         interface_type: String,
-        #[serde(rename = "InterfaceName")]
+        #[serde(rename = "@InterfaceName")]
         interface_name: Option<String>,
         #[serde(rename = "InstrumentAddressString")]
         instrument_address_strings: Vec<InstrumentAddressString>,
     },
     NetworkInformation {
-        #[serde(rename = "xsi:type")]
-        xsi_type: String,
-        #[serde(rename = "InterfaceType")]
+        #[serde(rename = "@InterfaceType")]
         interface_type: String,
-        #[serde(rename = "IPType")]
+        #[serde(rename = "@IPType")]
         ip_type: IpType,
-        #[serde(rename = "InterfaceName")]
+        #[serde(rename = "@InterfaceName")]
         interface_name: Option<String>,
         #[serde(rename = "InstrumentAddressString")]
         instrument_address_strings: Vec<InstrumentAddressString>,
-        #[serde(rename = "$unflatten=Hostname")]
+        #[serde(rename = "Hostname")]
         hostname: String,
-        #[serde(rename = "$unflatten=IPAddress")]
+        #[serde(rename = "IPAddress")]
         ip_address: String,
-        #[serde(rename = "$unflatten=SubnetMask")]
+        #[serde(rename = "SubnetMask")]
         subnet_mask: String,
-        #[serde(rename = "$unflatten=MACAddress")]
+        #[serde(rename = "MACAddress")]
         mac_address: String,
-        #[serde(rename = "$unflatten=Gateway")]
+        #[serde(rename = "Gateway")]
         gateway: String,
-        #[serde(rename = "$unflatten=DHCPEnabled")]
+        #[serde(rename = "DHCPEnabled")]
         dhcp_enabled: bool,
-        #[serde(rename = "$unflatten=AutoIPEnabled")]
+        #[serde(rename = "AutoIPEnabled")]
         auto_ip_enabled: bool,
     },
 }
@@ -135,9 +131,9 @@ pub struct InstrumentAddressString {
 
 #[derive(Debug, serde::Serialize)]
 pub enum IpType {
-    #[serde(rename = "$primitive=IPv4")]
+    #[serde(rename = "IPv4")]
     Ipv4,
-    #[serde(rename = "$primitive=IPv6")]
+    #[serde(rename = "IPv6")]
     Ipv6,
 }
 
@@ -172,7 +168,6 @@ mod tests {
                     value: "TCPIP::10.1.2.32::hislip0::INSTR".to_string(),
                 },
             ],
-            xsi_type: "NetworkInformation".to_string(),
             hostname: "10.1.2.32".to_string(),
             ip_address: "10.1.2.32".to_string(),
             subnet_mask: "255.255.255.0".to_string(),
@@ -188,51 +183,50 @@ mod tests {
 
 /// LXI extended functions
 #[derive(Debug, Serialize)]
-#[serde(tag = "FunctionName")]
+#[serde(tag = "@FunctionName")]
 pub enum Function {
     /// [LXI HiSLIP](https://lxistandard.org/members/Adopted%20Specifications/Latest%20Version%20of%20Standards_/LXI%20Version%201.6/LXI_HiSLIP_Extended_Function_1.3_2022-05-26.pdf)
     #[serde(rename = "LXI HiSLIP")]
     Hislip {
-        #[serde(rename = "Version")]
+        #[serde(rename = "@Version")]
         version: String,
-        #[serde(rename = "$unflatten=Port")]
+        #[serde(rename = "Port")]
         port: u16,
         #[serde(rename = "Subaddress")]
         subaddresses: Vec<Subaddress>,
     },
     #[serde(rename = "LXI VXI-11 Discovery and Identification")]
     Vxi11DiscoveryAndIdentification {
-        #[serde(rename = "Version")]
+        #[serde(rename = "@Version")]
         version: String,
     },
     #[serde(rename = "LXI API")]
     Api {
-        #[serde(rename = "Version")]
+        #[serde(rename = "@Version")]
         version: String,
     },
     #[serde(rename = "LXI IPv6")]
     Ipv6 {
-        #[serde(rename = "Version")]
+        #[serde(rename = "@Version")]
         version: String,
     },
-    #[serde(rename = "LXI Event Messaging")]
+    #[serde(rename = "@LXI Event Messaging")]
     EventMessaging {
         #[serde(rename = "Version")]
         version: String,
     },
-    #[serde(rename = "LXI Event Log")]
+    #[serde(rename = "@LXI Event Log")]
     EventLog {
         #[serde(rename = "Version")]
         version: String,
     },
-    #[serde(rename = "LXI Security")]
+    #[serde(rename = "@LXI Security")]
     Security {
         #[serde(rename = "Version")]
         version: String,
-        #[serde(rename = "$unflatten=CryptoSuites")]
+        #[serde(rename = "CryptoSuites")]
         crypto_suites: String,
     },
-    
 }
 
 #[derive(Debug, Serialize)]

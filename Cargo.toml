@@ -25,3 +25,9 @@ byteorder = { version = "1.4" }
 # Dev dependencies
 femme = "2.2"
 clap = { version = "4.0", features = ["derive"] }
+
+# Documentation
+document-features = "0.2.6"
+
+[patch.crates-io]
+quick-xml = { git = 'https://github.com/tafia/quick-xml.git' }

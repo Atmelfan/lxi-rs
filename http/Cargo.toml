@@ -7,27 +7,52 @@ edition = "2021"
 
 [dependencies]
 async-std = { workspace = true }
+futures = { workspace = true }
 log = { workspace = true, features = ["kv_unstable_std"] }
-quick-xml = {version = "0.25.0", features = ["serialize"]}
+quick-xml = { version = "0.26.0", features = ["serialize"] }
 async-trait = "0.1.41"
 
 # Tide
 tide = { version = "0.16.0", default-features = false }
-tide-http-auth = { version = "0.5.0", optional = true }
 serde = { version = "1.0", features = ["derive"] }
-http-types  = "2.7.0"
+http-types = "2.7.0"
 
-tide-rustls = {version = "0.3.0", optional = true}
+tide-rustls = { version = "0.3.0", optional = true }
+
+# LXI-API
+base64 = { version = "0.13", optional = true }
+
+#
+document-features = { workspace = true }
 
 [dev-dependencies]
-femme = { workspace = true } 
+femme = { workspace = true }
 clap = { workspace = true }
 
 tide = { version = "0.16.0", default-features = true }
-sqlx = { version = "0.6", features = ["runtime-async-std-rustls", "sqlite", "chrono"] }
+sqlx = { version = "0.6", features = [
+    "runtime-async-std-rustls",
+    "sqlite",
+    "chrono",
+] }
 
 
 [features]
 default = ["lxi-api", "tls"]
-lxi-api = ["dep:tide-http-auth"]
+lxi-api = ["dep:base64", "tls"]
 tls = ["dep:tide-rustls"]
+
+#! ### HiSLIP
+#! The following features are experimental
+## HiSLIP v1.1
+lxi-security = []
+
+#! ### HiSLIP
+#! The following features are experimental
+## HiSLIP v1.1
+lxi-hislip-v1_1 = []
+## HiSLIP v2.0
+lxi-hislip-v2_0 = ["lxi-hislip-v1_1"]
+
+
+lxi-vxi11 = []

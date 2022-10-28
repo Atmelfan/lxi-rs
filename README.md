@@ -14,6 +14,10 @@ Currently the focus is on implementing HiSLIP/VXI-11/Socket protocols for Unix-l
 # Scope
 This crate does not handle command parsing and/or execution, look at [scpi-rs](https://github.com/Atmelfan/scpi-rs)(:crab:) or [libscpi](https://github.com/j123b567/scpi-parser)(C) for that.
 
+# Certificates
+Secure extensions and https server requires a certificate and key. Generate one using mkcert and place in `./certificates` like this:
+```mkcert -key-file .certificates/key.pem -cert-file ./certificates/cert.pem localhost 127.0.0.1 ::1```
+
 # Examples
 Each protocol includes an example service, you can try them out with `cargo run --example <protocol>` where protocol is either `hislip`,`vxi11`,`raw`, or `telnet`. 
 Run `cargo run --example <protocol> -- --help` for help and specific arguments for each protocol.

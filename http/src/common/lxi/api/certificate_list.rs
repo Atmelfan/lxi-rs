@@ -1,8 +1,11 @@
 use serde::{Serialize, Deserialize};
 
+pub const SCHEMA: &'static str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/schemas/LXICertificateList.xsd"));
+
 /// See LXI-API Extended function 23.15.1
 #[derive(Debug, Serialize, Deserialize)]
-struct LXICertificateList {
+#[serde(rename = "LXICertificateList")]
+struct LxiCertificateList {
     #[serde(rename = "xmlns")]
     pub xmlns: String,
     #[serde(rename = "xmlns:xsi")]

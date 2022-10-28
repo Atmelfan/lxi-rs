@@ -1,90 +1,72 @@
 use serde::{Deserialize, Serialize};
 
+pub const SCHEMA: &'static str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/schemas/LXIDeviceSpecificConfiguration.xsd"
+));
+
 /// See LXI-API Extended function 23.13.1
 #[derive(Debug, Serialize, Deserialize)]
-pub struct LxiCommonConfiguration {
-    #[serde(rename = "xmlns")]
+#[serde(rename = "LXIDeviceSpecificConfiguration")]
+pub struct LxiDeviceSpecificConfiguration {
+    #[serde(rename = "@xmlns")]
     pub xmlns: String,
-    #[serde(rename = "xmlns:xsi")]
+    #[serde(rename = "@xmlns:xsi")]
     pub xmlns_xsi: String,
-    #[serde(rename = "xsi:schemaLocation")]
+    #[serde(rename = "@xsi:schemaLocation")]
     pub xsi_schema_location: String,
-    
-    #[serde(rename = "name")]
+
+    #[serde(rename = "@name", skip_serializing_if = "Option::is_none")]
     name: Option<String>,
-    #[serde(rename = "$unflatten=Ipv4Device")]
+    #[serde(rename = "Ipv4Device", skip_serializing_if = "Option::is_none")]
     ipv4_device: Option<Ipv4Device>,
-    #[serde(rename = "$unflatten=Ipv6Device")]
+    #[serde(rename = "Ipv6Device", skip_serializing_if = "Option::is_none")]
     ipv6_device: Option<Ipv6Device>,
 }
 
-impl LxiCommonConfiguration {
+impl LxiDeviceSpecificConfiguration {
     pub fn to_xml(&self) -> Result<String, quick_xml::DeError> {
-        let mut buffer = Vec::new();
-        let mut writer = quick_xml::Writer::new(&mut buffer);
+        quick_xml::se::to_string(self)
+    }
 
-        // Declaration
-        let decl = quick_xml::events::BytesDecl::new("1.0", Some("UTF-8"), None);
-        writer.write_event(quick_xml::events::Event::Decl(decl))?;
-
-        #[derive(Serialize)]
-        struct Doc<'a> {
-            #[serde(rename = "xmlns")]
-            pub xmlns: String,
-            #[serde(rename = "xmlns:xsi")]
-            pub xmlns_xsi: String,
-            #[serde(rename = "xsi:schemaLocation")]
-            pub xsi_schema_location: String,
-            #[serde(flatten)]
-            t: &'a LxiCommonConfiguration,
-        }
-
-        let mut ser = quick_xml::se::Serializer::with_root(writer, Some("LXIDevice"));
-        Doc {
-            xmlns: "http://lxistandard.org/schemas/LXICommonConfiguration/1.0".to_string(),
-            xmlns_xsi: "http://www.w3.org/2001/XMLSchema-instance".to_string(),
-            xsi_schema_location:
-                "http://lxistandard.org/schemas/LXICommonConfiguration/1.0/LXICommonConfiguration.xsd"
-                    .to_string(),
-            t: self,
-        }.serialize(&mut ser)?;
-        Ok(String::from_utf8(buffer).unwrap())
+    pub fn from_xml(xml: &str) -> Result<Self, quick_xml::de::DeError> {
+        quick_xml::de::from_str(xml)
     }
 }
 
 /// See LXI-API Extended function 23.13.2
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Ipv4Device {
-    #[serde(rename = "address")]
+    #[serde(rename = "@address", skip_serializing_if = "Option::is_none")]
     address: Option<String>,
-    #[serde(rename = "subnetMask")]
+    #[serde(rename = "@subnetMask", skip_serializing_if = "Option::is_none")]
     subnet_mask: Option<String>,
-    #[serde(rename = "gateway")]
+    #[serde(rename = "@gateway", skip_serializing_if = "Option::is_none")]
     gateway: Option<String>,
-    #[serde(rename = "dns1")]
+    #[serde(rename = "@dns1", skip_serializing_if = "Option::is_none")]
     dns1: Option<String>,
-    #[serde(rename = "dns2")]
+    #[serde(rename = "@dns2", skip_serializing_if = "Option::is_none")]
     dns2: Option<String>,
 }
 
 /// See LXI-API Extended function 23.13.3
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Ipv6Device {
-    #[serde(rename = "StaticAddress")]
-    static_addresses: Vec<IPv6Address>,
-    #[serde(rename = "LinkLocalAddress")]
+    #[serde(rename = "StaticAddress", skip_serializing_if = "Option::is_none")]
+    static_addresses: Option<Vec<IPv6Address>>,
+    #[serde(rename = "LinkLocalAddress", skip_serializing_if = "Option::is_none")]
     link_local_address: Option<IPv6Address>,
-    #[serde(rename = "GlobalAddress")]
-    global_addresses: Vec<IPv6Address>,
+    #[serde(rename = "GlobalAddress", skip_serializing_if = "Option::is_none")]
+    global_addresses: Option<Vec<IPv6Address>>,
 }
 
 /// See LXI-API Extended function 23.13.4
 #[derive(Debug, Serialize, Deserialize)]
 struct IPv6Address {
-    #[serde(rename = "address")]
+    #[serde(rename = "@address")]
     address: String,
-    #[serde(rename = "router")]
+    #[serde(rename = "@router", skip_serializing_if = "Option::is_none")]
     router: Option<String>,
-    #[serde(rename = "dns")]
+    #[serde(rename = "@dns", skip_serializing_if = "Option::is_none")]
     dns: Option<String>,
 }
