@@ -35,6 +35,8 @@ where
     shared: Arc<Mutex<SharedSession>>,
 
     clear: Receiver<()>,
+
+    protocol: Protocol
 }
 
 impl<DEV> SyncSession<DEV>
@@ -47,6 +49,7 @@ where
         shared: Arc<Mutex<SharedSession>>,
         handle: RemoteLockHandle<DEV>,
         clear: Receiver<()>,
+        protocol: Protocol
     ) -> Self {
         Self {
             id,
@@ -54,6 +57,7 @@ where
             shared,
             handle,
             clear,
+            protocol
         }
     }
 
@@ -95,7 +99,6 @@ where
         self,
         mut stream: S,
         peer: String,
-        protocol: Protocol,
     ) -> Result<(), io::Error>
     where
         S: AsyncRead + AsyncWrite + Unpin,
@@ -321,13 +324,13 @@ where
                         Message {
                             message_type: MessageType::GetDescriptors,
                             ..
-                        } if protocol >= PROTOCOL_2_0 => {
+                        } if self.protocol >= PROTOCOL_2_0 => {
                             todo!()
                         }
                         Message {
                             message_type: MessageType::StartTLS | MessageType::EndTLS,
                             ..
-                        } if protocol >= PROTOCOL_2_0 => {
+                        } if self.protocol >= PROTOCOL_2_0 => {
                             log::debug!(peer=peer.to_string(), session_id=self.id; "Start/end TLS");
 
                             send_fatal!(
@@ -343,7 +346,7 @@ where
                                 | MessageType::AuthenticationExchange,
                             payload: _data,
                             ..
-                        } if protocol >= PROTOCOL_2_0 => {
+                        } if self.protocol >= PROTOCOL_2_0 => {
                             log::debug!(peer=peer.to_string(), session_id=self.id; "Authentication Start/Exchange");
 
                             send_fatal!(

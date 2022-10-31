@@ -224,6 +224,16 @@ where
                             }
                         }
                         Message {
+                            message_type: MessageType::StartTLS,
+                            control_code,
+                            message_parameter,
+                            payload,
+                        } => {
+                            // Uppgrade connection
+
+                            // Start session
+                        }
+                        Message {
                             message_type: MessageType::Initialize,
                             message_parameter,
                             payload,
@@ -287,8 +297,9 @@ where
                                                 shared,
                                                 RemoteLockHandle::new(device),
                                                 receiver,
+                                                protocol
                                             )
-                                            .handle_session(stream, peer.clone(), protocol)
+                                            .handle_session(stream, peer.clone())
                                             .await;
                                             log::debug!(peer=peer.to_string(), session_id=id; "Sync session closed: {res:?}");
                                             return res;
