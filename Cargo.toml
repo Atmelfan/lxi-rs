@@ -1,12 +1,5 @@
 [workspace]
-members = [
-    "device",
-    "hislip",
-    "raw",
-    "telnet",
-    "vxi11",
-    "http",
-]
+members = ["device", "hislip", "raw", "telnet", "vxi11", "http"]
 
 [workspace.package]
 version = "0.1.0"
@@ -16,9 +9,9 @@ edition = "2021"
 
 [workspace.dependencies]
 # Common dependencies
-async-std = {version = "1.11", features = ["attributes"]}
+async-std = { version = "1.11", features = ["attributes"] }
 async-listen = "0.2.1"
-futures = {version = "0.3" }
+futures = { version = "0.3" }
 log = { version = "0.4.17" }
 byteorder = { version = "1.4" }
 
@@ -31,3 +24,5 @@ document-features = "0.2.6"
 
 [patch.crates-io]
 quick-xml = { git = 'https://github.com/tafia/quick-xml.git' }
+rasn-cms = { git = "https://github.com/XAMPPRocky/rasn.git" }
+rasn = { git = "https://github.com/XAMPPRocky/rasn.git" }

@@ -1,9 +1,9 @@
 # Python requirements
 
 # Testing
-pytest >= 7.1
-pytest-xprocess >= 0.18
-pytest-order >= 1.0.1
+pytest == 7.1
+pytest-xprocess >= 0.19
+pytest-order == 1.0.1
 lxml >= 4.9.1
 
 # VISA framework

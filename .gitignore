@@ -11,3 +11,4 @@ lcov.info
 
 #
 /.certificates/*
+.vscode/launch.json

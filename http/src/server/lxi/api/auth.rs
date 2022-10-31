@@ -63,8 +63,8 @@ impl LxiApiAuthentication {
         let bytes = base64::decode(&auth_param.as_bytes()["Basic ".len()..]);
         if bytes.is_err() {
             // This is invalid. Fail the request.
-            return Err(http_types::Error::from_str(
-                http_types::StatusCode::Unauthorized,
+            return Err(tide::http::Error::from_str(
+                tide::http::StatusCode::Unauthorized,
                 "Basic auth param must be valid base64.",
             ));
         }
@@ -72,8 +72,8 @@ impl LxiApiAuthentication {
         let as_utf8 = String::from_utf8(bytes.unwrap());
         if as_utf8.is_err() {
             // You know the drill.
-            return Err(http_types::Error::from_str(
-                http_types::StatusCode::Unauthorized,
+            return Err(tide::http::Error::from_str(
+                tide::http::StatusCode::Unauthorized,
                 "Basic auth param base64 must contain valid utf-8.",
             ));
         }
@@ -140,7 +140,7 @@ where
             let auth_headers: Vec<_> = auth_headers.into_iter().collect();
             if auth_headers.len() > 1 {
                 log::error!("Multiple authorization headers in request");
-                return Ok(http_types::StatusCode::Unauthorized.into());
+                return Ok(tide::http::StatusCode::Unauthorized.into());
             }
 
             let header = auth_headers
@@ -157,19 +157,19 @@ where
                     }
                     Ok(None) => {
                         // Valid credentials but no api-access
-                        Ok(http_types::StatusCode::Forbidden.into())
+                        Ok(tide::http::StatusCode::Forbidden.into())
                     }
                     Err(_) => {
                         // Invalid credentials, return 401 to allow a new attempt
                         let mut response: tide::Response =
-                            http_types::StatusCode::Unauthorized.into();
+                        tide::http::StatusCode::Unauthorized.into();
                         response.insert_header("WWW-Authenticate", "Basic realm=\"LXI-API\"");
                         Ok(response)
                     }
                 }
             } else {
                 // Invalid authentication method, return 401 to allow a new attempt
-                let mut response: tide::Response = http_types::StatusCode::Unauthorized.into();
+                let mut response: tide::Response = tide::http::StatusCode::Unauthorized.into();
                 response.insert_header("WWW-Authenticate", "Basic realm=\"LXI-API\"");
                 Ok(response)
             }
@@ -180,7 +180,7 @@ where
             let auth_headers: Vec<_> = auth_headers.into_iter().collect();
             if auth_headers.len() > 1 {
                 log::error!("Multiple X-API-Key headers in request");
-                return Ok(tide::Response::new(http_types::StatusCode::Unauthorized));
+                return Ok(tide::Response::new(tide::http::StatusCode::Unauthorized));
             }
 
             let header = auth_headers
@@ -192,11 +192,11 @@ where
                 req.set_ext(p);
                 Ok(next.run(req).await)
             } else {
-                Ok(http_types::StatusCode::Unauthorized.into())
+                Ok(tide::http::StatusCode::Unauthorized.into())
             }
         } else {
             // No authentication headers, ask for authentication
-            let mut response: tide::Response = http_types::StatusCode::Unauthorized.into();
+            let mut response: tide::Response = tide::http::StatusCode::Unauthorized.into();
             response.insert_header("WWW-Authenticate", "Basic realm=\"LXI-API\"");
             Ok(response)
         }

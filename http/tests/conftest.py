@@ -104,7 +104,7 @@ def auth_example(xprocess, request, pytestconfig, free_port, ssl_cert_file, ssl_
                 "run",
                 "-q",
                 "--example",
-                "auth",
+                "lxi-api",
                 "--",
                 "--http-port",
                 str(port),

@@ -33,11 +33,11 @@ struct Args {
     https_port: u16,
 
     /// TLS certificate
-    #[clap(short, long, default_value = "cert.pem")]
+    #[clap(short, long, default_value = ".certificates/cert.pem")]
     cert: String,
 
     /// TLS key
-    #[clap(short, long, default_value = "key.pem")]
+    #[clap(short, long, default_value = ".certificates/key.pem")]
     key: String,
 
     /// Redirect all HTTP traffic to HTTPS
