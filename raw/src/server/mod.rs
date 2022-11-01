@@ -21,6 +21,9 @@ use lxi_device::{
 #[cfg(unix)]
 use async_std::os::unix::net::UnixListener;
 
+#[cfg(feature = "tls")]
+pub mod tls;
+
 pub struct Server(ServerConfig);
 
 impl Server {
@@ -58,6 +61,57 @@ impl Server {
                     .await
                 {
                     log::warn!("Error processing client: {}", err)
+                }
+                drop(token);
+            });
+        }
+        Ok(())
+    }
+
+    /// Listen to a socket for clients with a TLS acceptor
+    #[cfg(feature = "tls")]
+    pub async fn accept_tls<DEV>(
+        self: Arc<Self>,
+        addr: impl ToSocketAddrs,
+        shared_lock: Arc<SpinMutex<SharedLock>>,
+        device: Arc<Mutex<DEV>>,
+        acceptor: async_rustls::TlsAcceptor,
+    ) -> io::Result<()>
+    where
+        DEV: Device + Send + 'static,
+    {
+        let listener = TcpListener::bind(addr).await?;
+        let mut incoming = listener
+            .incoming()
+            .log_warnings(|warn| log::warn!("Listening error: {}", warn))
+            .handle_errors(Duration::from_millis(100))
+            .backpressure(self.0.limit);
+
+        while let Some((token, stream)) = incoming.next().await {
+            let s = self.clone();
+            let peer = stream.peer_addr()?;
+            log::error!("Accepted from: {}", peer);
+
+            let shared_lock = shared_lock.clone();
+            let device = device.clone();
+            let acceptor = acceptor.clone();
+
+            stream.set_nodelay(true)?;
+
+            task::spawn(async move {
+                match acceptor.accept(stream).await {
+                    Ok(stream) => {
+                        let (reader, writer) = stream.split();
+                        if let Err(err) = s
+                            .process_client(reader, writer, shared_lock, device, peer)
+                            .await
+                        {
+                            log::warn!("Error processing client: {}", err)
+                        }
+                    }
+                    Err(err) => {
+                        log::warn!("TLS handshake failed: {err}")
+                    },
                 }
                 drop(token);
             });

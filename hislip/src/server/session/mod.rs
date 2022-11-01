@@ -1,10 +1,21 @@
 use async_std::channel::{self, Receiver, Sender};
+use lxi_device::Device;
+
+use self::{asynchronous::AsyncSession, synchronous::SyncSession};
 
 use super::ServerConfig;
 use crate::common::Protocol;
 
 pub(crate) mod asynchronous;
 pub(crate) mod synchronous;
+
+macro_rules! assert_session_state {
+    ($state:expr, $expected:pat) => {
+        if !matches!($state, $expected) {
+
+        }
+    }
+}
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SessionMode {
@@ -22,7 +33,7 @@ pub(crate) struct SharedSession {
     /// Negotiated rpc
     protocol: Protocol,
 
-    /// Current tate of session
+    /// Current state of session
     state: SessionState,
 
     /// Negotiated session mode
@@ -87,4 +98,10 @@ impl SharedSession {
     pub(crate) fn get_clear_sender(&self) -> Sender<()> {
         self.clear.0.clone()
     }
+}
+
+enum Session<DEV: Device> {
+    Async(AsyncSession<DEV>),
+    Sync(SyncSession<DEV>),
+    Uninitialized
 }

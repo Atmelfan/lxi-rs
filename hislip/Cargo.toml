@@ -15,11 +15,16 @@ futures = { workspace = true }
 byteorder = { workspace = true }
 log = { workspace = true, features = ["kv_unstable_std"] }
 bitfield = "0.14"
+async-rustls = { workspace = true, optional = true }
+cfg-if = "1.0.0"
 
 [dependencies.lxi-device]
 path = "../device"
 version = "0.1.0"
 
 [dev-dependencies]
-femme = { workspace = true } 
+femme = { workspace = true }
 clap = { workspace = true }
+
+[features]
+secure-capability = ["dep:async-rustls"]
