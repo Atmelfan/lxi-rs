@@ -1,4 +1,4 @@
-//! 
+//!
 //!
 
 pub(crate) mod common;

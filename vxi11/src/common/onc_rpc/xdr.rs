@@ -403,7 +403,7 @@ impl XdrDecode for Callbody {
     }
 }
 
-#[derive(Debug, Default, PartialEq, PartialOrd)]
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MissmatchInfo {
     pub low: u32,
     pub high: u32,

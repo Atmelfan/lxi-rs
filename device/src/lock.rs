@@ -90,7 +90,7 @@ impl SharedLock {
 }
 
 /// A handle to a locked resource.
-/// 
+///
 /// This will check if the shared lock is available for this handle before locking.
 pub struct LockHandle<DEV> {
     id: u32,
@@ -262,7 +262,7 @@ impl<DEV> LockHandle<DEV> {
             }
             // Current state: Shared lock or both locks
             (_, Some(key)) => {
-                if key == &lockstr {
+                if key == lockstr {
                     shared.num_shared_locks += 1;
                     self.has_shared = true;
 
@@ -342,7 +342,7 @@ impl<DEV> LockHandle<DEV> {
     }
 
     /// Check if the shared lock is available and then lock
-    pub fn try_lock<'a>(&'a self) -> Result<MutexGuard<'a, DEV>, SharedLockError> {
+    pub fn try_lock(&self) -> Result<MutexGuard<DEV>, SharedLockError> {
         // Check any active locks
         self.can_lock()?;
         // Lock device and return a guard
@@ -351,7 +351,7 @@ impl<DEV> LockHandle<DEV> {
 
     /// Lock device if allowed
     ///
-    pub async fn async_lock<'a>(&'a self) -> Result<MutexGuard<'a, DEV>, SharedLockError> {
+    pub async fn async_lock(&self) -> Result<MutexGuard<DEV>, SharedLockError> {
         let mut listener = None;
 
         loop {
@@ -399,7 +399,7 @@ impl<DEV> LockHandle<DEV> {
     /// Lock device without checking shared/exclusive lock
     /// NOTE: This shuld ony be used for quick actions like reading status etc to avoid locking
     /// the device for handles holding a legitimate lock.
-    pub async fn inner_lock<'a>(&'a self) -> MutexGuard<'a, DEV> {
+    pub async fn inner_lock(&self) -> MutexGuard<DEV> {
         self.device.lock().await
     }
 
@@ -438,13 +438,12 @@ pub struct RemoteLockHandle<DEV> {
 
 impl<DEV> RemoteLockHandle<DEV> {
     pub fn new(handle: Arc<SpinMutex<LockHandle<DEV>>>) -> Self {
-        let handle = handle.clone();
         let device = handle.lock().device.clone();
         Self { handle, device }
     }
 
     /// Check if the shared lock is available and then lock
-    pub async fn try_lock<'a>(&'a self) -> Result<MutexGuard<'a, DEV>, SharedLockError> {
+    pub async fn try_lock(&self) -> Result<MutexGuard<DEV>, SharedLockError> {
         // Check any active locks
         self.can_lock()?;
         // Lock device and return a guard
@@ -453,7 +452,7 @@ impl<DEV> RemoteLockHandle<DEV> {
 
     /// Wait for device becoming onlocked (or handle acquiring a lock) and available
     ///
-    pub async fn async_lock<'a>(&'a self) -> Result<MutexGuard<'a, DEV>, SharedLockError> {
+    pub async fn async_lock(&self) -> Result<MutexGuard<DEV>, SharedLockError> {
         let mut listener = None;
 
         loop {
@@ -512,7 +511,7 @@ impl<DEV> RemoteLockHandle<DEV> {
     /// Lock device without checking shared/exclusive lock
     /// NOTE: This shuld ony be used for quick actions like reading status etc to avoid locking
     /// the device for handles holding a legitimate lock.
-    pub async fn inner_lock<'a>(&'a self) -> MutexGuard<'a, DEV> {
+    pub async fn inner_lock(&self) -> MutexGuard<DEV> {
         self.device.lock().await
     }
 
@@ -556,10 +555,7 @@ mod tests {
 
     use super::{LockHandle, SharedLock, SpinMutex};
     use crate::{lock::RemoteLockHandle, util::EchoDevice};
-    use async_std::{
-        sync::{Arc},
-        task::yield_now,
-    };
+    use async_std::{sync::Arc, task::yield_now};
     use futures::{join, lock::Mutex};
 
     #[test]

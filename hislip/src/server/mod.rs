@@ -2,10 +2,9 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::io;
 use std::str::from_utf8;
-use std::sync::Weak;
 
-use async_std::sync::Arc;
 use async_std::net::{TcpListener, ToSocketAddrs};
+use async_std::sync::Arc;
 
 use futures::task::{Spawn, SpawnExt};
 use futures::{AsyncRead, AsyncWrite, AsyncWriteExt, Stream, StreamExt};
@@ -15,36 +14,22 @@ use lxi_device::Device;
 
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::common::messages::{prelude::*, send_fatal, send_nonfatal};
+use crate::common::stream::HislipStream;
 use crate::common::{Protocol, SUPPORTED_PROTOCOL};
 use crate::server::session::{SessionState, SharedSession};
 use crate::DEFAULT_DEVICE_SUBADRESS;
 
+pub use self::config::ServerConfig;
+use self::session::SessionHandle;
+
 pub mod session;
+pub mod config;
 
-#[derive(Debug, Copy, Clone)]
-pub struct ServerConfig {
-    pub vendor_id: u16,
-    /// Maximum server message size
-    pub max_message_size: u64,
-    /// Prefer overlapped data
-    pub prefer_overlap: bool,
-    pub max_num_sessions: usize,
-}
-
-impl Default for ServerConfig {
-    fn default() -> Self {
-        Self {
-            vendor_id: 0xBEEF,
-            max_message_size: 1024 * 1024,
-            prefer_overlap: true,
-            max_num_sessions: 64,
-        }
-    }
-}
+type DeviceMap<DEV> = HashMap<String, (Arc<SpinMutex<SharedLock>>, Arc<Mutex<DEV>>)>;
 
 pub struct ServerBuilder<DEV> {
     config: ServerConfig,
-    devices: HashMap<String, (Arc<SpinMutex<SharedLock>>, Arc<Mutex<DEV>>)>,
+    devices: DeviceMap<DEV>,
 }
 
 impl<DEV> Default for ServerBuilder<DEV> {
@@ -88,7 +73,7 @@ where
 
     pub fn build(self) -> Arc<Server<DEV>> {
         assert!(
-            self.devices.len() > 0,
+            !self.devices.is_empty(),
             "Server must have one or more devices"
         );
         Server::with_config(self.config, self.devices)
@@ -100,7 +85,7 @@ where
     DEV: Device,
 {
     inner: Arc<Mutex<InnerServer<DEV>>>,
-    devices: HashMap<String, (Arc<SpinMutex<SharedLock>>, Arc<Mutex<DEV>>)>,
+    devices: DeviceMap<DEV>,
     config: ServerConfig,
 }
 
@@ -108,21 +93,12 @@ impl<DEV> Server<DEV>
 where
     DEV: Device + Send + 'static,
 {
-    pub fn new(
-        devices: HashMap<String, (Arc<SpinMutex<SharedLock>>, Arc<Mutex<DEV>>)>,
-    ) -> Arc<Self> {
+    pub fn new(devices: DeviceMap<DEV>) -> Arc<Self> {
         let config = ServerConfig::default();
-        Arc::new(Server {
-            inner: InnerServer::new(config.max_num_sessions),
-            config,
-            devices,
-        })
+        Self::with_config(config, devices)
     }
 
-    pub fn with_config(
-        config: ServerConfig,
-        devices: HashMap<String, (Arc<SpinMutex<SharedLock>>, Arc<Mutex<DEV>>)>,
-    ) -> Arc<Self> {
+    pub fn with_config(config: ServerConfig, devices: DeviceMap<DEV>) -> Arc<Self> {
         Arc::new(Server {
             inner: InnerServer::new(config.max_num_sessions),
             config,
@@ -162,13 +138,14 @@ where
     async fn handle_session<S, SRQ>(
         &self,
         peer: String,
-        mut stream: S,
+        stream: S,
         srq: SRQ,
     ) -> Result<(), io::Error>
     where
         S: AsyncRead + AsyncWrite + Unpin,
         SRQ: Stream<Item = u8> + Unpin,
     {
+        let mut stream = HislipStream::new(stream);
         loop {
             match Message::read_from(&mut stream, self.config.max_message_size).await? {
                 Ok(msg) => {
@@ -185,27 +162,22 @@ where
                             )
                         }
                         Message {
-                            message_type: MessageType::FatalError,
+                            message_type: typ @ MessageType::Error | typ @ MessageType::FatalError,
                             control_code,
                             payload,
                             ..
                         } => {
-                            log::error!(peer=format!("{}", peer);
-                                "Client fatal error {:?}: {}", FatalErrorCode::from_error_code(control_code),
-                                from_utf8(&payload).unwrap_or("<invalid utf8>")
-                            );
-                            //break; // Let client close connection
-                        }
-                        Message {
-                            message_type: MessageType::Error,
-                            control_code,
-                            payload,
-                            ..
-                        } => {
-                            log::warn!(peer=format!("{}", peer);
-                                "Client error {:?}: {}", NonFatalErrorCode::from_error_code(control_code),
-                                from_utf8(&payload).unwrap_or("<invalid utf8>")
-                            );
+                            if typ == MessageType::FatalError {
+                                log::error!(peer=peer.to_string();
+                                    "Client fatal error {:?}: {}", FatalErrorCode::from_error_code(control_code),
+                                    from_utf8(&payload).unwrap_or("<invalid utf8>")
+                                );
+                            } else {
+                                log::warn!(peer=peer.to_string();
+                                    "Client error {:?}: {}", NonFatalErrorCode::from_error_code(control_code),
+                                    from_utf8(&payload).unwrap_or("<invalid utf8>")
+                                );
+                            }
                         }
                         Message {
                             message_type: MessageType::Initialize,
@@ -267,12 +239,13 @@ where
                                             // Continue as sync session
                                             let res = session::synchronous::SyncSession::new(
                                                 id,
-                                                self.config,
+                                                self.config.clone(),
                                                 shared,
                                                 RemoteLockHandle::new(device),
-                                                receiver
+                                                receiver,
+                                                protocol
                                             )
-                                            .handle_session(stream, peer.clone(), protocol, )
+                                            .handle_session(stream, peer.clone())
                                             .await;
                                             log::debug!(peer=peer.to_string(), session_id=id; "Sync session closed: {res:?}");
                                             return res;
@@ -331,7 +304,7 @@ where
 
                                 MessageType::AsyncInitializeResponse
                                     .message_params(
-                                        AsyncInitializeResponseControl::new(false).0,
+                                        AsyncInitializeResponseControl::new(true).0,
                                         AsyncInitializeResponseParameter::new(
                                             self.config.vendor_id,
                                         )
@@ -344,10 +317,10 @@ where
                                 // Continue as async session
                                 let res = session::asynchronous::AsyncSession::new(
                                     id,
-                                    self.config,
+                                    self.config.clone(),
                                     shared,
                                     device,
-                                    sender
+                                    sender,
                                 )
                                 .handle_session(stream, peer.clone(), srq, protocol)
                                 .await;
@@ -377,39 +350,6 @@ where
     }
 }
 
-/// A handle to a created active season
-#[derive(Clone)]
-pub(crate) struct SessionHandle<DEV>
-where
-    DEV: Device,
-{
-    _id: u16,
-    shared: Weak<Mutex<SharedSession>>,
-    device: Weak<SpinMutex<LockHandle<DEV>>>,
-}
-
-impl<DEV> SessionHandle<DEV>
-where
-    DEV: Device,
-{
-    fn new(
-        id: u16,
-        session: Weak<Mutex<SharedSession>>,
-        handle: Weak<SpinMutex<LockHandle<DEV>>>,
-    ) -> Self {
-        Self {
-            _id: id,
-            shared: session,
-            device: handle,
-        }
-    }
-
-    /// Return false if the assosciated object have been closed
-    fn active(&self) -> bool {
-        self.shared.strong_count() > 0 && self.device.strong_count() > 0
-    }
-}
-
 struct InnerServer<DEV>
 where
     DEV: Device,
@@ -418,6 +358,14 @@ where
     sessions: HashMap<u16, SessionHandle<DEV>>,
     max_num_sessions: usize,
 }
+
+type SessionInfo<DEV> = (Arc<Mutex<SharedSession>>, Arc<SpinMutex<LockHandle<DEV>>>);
+
+type NewSession<DEV> = (
+    u16,
+    Arc<Mutex<SharedSession>>,
+    Arc<SpinMutex<LockHandle<DEV>>>,
+);
 
 impl<DEV> InnerServer<DEV>
 where
@@ -444,8 +392,7 @@ where
                 return Err(Error::Fatal(
                     FatalErrorCode::MaximumClientsExceeded,
                     "Out of session ids".to_string(),
-                )
-                .into());
+                ));
             }
         }
 
@@ -457,14 +404,7 @@ where
         &mut self,
         protocol: Protocol,
         handle: LockHandle<DEV>,
-    ) -> Result<
-        (
-            u16,
-            Arc<Mutex<SharedSession>>,
-            Arc<SpinMutex<LockHandle<DEV>>>,
-        ),
-        Error,
-    > {
+    ) -> Result<NewSession<DEV>, Error> {
         self.gc_sessions();
         if self.sessions.len() >= self.max_num_sessions {
             return Err(Error::Fatal(
@@ -486,10 +426,7 @@ where
 
     /// Get a session
     /// Note: Returns a strong reference which will keep any locks assosciated with session active until dropped
-    fn get_session(
-        &mut self,
-        session_id: u16,
-    ) -> Option<(Arc<Mutex<SharedSession>>, Arc<SpinMutex<LockHandle<DEV>>>)> {
+    fn get_session(&mut self, session_id: u16) -> Option<SessionInfo<DEV>> {
         let tmp = self.sessions.get(&session_id)?;
         let shared = tmp.shared.upgrade()?;
         let dev = tmp.device.upgrade()?;

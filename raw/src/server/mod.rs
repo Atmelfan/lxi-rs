@@ -21,9 +21,13 @@ use lxi_device::{
 #[cfg(unix)]
 use async_std::os::unix::net::UnixListener;
 
+#[cfg(feature = "tls")]
+pub mod tls;
+
 pub struct Server(ServerConfig);
 
 impl Server {
+    /// Listen to a socket for clients
     pub async fn accept<DEV>(
         self: Arc<Self>,
         addr: impl ToSocketAddrs,
@@ -64,6 +68,58 @@ impl Server {
         Ok(())
     }
 
+    /// Listen to a socket for clients with a TLS acceptor
+    #[cfg(feature = "tls")]
+    pub async fn accept_tls<DEV>(
+        self: Arc<Self>,
+        addr: impl ToSocketAddrs,
+        shared_lock: Arc<SpinMutex<SharedLock>>,
+        device: Arc<Mutex<DEV>>,
+        acceptor: async_rustls::TlsAcceptor,
+    ) -> io::Result<()>
+    where
+        DEV: Device + Send + 'static,
+    {
+        let listener = TcpListener::bind(addr).await?;
+        let mut incoming = listener
+            .incoming()
+            .log_warnings(|warn| log::warn!("Listening error: {}", warn))
+            .handle_errors(Duration::from_millis(100))
+            .backpressure(self.0.limit);
+
+        while let Some((token, stream)) = incoming.next().await {
+            let s = self.clone();
+            let peer = stream.peer_addr()?;
+            log::error!("Accepted from: {}", peer);
+
+            let shared_lock = shared_lock.clone();
+            let device = device.clone();
+            let acceptor = acceptor.clone();
+
+            stream.set_nodelay(true)?;
+
+            task::spawn(async move {
+                match acceptor.accept(stream).await {
+                    Ok(stream) => {
+                        let (reader, writer) = stream.split();
+                        if let Err(err) = s
+                            .process_client(reader, writer, shared_lock, device, peer)
+                            .await
+                        {
+                            log::warn!("Error processing client: {}", err)
+                        }
+                    }
+                    Err(err) => {
+                        log::warn!("TLS handshake failed: {err}")
+                    },
+                }
+                drop(token);
+            });
+        }
+        Ok(())
+    }
+
+    /// Listen to a unix socket for client
     #[cfg(unix)]
     pub async fn accept_unix<DEV>(
         self: Arc<Self>,
@@ -104,6 +160,7 @@ impl Server {
         Ok(())
     }
 
+    /// Process a generic reader/writer
     pub async fn process_client<DEV, RD, WR, SA>(
         self: Arc<Self>,
         reader: RD,
@@ -135,17 +192,17 @@ impl Server {
 
             log::trace!("{:?} read {} bytes", peer, cmd.len());
 
-            let mut resp = {
+            let resp = {
                 let mut device = handle.async_lock().await.unwrap();
                 cmd.pop(); // Remove read_termination
                 device.execute(&cmd)
             };
 
             // Write back
-            if !resp.is_empty() {
-                resp.push(self.0.write_termination);
-                log::trace!("{:?} write {} bytes", peer, resp.len());
-                writer.write_all(&resp).await?;
+            if let Some(mut data) = resp {
+                data.push(self.0.write_termination);
+                log::trace!("{:?} write {} bytes", peer, data.len());
+                writer.write_all(&data).await?;
                 //writer.flush().await?;
             }
 

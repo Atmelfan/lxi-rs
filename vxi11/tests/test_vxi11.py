@@ -2,13 +2,17 @@ import pytest
 import pyvisa
 
 
-def test_create_link(vxi11_example, resource_manager: pyvisa.ResourceManager):
-    inst = resource_manager.open_resource(vxi11_example)
+def test_inst0(vxi11_example, resource_manager: pyvisa.ResourceManager):
+    inst = resource_manager.open_resource(f"{vxi11_example}::inst0::INSTR")
+    inst.close()
+
+def test_inst1(vxi11_example, resource_manager: pyvisa.ResourceManager):
+    inst = resource_manager.open_resource(f"{vxi11_example}::inst1::INSTR")
     inst.close()
 
 
 def test_query(vxi11_example, resource_manager: pyvisa.ResourceManager):
-    inst = resource_manager.open_resource(vxi11_example)
+    inst = resource_manager.open_resource(f"{vxi11_example}::inst0::INSTR")
     inst.read_termination = ""
     inst.write_termination = ""
 
@@ -19,7 +23,7 @@ def test_query(vxi11_example, resource_manager: pyvisa.ResourceManager):
 
 
 def test_read_stb(vxi11_example, resource_manager: pyvisa.ResourceManager):
-    inst = resource_manager.open_resource(vxi11_example)
+    inst = resource_manager.open_resource(f"{vxi11_example}::inst0::INSTR")
 
     status = inst.read_stb()
     assert status == 0
@@ -28,7 +32,7 @@ def test_read_stb(vxi11_example, resource_manager: pyvisa.ResourceManager):
 
 
 def test_trigger(vxi11_example, resource_manager: pyvisa.ResourceManager):
-    inst = resource_manager.open_resource(vxi11_example)
+    inst = resource_manager.open_resource(f"{vxi11_example}::inst0::INSTR")
 
     status = inst.read_stb()
     assert status & 0x40 == 0
@@ -45,8 +49,8 @@ def test_trigger(vxi11_example, resource_manager: pyvisa.ResourceManager):
 
 
 def test_lock(vxi11_example, resource_manager: pyvisa.ResourceManager):
-    inst1 = resource_manager.open_resource(vxi11_example)
-    inst2 = resource_manager.open_resource(vxi11_example)
+    inst1 = resource_manager.open_resource(f"{vxi11_example}::inst0::INSTR")
+    inst2 = resource_manager.open_resource(f"{vxi11_example}::inst0::INSTR")
 
     # Two clients cannot lock at the same time
     inst1.lock_excl()

@@ -23,7 +23,6 @@ use lxi_device::{
 pub struct Server(ServerConfig);
 
 impl Server {
-
     /// Accept client connections
     pub async fn accept<DEV>(
         self: Arc<Self>,
@@ -114,7 +113,7 @@ impl Server {
                             if instance.options.get_option(options::ECHO).local_state {
                                 stream.write_all(&[b]).await?;
                             }
-                            
+
                             if b == b'\n' {
                                 // Remove \r
                                 cmd.pop();
@@ -126,8 +125,8 @@ impl Server {
                                 cmd.clear();
 
                                 // Send back response if any
-                                if !resp.is_empty() {
-                                    let to_send = Parser::escape_iac(resp);
+                                if let Some(data) = resp {
+                                    let to_send = Parser::escape_iac(data);
                                     stream.write_all(&to_send).await?;
                                     stream.write_all(b"\r\n").await?;
                                 }

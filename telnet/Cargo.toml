@@ -1,6 +1,6 @@
 [package]
 name = "lxi-telnet"
-description = "Raw LXI socket support library"
+description = "LXI Telnet support library"
 license = "GPL-3.0-or-later"
 version = { workspace = true }
 authors = { workspace = true }
@@ -14,13 +14,11 @@ async-std = { workspace = true }
 async-listen = { workspace = true }
 futures = { workspace = true }
 log = { workspace = true, features = ["kv_unstable_std"] }
+libtelnet-rs = "2.0.0"
 
 [dependencies.lxi-device]
 path = "../device"
 version = "0.1.0"
-
-[dependencies.libtelnet-rs]
-version = "2.0.0"
 
 [dev-dependencies]
 femme = { workspace = true } 

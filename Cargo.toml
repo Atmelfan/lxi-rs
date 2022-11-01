@@ -1,11 +1,5 @@
 [workspace]
-members = [
-    "device",
-    "hislip",
-    "raw",
-    "telnet",
-    "vxi11"
-]
+members = ["device", "hislip", "raw", "telnet", "vxi11"]
 
 [workspace.package]
 version = "0.1.0"
@@ -15,11 +9,12 @@ edition = "2021"
 
 [workspace.dependencies]
 # Common dependencies
-async-std = {version = "1.11", features = ["attributes"]}
+async-std = { version = "1.11", features = ["attributes"] }
 async-listen = "0.2.1"
-futures = {version = "0.3" }
+futures = { version = "0.3" }
 log = { version = "0.4.17" }
 byteorder = { version = "1.4" }
+async-rustls = { version = "0.2" }
 
 # Dev dependencies
 femme = "2.2"

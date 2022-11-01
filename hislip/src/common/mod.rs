@@ -2,6 +2,8 @@ use bitfield::bitfield;
 
 pub mod errors;
 pub mod messages;
+pub mod descriptors;
+pub(crate) mod stream;
 
 /// Protocol version 1.0
 pub const PROTOCOL_1_0: Protocol = Protocol(0x0100);

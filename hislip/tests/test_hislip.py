@@ -2,11 +2,12 @@ from time import time
 import pytest
 import pyvisa
 
+IDN_RESPONSE = "Cyberdyne systems,T800 Model 101,A9012.C,V2.4"
 
 def test_connect(hislip_example, resource_manager):
     if resource_manager.visalib.library_path == "py":
         pytest.skip("pyvisa-py does not support HiSLIP", allow_module_level=True)
-    inst = resource_manager.open_resource(hislip_example)
+    inst = resource_manager.open_resource(hislip_example, read_termination = "", write_termination = "")
 
     inst.close()
 
@@ -14,12 +15,10 @@ def test_connect(hislip_example, resource_manager):
 def test_hislip_idn(hislip_example, resource_manager):
     if resource_manager.visalib.library_path == "py":
         pytest.skip("pyvisa-py does not support HiSLIP", allow_module_level=True)
-    inst = resource_manager.open_resource(hislip_example)
-    inst.read_termination = ""
-    inst.write_termination = ""
+    inst = resource_manager.open_resource(hislip_example, read_termination = "", write_termination = "")
 
-    resp = inst.query("*IDN?")
-    assert resp == "Cyberdyne systems,T800 Model 101,A9012.C,V2.4"
+    resp = inst.query("*IDN?\n")
+    assert resp == IDN_RESPONSE
 
     inst.close()
 
@@ -27,9 +26,13 @@ def test_hislip_idn(hislip_example, resource_manager):
 def test_clear(hislip_example, resource_manager: pyvisa.ResourceManager):
     if resource_manager.visalib.library_path == "py":
         pytest.skip("pyvisa-py does not support HiSLIP", allow_module_level=True)
-    inst = resource_manager.open_resource(hislip_example)
+    inst: pyvisa.resources.MessageBasedResource = resource_manager.open_resource(hislip_example, read_termination = "", write_termination = "")
 
+    inst.send_end = False
+    inst.write("GARBAGE")
+    inst.send_end = True
     inst.clear()
+    assert inst.query("*IDN?") == IDN_RESPONSE
 
     inst.close()
 
@@ -37,7 +40,7 @@ def test_clear(hislip_example, resource_manager: pyvisa.ResourceManager):
 def test_trigger(hislip_example, resource_manager: pyvisa.ResourceManager):
     if resource_manager.visalib.library_path == "py":
         pytest.skip("pyvisa-py does not support HiSLIP", allow_module_level=True)
-    inst = resource_manager.open_resource(hislip_example)
+    inst = resource_manager.open_resource(hislip_example, read_termination = "", write_termination = "")
 
     inst.assert_trigger()
 
@@ -49,7 +52,7 @@ def test_hislip_exclusive_lock(
 ):
     if resource_manager.visalib.library_path == "py":
         pytest.skip("pyvisa-py does not support HiSLIP", allow_module_level=True)
-    inst = resource_manager.open_resource(hislip_example)
+    inst = resource_manager.open_resource(hislip_example, read_termination = "", write_termination = "")
 
     # Lock and unlock
     inst.lock_excl(25.0)
@@ -61,9 +64,9 @@ def test_hislip_exclusive_lock(
 def test_hislip_shared_lock(hislip_example, resource_manager: pyvisa.ResourceManager):
     if resource_manager.visalib.library_path == "py":
         pytest.skip("pyvisa-py does not support HiSLIP", allow_module_level=True)
-    inst1 = resource_manager.open_resource(hislip_example)
-    inst2 = resource_manager.open_resource(hislip_example)
-    inst3 = resource_manager.open_resource(hislip_example)
+    inst1 = resource_manager.open_resource(hislip_example, read_termination = "", write_termination = "")
+    inst2 = resource_manager.open_resource(hislip_example, read_termination = "", write_termination = "")
+    inst3 = resource_manager.open_resource(hislip_example, read_termination = "", write_termination = "")
 
     # Lock
     inst1.lock(requested_key="foo", timeout=0)
@@ -93,8 +96,8 @@ def test_hislip_clear_in_progress(
 ):
     if resource_manager.visalib.library_path == "py":
         pytest.skip("pyvisa-py does not support HiSLIP", allow_module_level=True)
-    inst1 = resource_manager.open_resource(hislip_example)
-    inst2 = resource_manager.open_resource(hislip_example)
+    inst1 = resource_manager.open_resource(hislip_example, read_termination = "", write_termination = "")
+    inst2 = resource_manager.open_resource(hislip_example, read_termination = "", write_termination = "")
 
     # Lock
     inst1.lock(requested_key="foo")

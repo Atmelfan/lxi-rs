@@ -14,14 +14,17 @@ async-std = { workspace = true }
 async-listen = { workspace = true }
 futures = { workspace = true }
 log = { workspace = true, features = ["kv_unstable_std"] }
+async-rustls = { workspace = true, optional = true }
 
 [dependencies.lxi-device]
 path = "../device"
 version = "0.1.0"
 
-[dependencies.libtelnet-rs]
-version = "2.0.0"
-
 [dev-dependencies]
-femme = { workspace = true } 
+femme = { workspace = true }
 clap = { workspace = true }
+mio-serial = "5.0"
+async-io = "1.9.0"
+
+[features]
+tls = ["dep:async-rustls"]

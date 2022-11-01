@@ -48,7 +48,7 @@ pub enum RpcError {
 
 impl From<Error> for RpcError {
     fn from(err: Error) -> Self {
-        return Self::Io(err);
+        Self::Io(err)
     }
 }
 
@@ -137,7 +137,7 @@ pub(crate) trait RpcService {
                         RpcError::Io(err) => return Err(err),
                         RpcError::RpcMissmatch(_) => unreachable!(),
                         RpcError::AuthError(_) => unreachable!(),
-                        RpcError::Portmap =>  unreachable!(),
+                        RpcError::Portmap => unreachable!(),
                     }
                 } else {
                     xdr::AcceptStat::Success

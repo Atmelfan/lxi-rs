@@ -1,7 +1,7 @@
 use alloc::{sync::Arc, vec::Vec};
 use futures::lock::Mutex;
 
-use crate::{Device, DeviceError, trigger::Source};
+use crate::{trigger::Source, Device, DeviceError};
 
 /// A device that echoes any command sent to it.
 #[derive(Clone)]
@@ -14,8 +14,8 @@ impl EchoDevice {
 }
 
 impl Device for EchoDevice {
-    fn execute(&mut self, cmd: &Vec<u8>) -> Vec<u8> {
-        cmd.clone()
+    fn execute(&mut self, cmd: &[u8]) -> Option<Vec<u8>> {
+        Some(cmd.to_vec())
     }
 
     fn get_status(&mut self) -> Result<u8, DeviceError> {
@@ -44,6 +44,12 @@ pub struct SimpleDevice {
     rmt: bool,
 }
 
+impl Default for SimpleDevice {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SimpleDevice {
     pub fn new() -> Self {
         Self {
@@ -59,22 +65,20 @@ impl SimpleDevice {
 }
 
 impl Device for SimpleDevice {
-    fn execute(&mut self, cmd: &Vec<u8>) -> Vec<u8> {
+    fn execute(&mut self, cmd: &[u8]) -> Option<Vec<u8>> {
         log::debug!(">>> {:?}", cmd);
-        let r = match cmd.as_slice() {
+        let r = match cmd {
             x if x.eq_ignore_ascii_case(b"*IDN?") || x.eq_ignore_ascii_case(b"*IDN?\n") => {
-                b"Cyberdyne systems,T800 Model 101,A9012.C,V2.4".to_vec()
+                Some(b"Cyberdyne systems,T800 Model 101,A9012.C,V2.4".to_vec())
             }
-            x if x.eq_ignore_ascii_case(b"EVENT") || x.eq_ignore_ascii_case(b"EVENT\n") => {
-                b"".to_vec()
-            }
+            x if x.eq_ignore_ascii_case(b"EVENT") || x.eq_ignore_ascii_case(b"EVENT\n") => None,
             x if x.eq_ignore_ascii_case(b"QUERY?") || x.eq_ignore_ascii_case(b"QUERY?\n") => {
-                b"RESPONSE".to_vec()
+                Some(b"RESPONSE".to_vec())
             }
             _ => {
-                let mut rev = cmd.clone();
+                let mut rev = cmd.to_vec();
                 rev.reverse();
-                rev
+                Some(rev)
             }
         };
         log::debug!("<<< {:?}", r);

@@ -1,10 +1,10 @@
 //! This crate contains an abstract device trait and common infrastructure used to create
 //! a LXI device.
-//! 
+//!
 //! The [Device] trait implements an abstract LXI device capable of receiving and excuting a command and some other common LXI tasks.
-//! 
-//! 
-//! 
+//!
+//!
+//!
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
@@ -14,10 +14,10 @@ use trigger::Source;
 #[cfg(feature = "experimental")]
 pub mod frontpanel;
 
-/// Internal device status/SRQ messaging channel
-pub mod status;
 /// Instrument locking infrastructure
 pub mod lock;
+/// Internal device status/SRQ messaging channel
+pub mod status;
 /// Standard trigger sources
 pub mod trigger;
 /// Example/debugging devices
@@ -33,7 +33,7 @@ pub enum DeviceError {
 
 pub trait Device {
     /// Execute a arbitrary command
-    fn execute(&mut self, cmd: &Vec<u8>) -> Vec<u8>;
+    fn execute(&mut self, cmd: &[u8]) -> Option<Vec<u8>>;
 
     /// Return a current device status (STB) byte
     /// Some flags (such as MAV) will be ignored.
@@ -62,7 +62,7 @@ pub trait Device {
 
 // Blanket proxy implementation for boxed devices
 impl<DEV: Device + ?Sized> Device for Box<DEV> {
-    fn execute(&mut self, cmd: &Vec<u8>) -> Vec<u8> {
+    fn execute(&mut self, cmd: &[u8]) -> Option<Vec<u8>> {
         (**self).execute(cmd)
     }
 

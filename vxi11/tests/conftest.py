@@ -2,11 +2,12 @@ import os
 import pytest
 from xprocess import ProcessStarter
 
+
 @pytest.fixture
-def vxi11_example(xprocess, request):
+def vxi11_example(xprocess, request, pytestconfig):
     target = os.environ.get("DEBUG_TARGET")
     if target is not None:
-        yield f"TCPIP::{target}::inst0::INSTR"
+        yield f"TCPIP::{target}"
     else:
 
         class Starter(ProcessStarter):
@@ -14,7 +15,11 @@ def vxi11_example(xprocess, request):
             pattern = "Running server"
 
             # Hide warnings
-            env = {"RUSTFLAGS": "-Awarnings", **os.environ}
+            env = {
+                "RUSTFLAGS": "-Awarnings",
+                # "CARGO_TARGET_DIR": pytestconfig.cache.mkdir("target"),
+                **os.environ,
+            }
 
             # command to start process
             args = [
@@ -31,7 +36,7 @@ def vxi11_example(xprocess, request):
         name = request.function.__name__
         xprocess.ensure(f"vxi11_example-{name}", Starter)
 
-        yield "TCPIP::localhost::inst0::INSTR"
+        yield "TCPIP::localhost"
 
         # clean up whole process tree afterwards
         xprocess.getinfo(f"vxi11_example-{name}").terminate()

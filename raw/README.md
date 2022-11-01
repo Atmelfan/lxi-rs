@@ -1,6 +1,7 @@
 # lxi-socket
 
-
+# Serialport
+See `examples/serial.rs` for a example on how to listen to a serial port. On linux one can use socat to create a virtual serialport for local testing.
 
 # License
 

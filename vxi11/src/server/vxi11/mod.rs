@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use async_std::{net::ToSocketAddrs, task::JoinHandle};
 
@@ -24,9 +21,9 @@ use crate::{
     },
 };
 
-pub(crate) mod intr_client;
-pub(crate) mod core_service;
 pub(crate) mod abort_service;
+pub(crate) mod core_service;
+pub(crate) mod intr_client;
 
 pub mod prelude {
     pub use super::{abort_service::VxiAsyncServer, core_service::VxiCoreServer, VxiServerBuilder};
@@ -35,7 +32,6 @@ pub mod prelude {
         DEVICE_INTR_VERSION,
     };
 }
-
 
 use prelude::*;
 
@@ -125,22 +121,22 @@ impl<DEV> Drop for Link<DEV> {
     }
 }
 
+type DeviceMap<DEV> = HashMap<String, (Arc<Mutex<DEV>>, Arc<SpinMutex<SharedLock>>)>;
+
 struct VxiInner<DEV> {
     link_id: u32,
     links: HashMap<u32, Sender<()>>,
-    shared: Arc<SpinMutex<SharedLock>>,
-    device: Arc<Mutex<DEV>>,
+    devices: DeviceMap<DEV>,
     status: StatusSender,
 }
 
 impl<DEV> VxiInner<DEV> {
-    fn new(shared: Arc<SpinMutex<SharedLock>>, device: Arc<Mutex<DEV>>, status: StatusSender) -> Arc<Mutex<Self>> {
+    fn new(devices: DeviceMap<DEV>, status: StatusSender) -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(Self {
             link_id: 0,
             links: HashMap::default(),
-            shared,
-            device,
-            status
+            devices,
+            status,
         }))
     }
 
@@ -152,12 +148,13 @@ impl<DEV> VxiInner<DEV> {
         self.link_id
     }
 
-    fn new_link(&mut self) -> (u32, Link<DEV>) {
+    fn new_link(&mut self, subaddr: &String) -> Result<(u32, Link<DEV>), ()> {
         let id = self.next_link_id();
-        let handle = LockHandle::new(self.shared.clone(), self.device.clone());
+        let (device, shared) = self.devices.get(subaddr).ok_or(())?;
+        let handle = LockHandle::new(shared.clone(), device.clone());
         let (link, sender) = Link::new(id, handle);
         self.links.insert(id, sender);
-        (id, link)
+        Ok((id, link))
     }
 
     fn remove_link(&mut self, lid: u32) {
@@ -165,19 +162,26 @@ impl<DEV> VxiInner<DEV> {
     }
 }
 
-
 /// Builder used to create a VXI11 server
-pub struct VxiServerBuilder {
+pub struct VxiServerBuilder<DEV> {
     core_port: u16,
     async_port: u16,
+    devices: DeviceMap<DEV>,
 }
 
-impl VxiServerBuilder {
-    pub fn new() -> Self {
+impl<DEV> Default for VxiServerBuilder<DEV> {
+    fn default() -> Self {
         Self {
             core_port: 4322,
             async_port: 4323,
+            devices: Default::default(),
         }
+    }
+}
+
+impl<DEV> VxiServerBuilder<DEV> {
+    pub fn new() -> Self {
+        Default::default()
     }
 
     /// Set the vxi server core port.
@@ -225,13 +229,21 @@ impl VxiServerBuilder {
         }
     }
 
-    pub fn build<DEV>(
+    pub fn device(
+        mut self,
+        subaddr: String,
+        dev: Arc<Mutex<DEV>>,
+        shared_lock: Arc<SpinMutex<SharedLock>>,
+    ) -> Self {
+        self.devices.insert(subaddr, (dev, shared_lock));
+        self
+    }
+
+    pub fn build(
         self,
-        shared: Arc<SpinMutex<SharedLock>>,
-        device: Arc<Mutex<DEV>>,
         status: StatusSender,
     ) -> (Arc<VxiCoreServer<DEV>>, Arc<VxiAsyncServer<DEV>>) {
-        let inner = VxiInner::new(shared, device, status);
+        let inner = VxiInner::new(self.devices, status);
         (
             Arc::new(VxiCoreServer {
                 inner: inner.clone(),
@@ -239,7 +251,7 @@ impl VxiServerBuilder {
                 max_recv_size: 128 * 1024,
             }),
             Arc::new(VxiAsyncServer {
-                inner: inner.clone(),
+                inner,
                 async_port: self.async_port,
             }),
         )
