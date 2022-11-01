@@ -22,6 +22,21 @@ def test_hislip_idn(hislip_example, resource_manager):
 
     inst.close()
 
+def test_hislip_idn_short(hislip_example, resource_manager):
+    if resource_manager.visalib.library_path == "py":
+        pytest.skip("pyvisa-py does not support HiSLIP", allow_module_level=True)
+    inst1 = resource_manager.open_resource(hislip_example)
+    inst2 = resource_manager.open_resource(hislip_example)
+    inst1.read_termination = ""
+    inst1.write_termination = ""
+
+    inst1.lock(requested_key="foo", timeout=0)
+    resp = inst2.query("*IDN?")
+    assert resp == "Cyberdyne systems,T800 Model 101,A9012.C,V2.4"
+
+    inst1.close()
+    inst2.close()
+
 
 def test_clear(hislip_example, resource_manager: pyvisa.ResourceManager):
     if resource_manager.visalib.library_path == "py":

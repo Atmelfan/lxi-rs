@@ -27,4 +27,5 @@ mio-serial = "5.0"
 async-io = "1.9.0"
 
 [features]
+default = ["tls"]
 tls = ["dep:async-rustls"]
