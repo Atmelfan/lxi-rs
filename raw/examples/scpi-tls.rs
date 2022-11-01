@@ -13,9 +13,9 @@ use clap::Parser;
 
 use async_rustls::{
     rustls::{
-        internal::pemfile::{certs, rsa_private_keys, pkcs8_private_keys},
-        Certificate, NoClientAuth, AllowAnyAuthenticatedClient, PrivateKey, ServerConfig as TlsConfig,
-        RootCertStore, AllowAnyAnonymousOrAuthenticatedClient
+        internal::pemfile::{certs, pkcs8_private_keys, rsa_private_keys},
+        AllowAnyAnonymousOrAuthenticatedClient, AllowAnyAuthenticatedClient, Certificate,
+        NoClientAuth, PrivateKey, RootCertStore, ServerConfig as TlsConfig,
     },
     TlsAcceptor,
 };
@@ -58,8 +58,17 @@ fn load_certs(path: &str) -> io::Result<Vec<Certificate>> {
 
 /// Load the passed keys file
 fn load_keys(path: &str) -> io::Result<Vec<PrivateKey>> {
-    pkcs8_private_keys(&mut BufReader::new(File::open(path)?))
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid key"))
+    // Try to load RSA key
+    match rsa_private_keys(&mut BufReader::new(File::open(path)?)) {
+        Ok(keys) => Ok(keys),
+        // Try PKCS#8 if not RSA
+        Err(_) => match pkcs8_private_keys(&mut BufReader::new(File::open(path)?)) {
+            Ok(keys) => Ok(keys),
+            Err(_) => {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid key, expected RSA or PKCS#8 in PEM format"))
+            },
+        },
+    }
 }
 
 /// Configure the server using rusttls
@@ -74,13 +83,14 @@ fn load_config(options: &Args) -> io::Result<TlsConfig> {
         let mut store = RootCertStore::empty();
         for path in &options.client_cert {
             let mut reader = BufReader::new(File::open(path)?);
-            store.add_pem_file(&mut reader).expect("Failed to load client certificate");
+            store
+                .add_pem_file(&mut reader)
+                .expect("Failed to load client certificate");
         }
         if options.require_authentication {
             TlsConfig::new(AllowAnyAuthenticatedClient::new(store))
         } else {
             TlsConfig::new(AllowAnyAnonymousOrAuthenticatedClient::new(store))
-
         }
     } else {
         if options.require_authentication {

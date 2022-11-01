@@ -1,21 +1,13 @@
-use async_std::channel::{self, Receiver, Sender};
-use lxi_device::Device;
+use std::sync::Weak;
 
-use self::{asynchronous::AsyncSession, synchronous::SyncSession};
+use async_std::{channel::{self, Receiver, Sender}};
+use lxi_device::{Device, lock::{Mutex, SpinMutex, LockHandle}};
 
 use super::ServerConfig;
 use crate::common::Protocol;
 
 pub(crate) mod asynchronous;
 pub(crate) mod synchronous;
-
-macro_rules! assert_session_state {
-    ($state:expr, $expected:pat) => {
-        if !matches!($state, $expected) {
-
-        }
-    }
-}
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SessionMode {
@@ -100,8 +92,35 @@ impl SharedSession {
     }
 }
 
-enum Session<DEV: Device> {
-    Async(AsyncSession<DEV>),
-    Sync(SyncSession<DEV>),
-    Uninitialized
+/// A handle to a created active season
+#[derive(Clone)]
+pub(crate) struct SessionHandle<DEV>
+where
+    DEV: Device,
+{
+    _id: u16,
+    pub shared: Weak<Mutex<SharedSession>>,
+    pub device: Weak<SpinMutex<LockHandle<DEV>>>,
+}
+
+impl<DEV> SessionHandle<DEV>
+where
+    DEV: Device,
+{
+    pub(crate) fn new(
+        id: u16,
+        session: Weak<Mutex<SharedSession>>,
+        handle: Weak<SpinMutex<LockHandle<DEV>>>,
+    ) -> Self {
+        Self {
+            _id: id,
+            shared: session,
+            device: handle,
+        }
+    }
+
+    /// Return false if the assosciated object have been closed
+    pub(crate) fn active(&self) -> bool {
+        self.shared.strong_count() > 0 && self.device.strong_count() > 0
+    }
 }

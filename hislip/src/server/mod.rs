@@ -2,7 +2,6 @@ use std::cmp::min;
 use std::collections::HashMap;
 use std::io;
 use std::str::from_utf8;
-use std::sync::Weak;
 
 use async_std::net::{TcpListener, ToSocketAddrs};
 use async_std::sync::Arc;
@@ -20,65 +19,11 @@ use crate::common::{Protocol, SUPPORTED_PROTOCOL};
 use crate::server::session::{SessionState, SharedSession};
 use crate::DEFAULT_DEVICE_SUBADRESS;
 
+pub use self::config::ServerConfig;
+use self::session::SessionHandle;
+
 pub mod session;
-
-#[derive(Debug, Clone)]
-pub struct ServerConfig {
-    pub vendor_id: u16,
-    /// Maximum server message size
-    pub max_message_size: u64,
-    /// Prefer overlapped data
-    pub prefer_overlap: bool,
-    /// Maximum allowed number of sessions
-    pub max_num_sessions: usize,
-    /// Short circuited "*IDN?" response.
-    /// This should be set identical to what a real "*IDN?" command would return.
-    pub short_idn: Option<Vec<u8>>,
-}
-
-impl ServerConfig {
-    pub fn vendor_id(mut self, vendor_id: u16) -> Self {
-        self.vendor_id = vendor_id;
-        self
-    }
-
-    pub fn max_message_size(mut self, max_message_size: u64) -> Self {
-        self.max_message_size = max_message_size;
-        self
-    }
-
-    pub fn short_idn(mut self, short_idn: &[u8]) -> Self {
-        self.short_idn = Some(short_idn.to_vec());
-        self
-    }
-
-    pub fn max_num_sessions(mut self, max_num_sessions: usize) -> Self {
-        self.max_num_sessions = max_num_sessions;
-        self
-    }
-
-    pub fn prefer_overlap(mut self) -> Self {
-        self.prefer_overlap = true;
-        self
-    }
-
-    pub fn prefer_synchronized(mut self) -> Self {
-        self.prefer_overlap = false;
-        self
-    }
-}
-
-impl Default for ServerConfig {
-    fn default() -> Self {
-        Self {
-            vendor_id: 0xBEEF,
-            max_message_size: 1024 * 1024,
-            prefer_overlap: true,
-            max_num_sessions: 64,
-            short_idn: None,
-        }
-    }
-}
+pub mod config;
 
 type DeviceMap<DEV> = HashMap<String, (Arc<SpinMutex<SharedLock>>, Arc<Mutex<DEV>>)>;
 
@@ -193,7 +138,7 @@ where
     async fn handle_session<S, SRQ>(
         &self,
         peer: String,
-        mut stream: S,
+        stream: S,
         srq: SRQ,
     ) -> Result<(), io::Error>
     where
@@ -238,15 +183,6 @@ where
                                 "Client error {:?}: {}", NonFatalErrorCode::from_error_code(control_code),
                                 from_utf8(&payload).unwrap_or("<invalid utf8>")
                             );
-                        }
-                        Message {
-                            message_type: MessageType::StartTLS,
-                            control_code,
-                            message_parameter,
-                            payload,
-                        } => {
-                            // Uppgrade connection
-                            //stream = stream.start_tls(acceptor).await?;
                         }
                         Message {
                             message_type: MessageType::Initialize,
@@ -373,7 +309,7 @@ where
 
                                 MessageType::AsyncInitializeResponse
                                     .message_params(
-                                        AsyncInitializeResponseControl::new(false).0,
+                                        AsyncInitializeResponseControl::new(true).0,
                                         AsyncInitializeResponseParameter::new(
                                             self.config.vendor_id,
                                         )
@@ -416,39 +352,6 @@ where
                 }
             }
         }
-    }
-}
-
-/// A handle to a created active season
-#[derive(Clone)]
-pub(crate) struct SessionHandle<DEV>
-where
-    DEV: Device,
-{
-    _id: u16,
-    shared: Weak<Mutex<SharedSession>>,
-    device: Weak<SpinMutex<LockHandle<DEV>>>,
-}
-
-impl<DEV> SessionHandle<DEV>
-where
-    DEV: Device,
-{
-    fn new(
-        id: u16,
-        session: Weak<Mutex<SharedSession>>,
-        handle: Weak<SpinMutex<LockHandle<DEV>>>,
-    ) -> Self {
-        Self {
-            _id: id,
-            shared: session,
-            device: handle,
-        }
-    }
-
-    /// Return false if the assosciated object have been closed
-    fn active(&self) -> bool {
-        self.shared.strong_count() > 0 && self.device.strong_count() > 0
     }
 }
 

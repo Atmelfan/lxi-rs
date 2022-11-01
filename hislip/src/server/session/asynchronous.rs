@@ -9,7 +9,7 @@ use async_std::sync::Arc;
 use byteorder::{ByteOrder, NetworkEndian};
 use futures::future::{select, Either};
 use futures::lock::Mutex;
-use futures::{pin_mut, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, FutureExt, Stream};
+use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, Stream};
 use lxi_device::lock::{LockHandle, SharedLockError, SharedLockMode, SpinMutex};
 use lxi_device::{Device, DeviceError};
 
@@ -447,10 +447,12 @@ where
                                 "Secure connection not supported"
                             )
                         }
-                        _ => {
+                        Message {
+                            message_type, ..
+                        } => {
                             send_nonfatal!(peer=peer.to_string(), session_id=self.id; &mut stream,
                                 NonFatalErrorCode::UnrecognizedMessageType,
-                                "Unexpected message type in asynchronous channel",
+                                "Unexpected {message_type:?} in asynchronous channel",
                             );
                         }
                     }

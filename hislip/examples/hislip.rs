@@ -12,7 +12,7 @@ use lxi_device::{
     Device,
 };
 use lxi_hislip::{
-    server::{ServerBuilder, ServerConfig},
+    server::{config::ServerConfig, ServerBuilder},
     STANDARD_PORT,
 };
 
@@ -69,9 +69,7 @@ async fn main() -> Result<(), io::Error> {
     let shared_lock1 = SharedLock::new();
     let device1: Arc<Mutex<Box<dyn Device + Send>>> = Arc::new(Mutex::new(Box::new(EchoDevice)));
 
-    let config = ServerConfig::default()
-        .vendor_id(0x1234)
-        .short_idn(b"Vendor,Model,Serial,Version");
+    let config = ServerConfig::default().vendor_id(0x1234);
     let server = ServerBuilder::new(config)
         .device("hislip0".to_string(), device0, shared_lock0)
         .device("hislip1".to_string(), device1, shared_lock1)
