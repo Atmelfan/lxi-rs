@@ -22,8 +22,8 @@ use crate::DEFAULT_DEVICE_SUBADRESS;
 pub use self::config::ServerConfig;
 use self::session::SessionHandle;
 
-pub mod session;
 pub mod config;
+pub mod session;
 
 type DeviceMap<DEV> = HashMap<String, (Arc<SpinMutex<SharedLock>>, Arc<Mutex<DEV>>)>;
 
@@ -71,12 +71,20 @@ where
         self
     }
 
-    pub fn build(self) -> Arc<Server<DEV>> {
+    pub fn build(
+        self,
+        #[cfg(feature = "secure-capability")] tls_config: Arc<async_rustls::rustls::ServerConfig>,
+    ) -> Arc<Server<DEV>> {
         assert!(
             !self.devices.is_empty(),
             "Server must have one or more devices"
         );
-        Server::with_config(self.config, self.devices)
+        Server::with_config(
+            self.config,
+            self.devices,
+            #[cfg(feature = "secure-capability")]
+            tls_config,
+        )
     }
 }
 
@@ -87,22 +95,31 @@ where
     inner: Arc<Mutex<InnerServer<DEV>>>,
     devices: DeviceMap<DEV>,
     config: ServerConfig,
+    #[cfg(feature = "secure-capability")]
+    tls_acceptor: async_rustls::TlsAcceptor,
 }
 
 impl<DEV> Server<DEV>
 where
     DEV: Device + Send + 'static,
 {
+    #[cfg(not(feature = "secure-capability"))]
     pub fn new(devices: DeviceMap<DEV>) -> Arc<Self> {
         let config = ServerConfig::default();
         Self::with_config(config, devices)
     }
 
-    pub fn with_config(config: ServerConfig, devices: DeviceMap<DEV>) -> Arc<Self> {
+    pub fn with_config(
+        config: ServerConfig,
+        devices: DeviceMap<DEV>,
+        #[cfg(feature = "secure-capability")] tls_config: Arc<async_rustls::rustls::ServerConfig>,
+    ) -> Arc<Self> {
         Arc::new(Server {
             inner: InnerServer::new(config.max_num_sessions),
             config,
             devices,
+            #[cfg(feature = "secure-capability")]
+            tls_acceptor: async_rustls::TlsAcceptor::from(tls_config),
         })
     }
 
@@ -243,7 +260,9 @@ where
                                                 shared,
                                                 RemoteLockHandle::new(device),
                                                 receiver,
-                                                protocol
+                                                protocol,
+                                                #[cfg(feature = "secure-capability")]
+                                                self.tls_acceptor.clone(),
                                             )
                                             .handle_session(stream, peer.clone())
                                             .await;
@@ -321,8 +340,11 @@ where
                                     shared,
                                     device,
                                     sender,
+                                    protocol,
+                                    #[cfg(feature = "secure-capability")]
+                                    self.tls_acceptor.clone(),
                                 )
-                                .handle_session(stream, peer.clone(), srq, protocol)
+                                .handle_session(stream, peer.clone(), srq)
                                 .await;
                                 log::debug!(peer=peer.to_string(), session_id=id; "Async session closed: {res:?}");
                                 return res;

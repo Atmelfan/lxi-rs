@@ -1,3 +1,7 @@
+# Only works with Keysight IO Libraries and Secure communications expert
+# See README on how to setup
+#
+
 from pyvisa import highlevel
 
 

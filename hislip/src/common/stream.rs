@@ -12,6 +12,16 @@ impl<IO> HislipStream<IO> {
     pub(crate) fn new(io: IO) -> Self {
         Self::Insecure(io)
     }
+
+    pub(crate) fn is_secure(&self) -> bool {
+        cfg_if::cfg_if!{
+            if #[cfg(feature = "secure-capability")] {
+                matches!(self, Self::Secure(..))
+            } else {
+                false
+            }
+        }
+    }
 }
 
 impl<IO> HislipStream<IO>
@@ -37,9 +47,9 @@ where
     }
 
     #[cfg(feature = "secure-capability")]
-    pub(crate) async fn end_tls(self) -> std::io::Result<Self> {
+    pub(crate) async fn end_tls(self) -> Result<Self, (std::io::Error, Self)> {
         match self {
-            HislipStream::Insecure(_) => Err(std::io::ErrorKind::Other.into()),
+            HislipStream::Insecure(_) => Err((std::io::ErrorKind::Other.into(), self)),
             HislipStream::Secure(mut _tls) => {
                 let (_io, _session) = _tls.get_mut();
                 todo!("Implement end_tls when async-rustls is updated")

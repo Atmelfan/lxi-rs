@@ -47,7 +47,7 @@ impl Descriptor {
     pub fn write_descriptor<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         match self {
             Descriptor::SupportedTlsVersions(versions) => {
-                writer.write_u16::<byteorder::NetworkEndian>(versions.len() as u16)?;
+                writer.write_u16::<byteorder::NetworkEndian>((versions.len()*2) as u16)?;
                 writer.write_u8(0)?;
                 for v in versions {
                     writer.write_u16::<byteorder::NetworkEndian>(*v)?;

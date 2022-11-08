@@ -1,4 +1,4 @@
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ServerConfig {
     pub vendor_id: u16,
     /// Maximum server message size
@@ -7,6 +7,12 @@ pub struct ServerConfig {
     pub prefer_overlap: bool,
     /// Maximum allowed number of sessions
     pub max_num_sessions: usize,
+    /// Force use of encryption and do do not allow clients to end encryption
+    #[cfg(feature="secure-capability")]
+    pub encryption_mandatory: bool,
+    /// Clients must encrypt/authenticate after initializing the session
+    #[cfg(feature="secure-capability")]
+    pub initial_encryption: bool,
 }
 
 impl ServerConfig {
@@ -34,6 +40,24 @@ impl ServerConfig {
         self.prefer_overlap = false;
         self
     }
+
+    #[cfg(feature="secure-capability")]
+    pub fn encryption_mandatory(mut self, encryption_mandatory: bool) -> Self {
+        self.encryption_mandatory = encryption_mandatory;
+        self
+    }
+
+    #[cfg(feature="secure-capability")]
+    pub fn initial_encryption(mut self, initial_encryption: bool) -> Self {
+        self.initial_encryption = initial_encryption;
+        self
+    }
+
+    #[cfg(feature="secure-capability")]
+    pub fn is_secure(&self) -> bool {
+        return self.encryption_mandatory && self.initial_encryption;
+    }
+
 }
 
 impl Default for ServerConfig {
@@ -43,6 +67,10 @@ impl Default for ServerConfig {
             max_message_size: 1024 * 1024,
             prefer_overlap: true,
             max_num_sessions: 64,
+            #[cfg(feature="secure-capability")]
+            encryption_mandatory: false,
+            #[cfg(feature="secure-capability")]
+            initial_encryption: false,
         }
     }
 }

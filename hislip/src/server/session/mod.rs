@@ -1,7 +1,10 @@
 use std::sync::Weak;
 
-use async_std::{channel::{self, Receiver, Sender}};
-use lxi_device::{Device, lock::{Mutex, SpinMutex, LockHandle}};
+use async_std::channel::{self, Receiver, Sender};
+use lxi_device::{
+    lock::{LockHandle, Mutex, SpinMutex},
+    Device,
+};
 
 use super::ServerConfig;
 use crate::common::Protocol;
@@ -51,9 +54,9 @@ impl SharedSession {
             mode: SessionMode::Overlapped,
             max_message_size: 256,
             clear: channel::bounded(1),
-            read_message_id: 0,
+            read_message_id: 0xffff_fefe,
             enable_remote: true,
-            sent_message_id: 0,
+            sent_message_id: 0xffff_fefe,
         }
     }
 

@@ -14,7 +14,7 @@ async-std = { workspace = true }
 async-listen = { workspace = true }
 futures = { workspace = true }
 log = { workspace = true, features = ["kv_unstable_std"] }
-async-rustls = { workspace = true, optional = true }
+async-rustls = { workspace = true, features = ["dangerous_configuration"], optional = true }
 
 [dependencies.lxi-device]
 path = "../device"

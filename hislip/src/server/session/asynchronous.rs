@@ -13,8 +13,9 @@ use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, Stream};
 use lxi_device::lock::{LockHandle, SharedLockError, SharedLockMode, SpinMutex};
 use lxi_device::{Device, DeviceError};
 
+use crate::common::descriptors::Descriptor;
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
-use crate::common::messages::{prelude::*, send_fatal, send_nonfatal};
+use crate::common::messages::{prelude::*, send_fatal, send_nonfatal, TlsStatus};
 use crate::common::stream::HislipStream;
 use crate::common::{Protocol, PROTOCOL_2_0};
 
@@ -37,6 +38,11 @@ where
     handle: Arc<SpinMutex<LockHandle<DEV>>>,
 
     clear: Sender<()>,
+
+    protocol: Protocol,
+
+    #[cfg(feature = "secure-capability")]
+    acceptor: async_rustls::TlsAcceptor,
 }
 
 impl<DEV> AsyncSession<DEV>
@@ -49,6 +55,8 @@ where
         shared: Arc<Mutex<SharedSession>>,
         handle: Arc<SpinMutex<LockHandle<DEV>>>,
         clear: Sender<()>,
+        protocol: Protocol,
+        #[cfg(feature = "secure-capability")] acceptor: async_rustls::TlsAcceptor,
     ) -> Self {
         Self {
             id,
@@ -56,6 +64,9 @@ where
             shared,
             handle,
             clear,
+            protocol,
+            #[cfg(feature = "secure-capability")]
+            acceptor,
         }
     }
 
@@ -64,7 +75,6 @@ where
         mut stream: HislipStream<S>,
         peer: String,
         mut srq: SRQ,
-        protocol: Protocol,
     ) -> Result<(), io::Error>
     where
         S: AsyncRead + AsyncWrite + Unpin,
@@ -92,14 +102,14 @@ where
                                         .await?;
                                     srq_bit = true;
                                 }
-                            },
+                            }
                             // Srq is closed, server is shutting down
                             None => {
                                 log::info!(peer=peer.to_string(), session_id=self.id; "Server shutting down...");
-                                return Ok(())
-                            },
+                                return Ok(());
+                            }
                         }
-                        // Finish receiving message 
+                        // Finish receiving message
                         // This is important as dropping the future mid-message can corrupt the datastream
                         msg.await
                     }
@@ -395,11 +405,51 @@ where
                                 .await?;
                         }
                         Message {
+                            message_type: MessageType::GetDescriptors,
+                            control_code,
+                            message_parameter,
+                            ..
+                        } if self.protocol >= PROTOCOL_2_0 => {
+                            log::debug!(session_id=self.id, control_code=control_code, message_parameter=message_parameter; "Get descriptors (async)");
+
+                            let mut payload = Vec::new();
+                            Descriptor::SupportedTlsVersions(vec![0x0303, 0x0304])
+                                .write_descriptor(&mut payload)?;
+                            Descriptor::TlsInformation(b"1.2".to_vec())
+                                .write_descriptor(&mut payload)?;
+                            Descriptor::TlsLastError(b"OK".to_vec())
+                                .write_descriptor(&mut payload)?;
+
+                            log::debug!(session_id=self.id, control_code=control_code, message_parameter=message_parameter; "Response -> {payload:?}");
+
+                            MessageType::GetDescriptorsResponse
+                                .message_params(0, 0)
+                                .with_payload(payload)
+                                .write_to(&mut stream)
+                                .await?;
+                        }
+                        #[cfg(not(feature = "secure-capability"))]
+                        Message {
+                            message_type:
+                                MessageType::AsyncStartTLS
+                                | MessageType::AsyncEndTLS,
+                            ..
+                        } if self.protocol >= PROTOCOL_2_0 => {
+                            send_fatal!(
+                                &mut stream,
+                                FatalErrorCode::SecureConnectionFailed,
+                                "Secure capablity not supported"
+                            )
+                        }
+                        #[cfg(feature = "secure-capability")]
+                        Message {
                             message_type: MessageType::AsyncStartTLS,
                             control_code,
                             message_parameter,
                             payload,
-                        } if protocol >= PROTOCOL_2_0 && cfg!(feature = "secure-capability") => {
+                        } if self.protocol >= PROTOCOL_2_0 => {
+                            let shared = self.shared.lock().await;
+
                             if payload.len() != 4 {
                                 send_fatal!(peer=peer.to_string(), session_id=self.id;
                                     &mut stream, FatalErrorCode::PoorlyFormattedMessageHeader,
@@ -413,21 +463,51 @@ where
 
                             log::debug!(session_id=self.id, message_id_sent=message_id_sent, message_id_read=message_id_read; "Start async TLS");
 
-                            // TODO: Encryption support
-                            //stream = stream.start_tls(acceptor)?;
-                            send_fatal!(
-                                &mut stream,
-                                FatalErrorCode::SecureConnectionFailed,
-                                "Secure connection not supported"
-                            )
+                            let control = if stream.is_secure() {
+                                TlsStatus::Error
+                            } else if message_id_sent != shared.read_message_id
+                                || message_id_read != shared.sent_message_id
+                            {
+                                TlsStatus::Busy
+                            } else {
+                                TlsStatus::Success
+                            };
+                            log::trace!("Response = {control:?}");
+
+                            // Drop the shared object to avoid blocking
+                            drop(shared);
+
+                            MessageType::AsyncStartTLSResponse
+                                .message_params(control as u8, 0)
+                                .no_payload()
+                                .write_to(&mut stream)
+                                .await?;
+
+                            if control == TlsStatus::Success {
+                                // Switch over to TLS
+                                stream = match stream.start_tls(&mut self.acceptor.clone()).await {
+                                    Ok(stream) => stream,
+                                    Err((err, mut stream)) => {
+                                        send_fatal!(
+                                            &mut stream,
+                                            FatalErrorCode::SecureConnectionFailed,
+                                            "Failed to establish TLS connections: {err}"
+                                        )
+                                    }
+                                };
+                                log::info!(session_id=self.id; "Async channel switched to TLS")
+                            } else {
+                                log::error!(session_id=self.id; "Failed to switch async session to TLS: {control:?}")
+                            }
                         }
+                        #[cfg(feature = "secure-capability")]
                         Message {
                             message_type: MessageType::AsyncEndTLS,
                             control_code,
                             message_parameter,
                             payload,
-                        } if protocol >= PROTOCOL_2_0 => {
-                            // Only supported >= 2.0
+                        } if self.protocol >= PROTOCOL_2_0 => {
+                            // Only supported >= 2.0 and supports secure-capability
 
                             let _control = RmtDeliveredControl(control_code);
                             let message_id_sent = message_parameter;
@@ -442,9 +522,7 @@ where
                                 "Secure connection not supported"
                             )
                         }
-                        Message {
-                            message_type, ..
-                        } => {
+                        Message { message_type, .. } => {
                             send_nonfatal!(peer=peer.to_string(), session_id=self.id; &mut stream,
                                 NonFatalErrorCode::UnrecognizedMessageType,
                                 "Unexpected {message_type:?} in asynchronous channel",

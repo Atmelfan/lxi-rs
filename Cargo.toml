@@ -1,5 +1,5 @@
 [workspace]
-members = ["device", "hislip", "raw", "telnet", "vxi11"]
+members = ["device", "hislip", "raw", "telnet", "vxi11", "lxi-common"]
 
 [workspace.package]
 version = "0.1.0"

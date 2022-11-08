@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{fs::File, io::BufReader, sync::Arc, time::Duration};
 
 use async_std::{
     io::{self, timeout},
@@ -32,6 +32,20 @@ struct Args {
     /// Kill server after timeout (useful for coverage testing)
     #[clap(short, long)]
     timeout: Option<u64>,
+
+    /// TLS certificate
+    #[cfg(feature = "secure-capability")]
+    #[clap(short, long, default_value = ".certificates/cert.pem")]
+    cert: String,
+
+    /// TLS key
+    #[cfg(feature = "secure-capability")]
+    #[clap(short, long, default_value = ".certificates/key.pem")]
+    key: String,
+
+    #[cfg(feature = "secure-capability")]
+    #[clap(long)]
+    client_cert: Vec<String>,
 }
 
 struct DummySpawner;
@@ -43,6 +57,20 @@ impl Spawn for DummySpawner {
         task::spawn(async move { future.await });
         Ok(())
     }
+}
+
+#[cfg(feature = "secure-capability")]
+fn load_certs(path: &str) -> io::Result<Vec<async_rustls::rustls::Certificate>> {
+    async_rustls::rustls::internal::pemfile::certs(&mut BufReader::new(File::open(path)?))
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid cert"))
+}
+
+#[cfg(feature = "secure-capability")]
+fn load_keys(path: &str) -> io::Result<Vec<async_rustls::rustls::PrivateKey>> {
+    async_rustls::rustls::internal::pemfile::pkcs8_private_keys(&mut BufReader::new(File::open(
+        path,
+    )?))
+    .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid key"))
 }
 
 #[async_std::main]
@@ -72,8 +100,25 @@ async fn main() -> Result<(), io::Error> {
     let config = ServerConfig::default().vendor_id(0x1234);
     let server = ServerBuilder::new(config)
         .device("hislip0".to_string(), device0, shared_lock0)
-        .device("hislip1".to_string(), device1, shared_lock1)
-        .build();
+        .device("hislip1".to_string(), device1, shared_lock1);
+
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "secure-capability")] {
+            let certs = load_certs(&args.cert)?;
+            let mut keys = load_keys(&args.key)?;
+
+            let mut config =
+                async_rustls::rustls::ServerConfig::new(async_rustls::rustls::NoClientAuth::new());
+            config
+                .set_single_cert(certs, keys.remove(0))
+                .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
+            config.key_log = Arc::new(async_rustls::rustls::KeyLogFile::new());
+            let server = server.build(Arc::new(config));
+
+        } else {
+            let server = server.build();
+        }
+    };
 
     log::info!("Running server on port {}:{}...", args.ip, args.port);
     if let Some(t) = args.timeout {

@@ -1,18 +1,24 @@
 # lxi-rs
 
 This crate aims to simplify implementation of the [LXI Device Specification](https://www.lxistandard.org/Specifications/Specifications.aspx).
-The specifications consists of a [core specification](https://www.lxistandard.org/members/Adopted%20Specifications/Latest%20Version%20of%20Standards_/LXI%20Standard%201.5%20Specifications/LXI%20Device%20Specification%20v1_5_01.pdf) and a optional set of extended functions.
+The specifications consists of a [core specification](https://www.lxistandard.org/members/Adopted%20Specifications/Latest%20Version%20of%20Standards_/LXI%20Version%201.6/LXI_Device_Specification_1.6_2022-06-09.pdf) and a optional set of extended functions.
 
-Currently the focus is on implementing HiSLIP/VXI-11/Socket protocols for Unix-like environments. A long-term goal is to support an async no-std environment like [](https://github.com/embassy-rs/embassy)
+Currently the focus is on implementing HiSLIP/VXI-11/Socket protocols for Unix-like environments. A long-term goal is to support an async no-std environment like [embassy](https://github.com/embassy-rs/embassy) or [smol-tcp]().
 
 
 # Relevant standards:
-* [IVI-6.1 High-Speed LAN Instrument Protocol (HiSLIP) v2.0](https://www.ivifoundation.org/specifications/)
-* [VXI-11 REVISION v1.0](https://www.vxibus.org/specifications.html)
-* [LXI Device specification v1.5](https://www.lxistandard.org/members/Adopted%20Specifications/Latest%20Version%20of%20Standards_/LXI%20Standard%201.5%20Specifications/LXI%20Device%20Specification%20v1_5_01.pdf)
+* [LXI Device specification v1.6](https://www.lxistandard.org/members/Adopted%20Specifications/Latest%20Version%20of%20Standards_/LXI%20Version%201.6/LXI_Device_Specification_1.6_2022-06-09.pdf)
 
 # Scope
 This crate does not handle command parsing and/or execution, look at [scpi-rs](https://github.com/Atmelfan/scpi-rs)(:crab:) or [libscpi](https://github.com/j123b567/scpi-parser)(C) for that.
+
+# Architecture
+* [device](./device/) Common abstractions for the core device. Crate is `no-std` compatible [but do require alloc (TODO)](https://github.com/Atmelfan/lxi-rs/issues/3).
+* [raw](./raw/) Server for Scpi-raw and Scpi-TLS protocols (`TCPIP::hostname::port::SOCKET`).
+* [telnet](./telnet/) Server for Telnet protocol, mostly useful for interactive debugging.
+* [hislip](./hislip/) HiSLIP v2.0 server, more modern VXI-11 replacement. See [IVI-6.1 High-Speed LAN Instrument Protocol (HiSLIP) v2.0](https://www.ivifoundation.org/specifications/).
+* [vxi-11](./vxi11/) VXI-11 server. See [VXI-11 REVISION v1.0](https://www.vxibus.org/specifications.html).
+
 
 # Certificates
 Secure extensions and https server requires a certificate and key. 
@@ -38,6 +44,6 @@ This crate uses two types of tests, the cargo test framework and pytest. Cargo t
 2. Run `./coverage --open`
 
 # Licensing
-Lxi-rs is available under GPLv3 License, see [LICENSE-GPL](./LICENSE-GPL).
+Lxi-rs is available under dual GPLv3 and commercial license, see [LICENSE-GPL](./LICENSE-GPL) and `TBD`.
 
 Core crates like [lxi-device](device) are licensed under MIT and APACHE version 2.

@@ -11,8 +11,10 @@ use lxi_device::lock::RemoteLockHandle;
 use lxi_device::trigger::Source;
 use lxi_device::Device;
 
+use crate::common::descriptors::Descriptor;
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::common::messages::{prelude::*, send_fatal, send_nonfatal};
+use crate::common::stream::HislipStream;
 use crate::common::{Protocol, PROTOCOL_2_0};
 
 use super::{ServerConfig, SharedSession};
@@ -37,6 +39,9 @@ where
     clear: Receiver<()>,
 
     protocol: Protocol,
+
+    #[cfg(feature = "secure-capability")]
+    acceptor: async_rustls::TlsAcceptor,
 }
 
 impl<DEV> SyncSession<DEV>
@@ -50,6 +55,7 @@ where
         handle: RemoteLockHandle<DEV>,
         clear: Receiver<()>,
         protocol: Protocol,
+        #[cfg(feature = "secure-capability")] acceptor: async_rustls::TlsAcceptor,
     ) -> Self {
         Self {
             id,
@@ -58,6 +64,8 @@ where
             handle,
             clear,
             protocol,
+            #[cfg(feature = "secure-capability")]
+            acceptor,
         }
     }
 
@@ -97,7 +105,7 @@ where
 
     pub(crate) async fn handle_session<S>(
         self,
-        mut stream: S,
+        mut stream: HislipStream<S>,
         peer: String,
     ) -> Result<(), io::Error>
     where
@@ -323,22 +331,94 @@ where
                         },
                         Message {
                             message_type: MessageType::GetDescriptors,
+                            control_code,
+                            message_parameter,
                             ..
                         } if self.protocol >= PROTOCOL_2_0 => {
-                            todo!()
-                        }
-                        Message {
-                            message_type: MessageType::StartTLS | MessageType::EndTLS,
-                            ..
-                        } if self.protocol >= PROTOCOL_2_0 => {
-                            log::debug!(peer=peer.to_string(), session_id=self.id; "Start/end TLS");
+                            log::debug!(session_id=self.id, control_code=control_code, message_parameter=message_parameter; "Get descriptors (sync)");
 
+                            let mut payload = Vec::new();
+                            Descriptor::SupportedTlsVersions(vec![0x0303, 0x0304])
+                                .write_descriptor(&mut payload)?;
+                            Descriptor::TlsInformation(b"1.2".to_vec())
+                                .write_descriptor(&mut payload)?;
+                            Descriptor::TlsLastError(b"OK".to_vec())
+                                .write_descriptor(&mut payload)?;
+
+                            log::debug!(session_id=self.id, control_code=control_code, message_parameter=message_parameter; "Response -> {payload:?}");
+
+                            MessageType::GetDescriptorsResponse
+                                .message_params(0, 0)
+                                .with_payload(payload)
+                                .write_to(&mut stream)
+                                .await?;
+                        }
+                        #[cfg(not(feature = "secure-capability"))]
+                        Message {
+                            message_type:
+                                MessageType::StartTLS
+                                | MessageType::EndTLS
+                                | MessageType::GetSaslMechanismList
+                                | MessageType::AuthenticationStart
+                                | MessageType::AuthenticationExchange,
+                            ..
+                        } if self.protocol >= PROTOCOL_2_0 => {
                             send_fatal!(
                                 &mut stream,
                                 FatalErrorCode::SecureConnectionFailed,
-                                "Secure connection not supported"
+                                "Secure capablity not supported"
                             )
                         }
+                        #[cfg(feature = "secure-capability")]
+                        Message {
+                            message_type: MessageType::StartTLS,
+                            ..
+                        } if self.protocol >= PROTOCOL_2_0 => {
+                            log::debug!(session_id=self.id; "Sync start TLS");
+
+                            // Switch over to TLS
+                            stream = match stream.start_tls(&mut self.acceptor.clone()).await {
+                                Ok(stream) => stream,
+                                Err((err, mut stream)) => {
+                                    send_fatal!(
+                                        &mut stream,
+                                        FatalErrorCode::SecureConnectionFailed,
+                                        "Failed to establish TLS connections: {err}"
+                                    )
+                                }
+                            };
+                            log::info!(session_id=self.id; "Sync channel switched to TLS")
+                        }
+                        #[cfg(feature = "secure-capability")]
+                        Message {
+                            message_type: MessageType::EndTLS,
+                            ..
+                        } if self.protocol >= PROTOCOL_2_0 => {
+                            log::debug!(session_id=self.id; "Sync end TLS");
+
+                            // Disconnect client if encrption is mandatory
+                            if self.config.encryption_mandatory {
+                                send_fatal!(
+                                    &mut stream,
+                                    FatalErrorCode::SecureConnectionFailed,
+                                    "Authentication not supported"
+                                )
+                            }
+
+                            // Switch off TLS
+                            stream = match stream.end_tls().await {
+                                Ok(stream) => stream,
+                                Err((err, mut stream)) => {
+                                    send_fatal!(
+                                        &mut stream,
+                                        FatalErrorCode::SecureConnectionFailed,
+                                        "Failed to end TLS connections: {err}"
+                                    )
+                                }
+                            };
+                            log::info!(session_id=self.id; "Sync channel switched to TLS")
+                        }
+                        #[cfg(feature = "secure-capability")]
                         Message {
                             message_type:
                                 MessageType::GetSaslMechanismList
@@ -349,11 +429,7 @@ where
                         } if self.protocol >= PROTOCOL_2_0 => {
                             log::debug!(peer=peer.to_string(), session_id=self.id; "Authentication Start/Exchange");
 
-                            send_fatal!(
-                                &mut stream,
-                                FatalErrorCode::SecureConnectionFailed,
-                                "Authentication not supported"
-                            )
+                            todo!()
                         }
                         msg => {
                             send_nonfatal!(peer=peer.to_string(), session_id=self.id;

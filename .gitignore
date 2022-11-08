@@ -11,3 +11,4 @@ lcov.info
 
 # Certificates
 /.certificates
+ssl.log

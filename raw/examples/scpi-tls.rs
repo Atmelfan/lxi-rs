@@ -65,9 +65,54 @@ fn load_keys(path: &str) -> io::Result<Vec<PrivateKey>> {
         Err(_) => match pkcs8_private_keys(&mut BufReader::new(File::open(path)?)) {
             Ok(keys) => Ok(keys),
             Err(_) => {
-                return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid key, expected RSA or PKCS#8 in PEM format"))
-            },
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Invalid key, expected RSA or PKCS#8 in PEM format",
+                ))
+            }
         },
+    }
+}
+
+struct LxiClientCertVerifier<V> {
+    inner: V,
+    thumbprints: Vec<()>
+}
+
+impl<V> LxiClientCertVerifier<V> {
+    fn get_certificate_thumbprint() {
+
+    }
+}
+
+impl<V> async_rustls::rustls::ClientCertVerifier for LxiClientCertVerifier<V>
+where
+    V: async_rustls::rustls::ClientCertVerifier,
+{
+    fn offer_client_auth(&self) -> bool {
+        self.inner.offer_client_auth()
+    }
+
+    fn client_auth_mandatory(&self, sni: Option<&async_rustls::webpki::DNSName>) -> Option<bool> {
+        self.inner.client_auth_mandatory(sni)
+    }
+
+    fn client_auth_root_subjects(
+        &self,
+        sni: Option<&async_rustls::webpki::DNSName>,
+    ) -> Option<async_rustls::rustls::DistinguishedNames> {
+        self.inner.client_auth_root_subjects(sni)
+    }
+
+    fn verify_client_cert(
+        &self,
+        presented_certs: &[Certificate],
+        sni: Option<&async_rustls::webpki::DNSName>,
+    ) -> Result<async_rustls::rustls::ClientCertVerified, async_rustls::rustls::TLSError> {
+        if let Some(end_cert) = presented_certs.first() {
+            //end_cert
+        }
+        self.inner.verify_client_cert(presented_certs, sni)
     }
 }
 
