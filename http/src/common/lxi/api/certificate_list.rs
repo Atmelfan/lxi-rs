@@ -1,6 +1,9 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-pub const SCHEMA: &'static str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/schemas/LXICertificateList.xsd"));
+pub const SCHEMA: &'static str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/schemas/LXICertificateList.xsd"
+));
 
 /// See LXI-API Extended function 23.15.1
 #[derive(Debug, Serialize, Deserialize)]
@@ -12,7 +15,7 @@ struct LxiCertificateList {
     pub xmlns_xsi: String,
     #[serde(rename = "xsi:schemaLocation")]
     pub xsi_schema_location: String,
-    
+
     #[serde(rename = "CertificateInfo")]
     certificates: Vec<CertificateInfo>,
 }
@@ -31,4 +34,3 @@ struct CertificateInfo {
     #[serde(rename = "expirationDateTime")]
     expiration_date_time: String,
 }
-

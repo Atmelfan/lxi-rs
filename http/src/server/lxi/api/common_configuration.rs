@@ -1,34 +1,33 @@
-use tide::{Request, Response};
+use tide::Request;
 
 use crate::common::lxi::api::common_configuration::*;
 
 use super::{auth::Permission, middleware::ProblemDetails};
 
 pub trait CommonConfiguration {
-    /// Something triggered an 
-    fn lan_config_initialize(&mut self) {
-
-    }
+    /// Something triggered an
+    fn lan_config_initialize(&self) {}
 
     fn hsm_present(&self) -> bool {
         false
     }
+
+    fn get_users(&self) -> Vec<UserInfo>;
+}
+
+pub struct UserInfo {
+    pub username: String,
+    pub api_access: Option<Permission>,
 }
 
 pub async fn get<S>(req: Request<S>) -> tide::Result
 where
     S: CommonConfiguration,
 {
-    let _guard = req
-        .ext::<Permission>()
-        .ok_or_else(|| tide::http::format_err!("No api permissions set"))?;
-    get_common(req, true).await
-}
+    let permissions = req.ext::<Permission>();
 
-pub async fn get_common<S>(req: Request<S>, list_users: bool) -> tide::Result
-where
-    S: CommonConfiguration,
-{
+    let state = req.state();
+
     let mut schema = req.url().clone();
     schema.set_path("lxi/schemas/LXICommonConfiguration/1.0");
     let mut response: tide::Response = LxiCommonConfiguration {
@@ -40,7 +39,7 @@ where
         ),
 
         strict: None, //write-only
-        hsm_present: Some(req.state().hsm_present()),
+        hsm_present: Some(state.hsm_present()),
         interfaces: vec![Interface {
             name: Some("eth0".to_string()),
             lxi_conformant: Some("LXI Device Specification 1.6".to_string()),
@@ -113,26 +112,40 @@ where
                 must_start_encrypted: Some(false),
                 encryption_mandatory: Some(false),
                 client_authentication_mechanisms: Some(ClientAuthenticationMechanisms {
-                    anonymous: Some(AuthenticationMechanism { enabled: Some(true) }),
-                    plain: Some(AuthenticationMechanism { enabled: Some(true) }),
-                    scram: Some(AuthenticationMechanism { enabled: Some(true) }),
-                    mtls: Some(AuthenticationMechanism { enabled: Some(true) }),
+                    anonymous: Some(AuthenticationMechanism {
+                        enabled: Some(true),
+                    }),
+                    plain: Some(AuthenticationMechanism {
+                        enabled: Some(true),
+                    }),
+                    scram: Some(AuthenticationMechanism {
+                        enabled: Some(true),
+                    }),
+                    mtls: Some(AuthenticationMechanism {
+                        enabled: Some(true),
+                    }),
                 }),
             }),
             vxi11: Some(Vxi11 {
                 enabled: Some(true),
             }),
         }],
-        client_authenticaton: if list_users {
+        client_authenticaton: if permissions.map_or(false, |p| p.user_management) {
+            let users = state
+                .get_users()
+                .into_iter()
+                .map(|info| ClientCredential {
+                    user: info.username,
+                    password: None,
+                    api_access: Some(info.api_access.is_some()),
+                })
+                .collect();
+
             // Provide userinformation without password/api_access
             Some(ClientAuthentication {
                 scram_hash_iteration_count: None,
                 scram_channel_binding_required: None,
-                client_credential: Some(vec![ClientCredential {
-                                    user: "Basil".to_string(),
-                                    password: None,
-                                    api_access: None,
-                                }]),
+                client_credential: Some(users),
                 client_cert_authentication: None,
             })
         } else {
@@ -150,28 +163,24 @@ pub async fn put<S>(mut req: Request<S>) -> tide::Result
 where
     S: CommonConfiguration,
 {
-    let permissions = req
-        .ext::<Permission>().cloned()
+    let _permissions = req
+        .ext::<Permission>()
+        .cloned()
         .ok_or_else(|| tide::http::format_err!("No api permissions set"))?;
 
     // Deserialize xml
     let xml = req.body_string().await?;
     let config = match LxiCommonConfiguration::from_xml(&xml) {
         Ok(c) => c,
-        Err(err) =>  {
+        Err(err) => {
             let mut response: tide::Response = tide::http::StatusCode::BadRequest.into();
             response.insert_ext(ProblemDetails::with_detail(err, None));
             return Ok(response);
-        },
+        }
     };
 
     // Apply xml
     log::info!("PUT config = {config:?}");
-    if matches!(config.client_authenticaton, Some(ClientAuthentication {client_credential: Some(_), .. })) && !permissions.user_management {
-        let mut response: tide::Response = tide::http::StatusCode::BadRequest.into();
-        response.insert_ext(ProblemDetails::with_detail("User/API-Key is not permitted to modify user credentials", None));
-        return Ok(response);
-    }
 
     return Ok(tide::http::StatusCode::Ok.into());
 }

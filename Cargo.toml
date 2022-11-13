@@ -23,6 +23,4 @@ clap = { version = "4.0", features = ["derive"] }
 document-features = "0.2.6"
 
 [patch.crates-io]
-quick-xml = { git = 'https://github.com/tafia/quick-xml.git' }
-rasn-cms = { git = "https://github.com/XAMPPRocky/rasn.git" }
-rasn = { git = "https://github.com/XAMPPRocky/rasn.git" }
+quick-xml = { git = 'https://github.com/tafia/quick-xml.git', commit = "9f8ec4429e0325577f86e6e3b23a608ac931edf1" }

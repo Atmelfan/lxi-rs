@@ -21,11 +21,17 @@ pub struct LxiLiterals<T> {
 }
 
 impl<T> LxiLiterals<T> {
-    pub fn to_xml(&self) -> Result<String, quick_xml::DeError> where T: Serialize {
+    pub fn to_xml(&self) -> Result<String, quick_xml::DeError>
+    where
+        T: Serialize,
+    {
         quick_xml::se::to_string(self)
     }
 
-    pub fn from_xml<'a>(xml: &'a str) -> Result<Self, quick_xml::de::DeError> where T: Deserialize<'a> {
+    pub fn from_xml<'a>(xml: &'a str) -> Result<Self, quick_xml::de::DeError>
+    where
+        T: Deserialize<'a>,
+    {
         quick_xml::de::from_str(xml)
     }
 }
@@ -49,11 +55,8 @@ pub struct LxiLiteralsBoolean {
 mod tests {
     use super::LxiLiterals;
 
-
-
     #[test]
     fn serialize_bool() {
-
         let x = LxiLiterals {
             xmlns: "".to_string(),
             xmlns_xsi: "".to_string(),

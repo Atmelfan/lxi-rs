@@ -29,7 +29,10 @@ pub struct LXIIdentification {
     pub homepage_url: String,
     #[serde(rename = "DriverURL")]
     pub driver_url: String,
-    #[serde(rename = "ConnectedDevices", skip_serializing_if = "ConnectedDevices::is_empty")]
+    #[serde(
+        rename = "ConnectedDevices",
+        skip_serializing_if = "ConnectedDevices::is_empty"
+    )]
     pub connected_devices: ConnectedDevices,
     #[serde(rename = "UserDescription")]
     pub user_description: String,

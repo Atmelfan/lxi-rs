@@ -10,15 +10,15 @@ async-std = { workspace = true }
 futures = { workspace = true }
 log = { workspace = true, features = ["kv_unstable_std"] }
 quick-xml = { version = "0.26.0", features = ["serialize"] }
-async-trait = "0.1.41"
+async-trait = "0.1"
+strum = { version = "0.24", features = ["derive"] }
 
 # Tide
-tide = { version = "0.16.0", default-features = false }
-serde = { version = "1.0", features = ["derive"] }
+tide = { version = "0.16.0", default-features = false, features = ["h1-server"]}
 tide-rustls = { version = "0.3.0", optional = true }
+serde = { version = "1.0", features = ["derive"] }
 
 # LXI-API
-openssl = { version = "0.10", features = ["vendored"] }
 base64 = { version = "0.13", optional = true }
 uuid = { version = "1.2", features = ["v4"] }
 
@@ -39,6 +39,8 @@ sqlx = { version = "0.6", features = [
 
 [features]
 default = ["lxi-api", "tls"]
+
+#! 
 lxi-api = ["dep:base64", "tls"]
 tls = ["dep:tide-rustls"]
 

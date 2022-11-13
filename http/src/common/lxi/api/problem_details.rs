@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-pub const SCHEMA: &'static str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/schemas/LXIProblemDetails.xsd"));
+pub const SCHEMA: &'static str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/schemas/LXIProblemDetails.xsd"
+));
 
 /// See LXI-API Extended function 23.18.1
 #[derive(Debug, Serialize, Deserialize)]
