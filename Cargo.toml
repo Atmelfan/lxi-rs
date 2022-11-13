@@ -14,6 +14,7 @@ async-listen = "0.2.1"
 futures = { version = "0.3" }
 log = { version = "0.4.17" }
 byteorder = { version = "1.4" }
+async-rustls = { version = "0.2" }
 
 # Dev dependencies
 femme = "2.2"

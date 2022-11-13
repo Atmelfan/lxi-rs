@@ -15,6 +15,7 @@ use lxi_device::Device;
 
 use crate::common::errors::{Error, FatalErrorCode, NonFatalErrorCode};
 use crate::common::messages::{prelude::*, send_fatal, send_nonfatal};
+use crate::common::stream::HislipStream;
 use crate::common::{Protocol, SUPPORTED_PROTOCOL};
 use crate::server::session::{SessionState, SharedSession};
 use crate::DEFAULT_DEVICE_SUBADRESS;
@@ -190,6 +191,7 @@ where
         S: AsyncRead + AsyncWrite + Unpin,
         SRQ: Stream<Item = u8> + Unpin,
     {
+        let mut stream = HislipStream::new(stream);
         loop {
             match Message::read_from(&mut stream, self.config.max_message_size).await? {
                 Ok(msg) => {
@@ -232,6 +234,15 @@ where
                             // Uppgrade connection
 
                             // Start session
+                        }
+                        Message {
+                            message_type: MessageType::StartTLS,
+                            control_code,
+                            message_parameter,
+                            payload,
+                        } => {
+                            // Uppgrade connection
+                            //stream = stream.start_tls(acceptor).await?;
                         }
                         Message {
                             message_type: MessageType::Initialize,
