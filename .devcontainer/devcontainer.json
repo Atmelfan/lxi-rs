@@ -1,0 +1,69 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/rust
+{
+	"name": "Rust",
+	"build": {
+		"dockerfile": "Dockerfile"
+		// Update 'VARIANT' to pick a Node version: 10, 12, 14
+		// "args": { "VARIANT": "14" }
+	},
+	"features": {
+		"ghcr.io/devcontainers/features/python:1": {},
+		"ghcr.io/devcontainers/features/sshd:1": {},
+		"ghcr.io/devcontainers-contrib/features/flake8:1": {}
+	},
+
+	// Features to add to the dev container. More info: https://containers.dev/features.
+	// "features": {},
+
+	// Use 'forwardPorts' to make a list of ports inside the container available locally.
+	// * VXI-11: 111, 2001, 2002
+	// * Socket: 5025, 5026
+	// * HiSLIP: 4880
+	// * HTTP/HTTPS: 80, 443
+	// * SSH: 22
+	//"forwardPorts": [111, 2001, 2002, 5025, 5026, 5024, 4880, 80, 443, 22],
+	"portsAttributes": {
+		"111": {
+			"label": "rpcbind",
+			"elevateIfNeeded": true
+		},
+		"4321": {
+			"label": "VXI-11 Core"
+		},
+		"4322": {
+			"label": "VXI-11 Async"
+		},
+		"5025": {
+			"label": "Socket"
+		},
+		"5026": {
+			"label": "Socket Ctrl"
+		},
+		"5024": {
+			"label": "Telnet"
+		},
+		"4880": {
+			"label": "HiSLIP"
+		},
+		"80": {
+			"label": "HTTP"
+		},
+		"443": {
+			"label": "HTTPS"
+		},
+		"22": {
+			"label": "SSH"
+		}
+	},
+
+	// Use 'postCreateCommand' to run commands after the container is created.
+	// "postCreateCommand": "rustc --version",
+	"postCreateCommand": "pip3 install -r requirements.txt",
+
+	// Configure tool-specific properties.
+	// "customizations": {},
+
+	// Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
+	"remoteUser": "root"
+}

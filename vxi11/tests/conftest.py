@@ -24,7 +24,7 @@ def vxi11_example(xprocess, request):
                 "--example",
                 "vxi11",
                 "--",
-                "--register",
+                #"--register",
             ]
 
         # ensure process is running and return its logfile
