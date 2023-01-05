@@ -25,20 +25,20 @@
 	//"forwardPorts": [111, 2001, 2002, 5025, 5026, 5024, 4880, 80, 443, 22],
 	"portsAttributes": {
 		"111": {
-			"label": "rpcbind",
+			"label": "Portmapper",
 			"elevateIfNeeded": true
 		},
 		"4321": {
-			"label": "VXI-11 Core"
+			"label": "VXI11-Core"
 		},
 		"4322": {
-			"label": "VXI-11 Async"
+			"label": "VXI11-Async"
 		},
 		"5025": {
 			"label": "Socket"
 		},
 		"5026": {
-			"label": "Socket Ctrl"
+			"label": "Socket-Ctrl"
 		},
 		"5024": {
 			"label": "Telnet"
@@ -47,23 +47,25 @@
 			"label": "HiSLIP"
 		},
 		"80": {
-			"label": "HTTP"
+			"label": "HTTP",
+			"elevateIfNeeded": true
 		},
 		"443": {
-			"label": "HTTPS"
+			"label": "HTTPS",
+			"elevateIfNeeded": true
 		},
-		"22": {
+		"2222": {
 			"label": "SSH"
 		}
 	},
 
 	// Use 'postCreateCommand' to run commands after the container is created.
 	// "postCreateCommand": "rustc --version",
-	"postCreateCommand": "pip3 install -r requirements.txt",
+	"postCreateCommand": "pip3 install -r requirements.txt"
 
 	// Configure tool-specific properties.
 	// "customizations": {},
 
 	// Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
-	"remoteUser": "root"
+	//"remoteUser": "root"
 }

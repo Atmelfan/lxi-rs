@@ -8,6 +8,12 @@ def vxi11_example(xprocess, request):
     if target is not None:
         yield f"TCPIP::{target}"
     else:
+        additional_args = []
+        if os.environ.get("VXI11_STATIC_PORTMAP") is None:
+            print("Using system portmap")
+            additional_args.append("--register")
+        else:
+            print("Using static portmap")
 
         class Starter(ProcessStarter):
             # startup pattern
@@ -24,7 +30,7 @@ def vxi11_example(xprocess, request):
                 "--example",
                 "vxi11",
                 "--",
-                #"--register",
+                *additional_args
             ]
 
         # ensure process is running and return its logfile

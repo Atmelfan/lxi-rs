@@ -1,4 +1,4 @@
-#!/bin/env bash
+#!/bin/bash
 
 TIMEOUT=2500
 CARGO_ARGS="-q"
