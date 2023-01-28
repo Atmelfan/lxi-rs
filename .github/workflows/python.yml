@@ -47,9 +47,10 @@ jobs:
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
     
     - name: Build
-      run: cargo build --verbose
+      run: cargo build --verbose --examples
       env: 
         RUSTFLAGS: -Awarnings
+        CARGO_TARGET_DIR: .pytest_cache/d/target
     
     # HiSLIP isn't supported by pyvisa-py yet
     - name: Test with pytest

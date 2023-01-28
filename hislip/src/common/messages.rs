@@ -461,3 +461,23 @@ pub(crate) enum ReleaseLockControl {
     SuccessShared = 2,
     Error = 3,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TlsStatus {
+    Busy = 0,
+    Success = 1,
+    Error = 3,
+}
+
+impl TryFrom<u8> for TlsStatus {
+    type Error = NonFatalErrorCode;
+
+    fn try_from(value: u8) -> Result<Self, <TlsStatus as TryFrom<u8>>::Error> {
+        match value {
+            0 => Ok(Self::Busy),
+            1 => Ok(Self::Success),
+            3 => Ok(Self::Error),
+            _ => Err(NonFatalErrorCode::UnrecognizedControlCode)
+        }
+    }
+}

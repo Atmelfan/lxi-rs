@@ -2,22 +2,27 @@ import os
 import pytest
 from xprocess import ProcessStarter
 
+
 @pytest.fixture
-def socket_example(xprocess, request, free_port):
+def socket_example(xprocess, request, pytestconfig, free_port):
     target = os.environ.get("DEBUG_TARGET")
     if target is not None:
         port = os.environ.get("SOCKET_PORT", default="5025")
 
         yield f"TCPIP::{target}::{port}::SOCKET"
     else:
-        port = free_port
+        port = os.environ.get("SOCKET_PORT", default=str(free_port))
 
         class Starter(ProcessStarter):
             # startup pattern
             pattern = "Running server"
 
             # Hide warnings
-            env = {"RUSTFLAGS": "-Awarnings", **os.environ}
+            env = {
+                "RUSTFLAGS": "-Awarnings",
+                # "CARGO_TARGET_DIR": pytestconfig.cache.mkdir("target"),
+                **os.environ,
+            }
 
             # command to start process
             args = [

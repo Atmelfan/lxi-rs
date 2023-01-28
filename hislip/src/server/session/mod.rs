@@ -1,4 +1,10 @@
+use std::sync::Weak;
+
 use async_std::channel::{self, Receiver, Sender};
+use lxi_device::{
+    lock::{LockHandle, Mutex, SpinMutex},
+    Device,
+};
 
 use super::ServerConfig;
 use crate::common::Protocol;
@@ -22,7 +28,7 @@ pub(crate) struct SharedSession {
     /// Negotiated rpc
     protocol: Protocol,
 
-    /// Current tate of session
+    /// Current state of session
     state: SessionState,
 
     /// Negotiated session mode
@@ -48,9 +54,9 @@ impl SharedSession {
             mode: SessionMode::Overlapped,
             max_message_size: 256,
             clear: channel::bounded(1),
-            read_message_id: 0,
+            read_message_id: 0xffff_fefe,
             enable_remote: true,
-            sent_message_id: 0,
+            sent_message_id: 0xffff_fefe,
         }
     }
 
@@ -86,5 +92,38 @@ impl SharedSession {
 
     pub(crate) fn get_clear_sender(&self) -> Sender<()> {
         self.clear.0.clone()
+    }
+}
+
+/// A handle to a created active season
+#[derive(Clone)]
+pub(crate) struct SessionHandle<DEV>
+where
+    DEV: Device,
+{
+    _id: u16,
+    pub shared: Weak<Mutex<SharedSession>>,
+    pub device: Weak<SpinMutex<LockHandle<DEV>>>,
+}
+
+impl<DEV> SessionHandle<DEV>
+where
+    DEV: Device,
+{
+    pub(crate) fn new(
+        id: u16,
+        session: Weak<Mutex<SharedSession>>,
+        handle: Weak<SpinMutex<LockHandle<DEV>>>,
+    ) -> Self {
+        Self {
+            _id: id,
+            shared: session,
+            device: handle,
+        }
+    }
+
+    /// Return false if the assosciated object have been closed
+    pub(crate) fn active(&self) -> bool {
+        self.shared.strong_count() > 0 && self.device.strong_count() > 0
     }
 }
